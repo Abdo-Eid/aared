@@ -1,0 +1,47 @@
+---
+import Code from "astro/components/Code.astro";
+import type { CodeProps } from "astro/components/Code.astro";
+
+interface Props extends Omit<CodeProps, "lang"> {
+  title: string;
+  lang?: CodeProps["lang"];
+}
+
+const { title, lang = "ts", code } = Astro.props;
+---
+
+<div class="code-block">
+  <div class="code-bar">
+    <span class="code-lang">{lang}</span>
+    <span class="code-title">{title}</span>
+  </div>
+  <Code {code} lang={lang} />
+</div>
+
+<style>
+  .code-block {
+    border: 1px solid var(--lt-mount-edge);
+    border-radius: var(--lt-radius);
+    overflow: hidden;
+    background: var(--lt-mount);
+  }
+  .code-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.4rem 0.75rem;
+    background: var(--lt-mount-edge);
+    border-bottom: 1px solid var(--lt-mount-edge);
+    font-family: var(--lt-font-mono, ui-monospace, monospace);
+    font-size: 0.75rem;
+    color: var(--lt-ink-soft);
+  }
+  .code-lang {
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--lt-amber);
+  }
+  .code-title {
+    opacity: 0.8;
+  }
+</style>

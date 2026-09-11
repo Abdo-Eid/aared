@@ -1,0 +1,28 @@
+{
+  "name": "aared-fonts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "OFL font files + a CDN-backed default font resolver for aared, for Office fonts nobody has installed locally.",
+  "license": "Apache-2.0",
+  "author": "Abdulhamed Eid <https://github.com/Abdo-Eid>",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown src/index.ts --dts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "aared": "workspace:*"
+  },
+  "devDependencies": {
+    "tsdown": "^0.22.14"
+  }
+}

@@ -1,0 +1,199 @@
+---
+/**
+ * The bespoke home page — owns `/` directly. Shares tokens, header,
+ * footer, and theme behavior with the docs routes so `/`, `/playground`,
+ * and `/api` read as one theme.
+ */
+import LightTable from "../components/LightTable.astro";
+import SiteHeader from "../components/SiteHeader.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+import ThemeInit from "../components/ThemeInit.astro";
+import "../styles/tokens.css";
+import pptxUrl from "../../../fixtures/post-production-review.pptx?url";
+import rtlPptxUrl from "../../../fixtures/arabic-pptx-rtl-coverage.pptx?url";
+
+const fixtures = [
+  { label: "Post-production review (bilingual)", url: pptxUrl, format: "pptx" },
+  { label: "Arabic RTL coverage (harder)", url: rtlPptxUrl, format: "pptx" },
+];
+---
+
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>aared — preview real Office files, correctly, in Arabic</title>
+    <meta
+      name="description"
+      content="Preview real PowerPoint, Excel, and Word files in the browser — correctly, in Arabic. Real DOM/SVG, never canvas."
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <ThemeInit />
+  </head>
+  <body>
+    <SiteHeader current="/" />
+
+    <main>
+      <section class="hero">
+        <h1>عارض — look straight at the file</h1>
+        <p class="tagline">
+          Preview real PowerPoint, Excel, and Word files in the browser —
+          correctly, in Arabic.
+        </p>
+        <p class="hero-sub">
+          Hover a shape below on either side of the light table. The two
+          panels are the same slide, in two states: the parsed data
+          <code>aared</code> produces, and the live DOM/SVG it paints from
+          that data — not a screenshot of either.
+        </p>
+      </section>
+
+      <LightTable fixtures={fixtures} />
+
+      <section class="differentiator">
+        <pre class="pipeline" aria-hidden="true"><code>.pptx / .xlsx / .docx  ──parse (Worker)──►  resolved model  ──render──►  DOM/SVG
+                                                                 (never canvas)</code></pre>
+        <p>
+          Every lightweight client-side Office previewer makes the same
+          trade to stay fast: paint to <code>&lt;canvas&gt;</code> instead
+          of building a real DOM. That trade quietly breaks Arabic and
+          other RTL content — paragraph-level direction gets dropped, and
+          once text is pixels there's no CSS left to fix it with.
+          <code>aared</code> makes the other trade: render through the
+          browser's own DOM/SVG text stack, so shaping, bidi, and RTL come
+          for free, the way they do in any other web page.
+        </p>
+      </section>
+
+      <section class="next-steps">
+        <a class="next-card" href="/playground/">
+          <span class="next-card-kicker">try it</span>
+          <span class="next-card-title">Playground</span>
+          <span class="next-card-body">
+            Drop your own <code>.pptx</code>, <code>.xlsx</code>, or
+            <code>.docx</code> and run it through all four integration
+            paths — the web component, the one-call facade, headless
+            format modules, and the React hooks.
+          </span>
+        </a>
+        <a class="next-card" href="/api/">
+          <span class="next-card-kicker">read it</span>
+          <span class="next-card-title">API reference</span>
+          <span class="next-card-body">
+            The full consumer surface: <code>open()</code>/<code>render()</code>
+            for each format, the <code>preview()</code> facade, the React
+            hooks, and the <code>&lt;aared-viewer&gt;</code> element.
+          </span>
+        </a>
+      </section>
+    </main>
+
+    <SiteFooter />
+  </body>
+</html>
+
+<style>
+  main {
+    flex: 1;
+    max-width: 64rem;
+    margin: 0 auto;
+    padding: 0 1.25rem 4rem;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  code {
+    font-family: var(--lt-font-mono, ui-monospace, monospace);
+    background: var(--lt-mount-edge);
+    border-radius: 3px;
+    padding: 0.1em 0.35em;
+    font-size: 0.9em;
+  }
+
+  .hero {
+    padding-block: 2.5rem 2rem;
+    max-width: 46rem;
+  }
+  .hero h1 {
+    font-family: var(--lt-font-display);
+    font-size: var(--lt-step-4);
+    line-height: 1.1;
+    margin: 0 0 0.75rem;
+  }
+  .tagline {
+    font-size: var(--lt-step-2);
+    margin: 0 0 1rem;
+    color: var(--lt-ink);
+  }
+  .hero-sub {
+    font-size: var(--lt-step-1);
+    color: var(--lt-ink-soft);
+    max-width: 42ch;
+  }
+
+  .differentiator {
+    display: grid;
+    gap: 1.25rem;
+    margin: 3rem 0;
+    padding: 1.5rem;
+    background: var(--lt-mount);
+    border: 1px solid var(--lt-mount-edge);
+    border-radius: var(--lt-radius);
+  }
+  .pipeline {
+    margin: 0;
+    font-family: var(--lt-font-mono, ui-monospace, monospace);
+    font-size: 0.75rem;
+    color: var(--lt-ink-soft);
+    overflow-x: auto;
+  }
+  .differentiator p {
+    margin: 0;
+    max-width: 62ch;
+    line-height: 1.6;
+  }
+
+  .next-steps {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    margin-top: 2.5rem;
+  }
+  @media (max-width: 40rem) {
+    .next-steps {
+      grid-template-columns: 1fr;
+    }
+  }
+  .next-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 1.25rem;
+    border: 1px solid var(--lt-mount-edge);
+    border-radius: var(--lt-radius);
+    background: var(--lt-mount);
+    color: var(--lt-ink);
+    text-decoration: none;
+  }
+  .next-card:hover,
+  .next-card:focus-visible {
+    border-color: var(--lt-amber);
+    outline: none;
+  }
+  .next-card-kicker {
+    font-family: var(--lt-font-mono, ui-monospace, monospace);
+    font-size: 0.7rem;
+    color: var(--lt-amber-glow);
+  }
+  .next-card-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+  }
+  .next-card-body {
+    color: var(--lt-ink-soft);
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+</style>

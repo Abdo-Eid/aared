@@ -1,0 +1,91 @@
+/**
+ * Design tokens — the one source of truth shared by the bespoke
+ * home page (`src/pages/index.astro`), the docs routes, and every
+ * demo island. One palette per mode; no second theming convention.
+ *
+ * Concept: a 35mm light table. `--lt-ground` is the lit surface,
+ * `--lt-mount` is the slide's cardstock mount, `--lt-ink` is the
+ * oxblood line work and annotation color, `--lt-amber` is the
+ * "lit"/hover state — a loupe finding a frame.
+ */
+@import './fonts.css';
+
+/* Page base shared by every route: the light-table ground, oxblood ink,
+   one bilingual UI face. Page-specific layout lives in each route. */
+:root {
+  color-scheme: dark;
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+html,
+body {
+  margin: 0;
+  background: var(--lt-ground);
+  color: var(--lt-ink);
+  font-family: var(--lt-font-sans, 'IBM Plex Sans Arabic', sans-serif);
+}
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+:root {
+  /* ---- light-table palette: dark mode (the table at night) ---- */
+  --lt-ground: #1b2226;
+  --lt-ground-deep: #14191c;
+  --lt-mount: #2a2320;
+  --lt-mount-edge: #473a31;
+  --lt-ink: #ecd9d2;
+  --lt-ink-soft: #c9a29b;
+  --lt-amber: #e7b158;
+  --lt-amber-glow: #f4c876;
+  --lt-amber-dim: #a97a35;
+
+  /* Fonts */
+  --lt-font-display: 'Reem Kufi', sans-serif;
+  --lt-font-sans: 'IBM Plex Sans Arabic', sans-serif;
+  --lt-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* Type scale */
+  --lt-step-0: 1rem;
+  --lt-step-1: 1.25rem;
+  --lt-step-2: 1.75rem;
+  --lt-step-3: 2.5rem;
+  --lt-step-4: clamp(2.75rem, 5vw + 1rem, 4.5rem);
+
+  --lt-radius: 3px;
+}
+
+:root[data-theme='light'],
+[data-theme='light'] {
+  /* ---- light-table palette: light mode ---- */
+  --lt-ground: #ccd9df;
+  --lt-ground-deep: #b6c5cd;
+  --lt-mount: #f4ede1;
+  --lt-mount-edge: #e1d3bb;
+  --lt-ink: #3c1215;
+  --lt-ink-soft: #6d3336;
+  --lt-amber: #8f5416;
+  --lt-amber-glow: #c8892b;
+  --lt-amber-dim: #6e4110;
+}
+
+/* A light "grid paper" texture on the page background — the light table's
+   surface, not a decorative page-wide pattern. Subtle: a hairline grid at
+   low opacity, tinted with the ground-deep token so it holds in both
+   themes without needing its own light/dark values. */
+:root {
+  --lt-grid: linear-gradient(
+      to right,
+      color-mix(in srgb, var(--lt-ink) 6%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--lt-ink) 6%, transparent) 1px,
+      transparent 1px
+    );
+  --lt-grid-size: 28px;
+}

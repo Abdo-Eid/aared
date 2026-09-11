@@ -1,0 +1,12 @@
+---
+import { getCollection, render } from "astro:content";
+import DocsLayout from "../layouts/DocsLayout.astro";
+
+const [entry] = await getCollection("docs", (entry) => entry.id === "playground");
+if (!entry) throw new Error("Missing docs entry: playground");
+const { Content } = await render(entry);
+---
+
+<DocsLayout title={entry.data.title} description={entry.data.description} current="/playground/">
+  <Content />
+</DocsLayout>

@@ -1,0 +1,134 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-accent-blue: var(--accent-blue);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-neutral-soft: var(--neutral-soft);
+  --color-surface-2: var(--surface-2);
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  --background: hsl(30 12% 97%);
+  --foreground: hsl(0 0% 3%);
+  --card: hsl(0 0% 100%);
+  --muted: #f4f4f7;
+  --muted-foreground: #5c5c64;
+  --border: #e9e9ec;
+  --accent-blue: #0a82f2;
+  --warning: #d97706;
+  --warning-soft: color-mix(in oklab, #d97706 12%, transparent);
+  --neutral-soft: hsl(213 8% 67%);
+  --surface-2: hsl(0 0% 97%);
+  --text-scale: 1;
+}
+
+.dark {
+  --background: hsl(0 0% 8%);
+  --foreground: hsl(0 0% 95%);
+  --card: hsl(0 0% 12%);
+  --muted: hsl(0 0% 18%);
+  --muted-foreground: hsl(0 0% 65%);
+  --border: hsl(0 0% 25%);
+  --accent-blue: #2e90ff;
+  --warning: #f59e0b;
+  --warning-soft: color-mix(in oklab, #f59e0b 18%, transparent);
+  --neutral-soft: hsl(213 8% 67%);
+  --surface-2: hsl(0 0% 14%);
+  --text-scale: 1;
+}
+
+body {
+  @apply bg-background font-sans text-foreground antialiased;
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+/* Rendered pages sit on the stage like paper. */
+.bench-page {
+  margin: 0 auto 1rem;
+  scroll-margin-top: 0.5rem;
+  box-shadow:
+    0 10px 30px rgba(20, 20, 30, 0.2),
+    0 1px 3px rgba(20, 20, 30, 0.12);
+}
+.bench-page canvas {
+  display: block;
+}
+.bench-slide-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
+  box-shadow:
+    0 10px 30px rgba(20, 20, 30, 0.2),
+    0 1px 3px rgba(20, 20, 30, 0.12);
+}
+
+/* docx-preview output: keep the library's pages, lose its grey backdrop. */
+.bench-docx .docx-wrapper {
+  background: transparent !important;
+  padding: 0 !important;
+}
+.bench-docx section.docx {
+  background: #fff;
+  color: #111;
+  box-shadow:
+    0 10px 30px rgba(20, 20, 30, 0.2),
+    0 1px 3px rgba(20, 20, 30, 0.12);
+  margin: 0 auto 1rem;
+}
+
+/* Baseline sheet grid. */
+.bench-sheet {
+  border-collapse: separate;
+  border-spacing: 0;
+  background: #fff;
+  color: #111;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.bench-sheet th,
+.bench-sheet td {
+  border-bottom: 1px solid #e7e9ee;
+  border-right: 1px solid #e7e9ee;
+  padding: 4px 10px;
+  white-space: nowrap;
+  text-align: start;
+  font-weight: 400;
+}
+.bench-sheet thead th {
+  position: sticky;
+  top: 0;
+  background: #f4f4f7;
+  color: #5c5c64;
+  font-weight: 600;
+  z-index: 1;
+}
+.bench-sheet .rowhead {
+  position: sticky;
+  left: 0;
+  background: #f4f4f7;
+  color: #5c5c64;
+  text-align: center;
+}
+/* Row headings stick to the inline-start edge: physical right in RTL. */
+.bench-sheet[dir="rtl"] .rowhead {
+  left: auto;
+  right: 0;
+}
+.bench-note {
+  padding: 0.5rem 0.25rem;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}

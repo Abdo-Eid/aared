@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "jsx": "react-jsx",
+    // The site emits no library types (Astro generates its own), so
+    // declaration emit is off — this also keeps content-layer collection
+    // types (glob loader + zod schema) from tripping TS2883 portability.
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src", "astro.config.mjs"]
+}

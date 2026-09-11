@@ -1,0 +1,267 @@
+---
+/**
+ * The home-page hero: a light table holding one real slide as two mounted
+ * transparencies — the parsed model (`[data-panel="json"]`) and the live
+ * DOM/SVG render (`[data-panel="render"]`). Wiring lives in
+ * `demos/light-table.ts` + the shared `lib/demo-frame.ts` `attachDemo()`
+ * helper; this file is markup + presentation only.
+ *
+ * Single instance per page (hard-coded id), like the other demo frames.
+ */
+import type { DemoFixture } from "../lib/demo-frame.js";
+
+interface Props {
+  fixtures: DemoFixture[];
+}
+
+const { fixtures } = Astro.props;
+---
+
+<div class="lt-frame" id="light-table-frame" data-initial={fixtures[0]?.url ?? ""}>
+  <div class="lt-toolbar">
+    <div class="lt-picker">
+      <span class="lt-picker-label" id="lt-fixture-label">Slide</span>
+      <select data-pick aria-labelledby="lt-fixture-label">
+        {fixtures.map((fixture) => (
+          <option value={fixture.url}>{fixture.label}</option>
+        ))}
+      </select>
+    </div>
+    <p data-status data-state="idle" class="lt-status">Loading the light table…</p>
+  </div>
+
+  <div data-stage data-state="idle" class="lt-stage">
+    <div class="lt-panel lt-panel-json">
+      <p class="lt-panel-label">the negative — parsed model</p>
+      <div class="lt-json" data-panel="json" role="group" aria-label="Parsed slide data"></div>
+    </div>
+
+    <div class="lt-loupe" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22">
+        <circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/>
+        <line x1="15" y1="15" x2="20.5" y2="20.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </div>
+
+    <div class="lt-panel lt-panel-render">
+      <p class="lt-panel-label">the print — live render</p>
+      <div class="lt-render" data-panel="render"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { attachDemo } from "../lib/demo-frame.ts";
+  import { runLightTable } from "../demos/light-table.ts";
+
+  const frame = document.getElementById("light-table-frame");
+  if (frame instanceof HTMLElement) attachDemo(frame, () => runLightTable);
+</script>
+
+<style>
+  .lt-frame {
+    --lt-panel-gap: 1.75rem;
+    display: grid;
+    gap: 1rem;
+    background-image: var(--lt-grid);
+    background-size: var(--lt-grid-size) var(--lt-grid-size);
+    background-color: var(--lt-ground);
+    border: 1px solid var(--lt-mount-edge);
+    border-radius: var(--lt-radius);
+    padding: 1.5rem;
+  }
+
+  .lt-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-family: var(--lt-font-mono, ui-monospace, monospace);
+    font-size: 0.8rem;
+  }
+
+  .lt-picker {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .lt-picker-label {
+    color: var(--lt-ink-soft);
+    text-transform: lowercase;
+  }
+  .lt-picker select {
+    font: inherit;
+    background: var(--lt-mount);
+    color: var(--lt-ink);
+    border: 1px solid var(--lt-mount-edge);
+    border-radius: var(--lt-radius);
+    padding: 0.35rem 0.5rem;
+  }
+  .lt-picker select:focus-visible {
+    outline: 2px solid var(--lt-amber);
+    outline-offset: 2px;
+  }
+
+  .lt-status {
+    margin: 0;
+    color: var(--lt-ink-soft);
+  }
+  .lt-status[data-state="ready"] {
+    color: var(--lt-ink);
+  }
+  .lt-status[data-state="error"] {
+    color: #c0392b;
+  }
+
+  .lt-stage {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: stretch;
+    gap: var(--lt-panel-gap);
+  }
+  @media (max-width: 55rem) {
+    .lt-stage {
+      grid-template-columns: 1fr;
+    }
+    .lt-loupe {
+      display: none;
+    }
+  }
+
+  .lt-panel {
+    background: var(--lt-mount);
+    border: 1px solid var(--lt-mount-edge);
+    border-radius: var(--lt-radius);
+    padding: 0.85rem;
+    min-width: 0;
+    box-shadow: 0 6px 18px -12px rgba(0, 0, 0, 0.4);
+  }
+
+  .lt-panel-label {
+    margin: 0 0 0.6rem;
+    font-family: var(--lt-font-mono, ui-monospace, monospace);
+    font-size: 0.7rem;
+    letter-spacing: 0.02em;
+    color: var(--lt-ink-soft);
+  }
+
+  .lt-json {
+    font-family: var(--lt-font-mono, ui-monospace, monospace);
+    font-size: 0.78rem;
+    line-height: 1.65;
+    overflow-x: auto;
+    max-height: 26rem;
+    overflow-y: auto;
+  }
+
+  .lt-json :global(.lt-json-line) {
+    white-space: pre;
+  }
+
+  .lt-json :global(.lt-json-row) {
+    border-radius: 2px;
+    transition: background-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .lt-json :global(.lt-json-row[data-aared-element="shape"]) {
+    cursor: pointer;
+  }
+  .lt-json :global(.lt-json-row[data-static]) {
+    opacity: 0.65;
+  }
+  .lt-json :global(.lt-json-row[data-lit]) {
+    background-color: color-mix(in srgb, var(--lt-amber) 16%, transparent);
+    box-shadow: inset 2px 0 0 var(--lt-amber);
+  }
+  .lt-json :global(.lt-json-row:focus-visible) {
+    outline: 2px solid var(--lt-amber);
+    outline-offset: -2px;
+  }
+
+  .lt-json :global(.tok-key) {
+    color: var(--lt-ink);
+    font-weight: 500;
+  }
+  .lt-json :global(.tok-str) {
+    color: var(--lt-amber-dim, var(--lt-amber));
+  }
+  .lt-json :global(.tok-num) {
+    color: #2f6f5e;
+  }
+  .lt-json :global(.tok-kw) {
+    color: var(--lt-ink-soft);
+    font-style: italic;
+  }
+  .lt-json :global(.tok-elided) {
+    color: var(--lt-ink-soft);
+    font-style: italic;
+  }
+  .lt-json :global(.tok-punct) {
+    color: var(--lt-ink-soft);
+  }
+
+  .lt-render {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    background: #fff;
+    overflow: auto;
+    border-radius: 2px;
+  }
+  .lt-render :global([data-aared-element="shape"]) {
+    transition: outline-color 0.15s ease, box-shadow 0.15s ease;
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
+  .lt-render :global([data-aared-element="shape"][data-lit]) {
+    outline-color: var(--lt-amber);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--lt-amber) 22%, transparent);
+  }
+
+  .lt-loupe {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--lt-ink-soft);
+    align-self: center;
+  }
+
+  .lt-stage[data-state="loading"] .lt-render,
+  .lt-stage[data-state="loading"] .lt-json {
+    position: relative;
+  }
+  .lt-stage[data-state="loading"] .lt-render::after,
+  .lt-stage[data-state="loading"] .lt-json::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      100deg,
+      transparent 30%,
+      color-mix(in srgb, var(--lt-amber) 12%, transparent) 50%,
+      transparent 70%
+    );
+    background-size: 200% 100%;
+    animation: lt-skeleton 1.4s ease-in-out infinite;
+  }
+
+  @keyframes lt-skeleton {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lt-json :global(.lt-json-row),
+    .lt-render :global([data-aared-element="shape"]) {
+      transition: none;
+    }
+    .lt-stage[data-state="loading"] .lt-render::after,
+    .lt-stage[data-state="loading"] .lt-json::after {
+      animation: none;
+    }
+  }
+</style>

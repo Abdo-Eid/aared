@@ -1,0 +1,26 @@
+---
+/** Note callout: amber rule, tinted mount fill — matches blockquote styling. */
+---
+
+<div class="note">
+  <slot />
+</div>
+
+<style>
+  .note {
+    margin: 1rem 0;
+    padding: 0.75rem 1rem;
+    border-inline-start: 3px solid var(--lt-amber);
+    background: color-mix(in srgb, var(--lt-amber) 8%, transparent);
+    color: var(--lt-ink-soft);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    border-radius: 0 var(--lt-radius) var(--lt-radius) 0;
+  }
+  .note > :first-child {
+    margin-top: 0;
+  }
+  .note > :last-child {
+    margin-bottom: 0;
+  }
+</style>

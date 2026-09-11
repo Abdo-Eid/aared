@@ -1,0 +1,23 @@
+---
+/**
+ * Presentational picker shared by the vanilla demo islands: a fixture
+ * select plus a local-file input. Wiring lives in demo-frame.ts; this
+ * file is markup only.
+ */
+import type { DemoFixture } from "../lib/demo-frame.js";
+
+interface Props {
+  fixtures: DemoFixture[];
+}
+
+const { fixtures } = Astro.props;
+---
+
+<div class="demo-picker">
+  <select data-pick aria-label="Fixture">
+    {fixtures.map((fixture) => (
+      <option value={fixture.url}>{fixture.label}</option>
+    ))}
+  </select>
+  <input type="file" data-file accept=".pptx,.xlsx,.docx" aria-label="Local file" />
+</div>

@@ -1,0 +1,57 @@
+---
+title: Playground
+---
+
+import CodeBlock from '../../components/CodeBlock.astro';
+import ElementDemo from '../../components/ElementDemo.astro';
+import FacadeDemo from '../../components/FacadeDemo.astro';
+import HeadlessDemo from '../../components/HeadlessDemo.astro';
+import TabsScript from '../../components/TabsScript.astro';
+import { HooksDemo } from '../../demos/HooksDemo.tsx';
+import elementSource from '../../demos/element.ts?raw';
+import facadeSource from '../../demos/facade.ts?raw';
+import hooksSource from '../../demos/HooksDemo.tsx?raw';
+import pptxUrl from '../../../../fixtures/arabic-pptx-rtl-coverage.pptx?url';
+import xlsxUrl from '../../../../fixtures/arabic-xlsx-rtl-coverage.xlsx?url';
+import docxUrl from '../../../../fixtures/arabic-docx-bidi-coverage.docx?url';
+
+export const fixtures = [
+  { label: 'Arabic deck (.pptx)', url: pptxUrl, format: 'pptx' },
+  { label: 'Arabic workbook (.xlsx)', url: xlsxUrl, format: 'xlsx' },
+  { label: 'Arabic document (.docx)', url: docxUrl, format: 'docx' },
+];
+
+Every tab below runs entirely in your browser: fixtures parse in a Worker
+and paint real DOM — nothing is uploaded anywhere. Pick a fixture or drop
+your own file. The snippet above each demo is the exact module being
+executed, so the code you read is the code that runs.
+
+<div class="playground-tabs" data-tabs>
+  <div class="demo-pills" role="tablist" aria-label="Integration paths">
+    <button type="button" role="tab" aria-selected="true" data-tab="component">Component</button>
+    <button type="button" role="tab" aria-selected="false" data-tab="facade">One call</button>
+    <button type="button" role="tab" aria-selected="false" data-tab="headless">Headless</button>
+    <button type="button" role="tab" aria-selected="false" data-tab="react">React</button>
+  </div>
+
+  <div role="tabpanel" data-panel="component">
+    <CodeBlock title="element.ts" lang="ts" code={elementSource} />
+    <ElementDemo fixtures={fixtures} />
+  </div>
+
+  <div role="tabpanel" data-panel="facade" hidden>
+    <CodeBlock title="facade.ts" lang="ts" code={facadeSource} />
+    <FacadeDemo fixtures={fixtures} />
+  </div>
+
+  <div role="tabpanel" data-panel="headless" hidden>
+    <HeadlessDemo fixtures={fixtures} />
+  </div>
+
+  <div role="tabpanel" data-panel="react" hidden>
+    <CodeBlock title="HooksDemo.tsx" lang="tsx" code={hooksSource} />
+    <HooksDemo client:visible="react" fixtures={fixtures} />
+  </div>
+</div>
+
+<TabsScript />

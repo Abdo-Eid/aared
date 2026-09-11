@@ -1,0 +1,113 @@
+---
+/**
+ * Shared site header — identical on `/`, `/playground`, and `/api`.
+ * Wordmark left, section nav right, theme toggle. `current` drives the
+ * active-link highlight; exactly one of the three pages sets it.
+ */
+interface Props {
+  current: "/" | "/playground/" | "/api/";
+}
+
+const { current } = Astro.props;
+---
+
+<header class="site-header">
+  <div class="site-header-inner">
+    <a class="wordmark" href="/">
+      <img src="/aared-mark.svg" width="28" height="28" alt="" />
+      <span>aared</span>
+    </a>
+    <nav class="site-nav" aria-label="Main">
+      <a href="/playground/" class:list={{ active: current === "/playground/" }}>Playground</a>
+      <a href="/api/" class:list={{ active: current === "/api/" }}>API reference</a>
+      <a href="https://github.com/Abdo-Eid/aared" rel="external">GitHub</a>
+    </nav>
+    <button type="button" class="theme-toggle" aria-label="Toggle theme">
+      <span class="theme-icon" data-theme-icon></span>
+    </button>
+  </div>
+</header>
+
+<script>
+  const header = document.currentScript?.closest(".site-header");
+  const button = header?.querySelector<HTMLButtonElement>(".theme-toggle");
+  const icon = header?.querySelector("[data-theme-icon]");
+  const paint = (): void => {
+    if (!icon) return;
+    icon.innerHTML =
+      document.documentElement.dataset.theme === "dark"
+        ? '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>'
+        : '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>';
+  };
+  button?.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem("starlight-theme", next);
+    } catch {
+      /* private mode — theme just won't persist */
+    }
+    paint();
+  });
+  paint();
+</script>
+
+<style>
+  .site-header {
+    border-bottom: 1px solid var(--lt-mount-edge);
+    background: var(--lt-mount);
+  }
+  .site-header-inner {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    max-width: 64rem;
+    margin: 0 auto;
+    padding: 1rem 1.25rem;
+  }
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--lt-font-display);
+    font-size: 1.35rem;
+    color: var(--lt-ink);
+    text-decoration: none;
+  }
+  .site-nav {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    font-size: 0.9rem;
+    margin-left: auto;
+  }
+  .site-nav a {
+    color: var(--lt-ink-soft);
+    text-decoration: none;
+  }
+  .site-nav a:hover,
+  .site-nav a:focus-visible {
+    color: var(--lt-amber-glow);
+  }
+  .site-nav a.active {
+    color: var(--lt-amber);
+    font-weight: 600;
+  }
+  .theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 1px solid var(--lt-mount-edge);
+    border-radius: var(--lt-radius);
+    padding: 0.35rem;
+    cursor: pointer;
+    color: var(--lt-ink);
+  }
+  .theme-toggle:hover,
+  .theme-toggle:focus-visible {
+    border-color: var(--lt-amber);
+    outline: none;
+  }
+</style>

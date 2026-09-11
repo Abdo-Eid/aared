@@ -1,0 +1,142 @@
+/**
+ * Shared playground demo chrome: fixture picker, tab/format pills,
+ * status line, and stage. One language for all four integration tabs
+ * plus the React island (whose classNames mirror it).
+ */
+.demo-frame {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.5rem 0 2.5rem;
+  padding: 1.25rem;
+  background: var(--lt-mount);
+  border: 1px solid var(--lt-mount-edge);
+  border-radius: var(--lt-radius);
+}
+
+.demo-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  font-family: var(--lt-font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+}
+.demo-picker select,
+.demo-picker input[type="file"] {
+  font: inherit;
+  color: var(--lt-ink);
+}
+.demo-picker select {
+  background: var(--lt-ground);
+  border: 1px solid var(--lt-mount-edge);
+  border-radius: var(--lt-radius);
+  padding: 0.35rem 0.5rem;
+  max-width: 100%;
+}
+.demo-picker select:focus-visible,
+.demo-picker input[type="file"]:focus-visible,
+.demo-picker button:focus-visible {
+  outline: 2px solid var(--lt-amber);
+  outline-offset: 2px;
+}
+.demo-picker button {
+  font: inherit;
+  background: none;
+  color: var(--lt-amber);
+  border: 1px solid var(--lt-mount-edge);
+  border-radius: var(--lt-radius);
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+}
+.demo-picker button:hover {
+  border-color: var(--lt-amber);
+}
+
+.demo-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  font-family: var(--lt-font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+}
+.demo-pills button {
+  font: inherit;
+  background: var(--lt-ground);
+  color: var(--lt-ink-soft);
+  border: 1px solid var(--lt-mount-edge);
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+}
+.demo-pills button:first-child {
+  border-radius: var(--lt-radius) 0 0 var(--lt-radius);
+}
+.demo-pills button:last-child {
+  border-radius: 0 var(--lt-radius) var(--lt-radius) 0;
+}
+.demo-pills button + button {
+  border-inline-start: none;
+}
+.demo-pills button:hover {
+  color: var(--lt-amber-glow);
+}
+.demo-pills button:focus-visible {
+  outline: 2px solid var(--lt-amber);
+  outline-offset: 2px;
+}
+.demo-pills button[aria-selected="true"],
+.demo-pills button[data-active] {
+  background: var(--lt-amber);
+  border-color: var(--lt-amber);
+  color: var(--lt-ground-deep);
+  font-weight: 600;
+}
+
+[data-status],
+[data-hooks-status] {
+  margin: 0;
+  font-family: var(--lt-font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+  color: var(--lt-ink-soft);
+}
+[data-status][data-state="ready"] {
+  color: var(--lt-ink);
+}
+[data-status][data-state="error"] {
+  color: #c0392b;
+}
+
+.demo-stage {
+  position: relative;
+  min-height: 12rem;
+  background: #fff;
+  border: 1px solid var(--lt-mount-edge);
+  border-radius: 2px;
+  overflow: auto;
+}
+.demo-stage[data-state="loading"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, var(--lt-amber) 12%, transparent) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: demo-skeleton 1.4s ease-in-out infinite;
+}
+@keyframes demo-skeleton {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .demo-stage[data-state="loading"]::after {
+    animation: none;
+  }
+}

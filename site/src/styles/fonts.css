@@ -1,0 +1,16 @@
+/**
+ * Light-table type system, loaded once here and pulled in by tokens.css so
+ * every route (bespoke home + docs routes) shares it.
+ *
+ * - Reem Kufi: the display/wordmark face — a geometric Kufic-derived
+ *   Arabic display type with a real Latin companion cut, used sparingly
+ *   for the hero headline/wordmark only.
+ * - IBM Plex Sans Arabic: body/UI text — one family spans Latin + Arabic,
+ *   so interface copy never seams between two different type systems.
+ * - IBM Plex Mono: the JSON/technical-annotation layer (coordinates,
+ *   shape ids, the parse→model→render callout) and inline code.
+ *
+ * Keep this <head> preconnect pair in sync with the one in
+ * site/src/pages/index.astro and the DocsLayout theme toggle script.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Reem+Kufi:wght@400..700&family=IBM+Plex+Sans+Arabic:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap');

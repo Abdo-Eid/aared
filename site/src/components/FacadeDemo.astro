@@ -1,0 +1,24 @@
+---
+import Picker from "./Picker.astro";
+import type { DemoFixture } from "../lib/demo-frame.js";
+
+interface Props {
+  fixtures: DemoFixture[];
+}
+
+const { fixtures } = Astro.props;
+---
+
+<div class="demo-frame" id="facade-frame" data-initial={fixtures[0]?.url ?? ""}>
+  <Picker fixtures={fixtures} />
+  <p data-status data-state="idle">Pick a fixture to begin.</p>
+  <div data-stage data-state="idle" class="demo-stage"></div>
+</div>
+
+<script>
+  import { attachDemo } from "../lib/demo-frame.ts";
+  import { runFacadeDemo } from "../demos/facade.ts";
+
+  const frame = document.getElementById("facade-frame");
+  if (frame instanceof HTMLElement) attachDemo(frame, () => runFacadeDemo);
+</script>

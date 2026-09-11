@@ -1,0 +1,68 @@
+{
+  "name": "aared",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Client-side previewer for PPTX, XLSX and DOCX — Arabic/RTL-correct, view-only.",
+  "license": "Apache-2.0",
+  "author": "Abdulhamed Eid <https://github.com/Abdo-Eid>",
+  "type": "module",
+  "sideEffects": [
+    "./src/element/index.ts"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/core/index.d.mts",
+      "default": "./dist/core/index.mjs"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.mts",
+      "default": "./dist/core/index.mjs"
+    },
+    "./pptx": {
+      "types": "./dist/pptx/index.d.mts",
+      "default": "./dist/pptx/index.mjs"
+    },
+    "./xlsx": {
+      "types": "./dist/xlsx/index.d.mts",
+      "default": "./dist/xlsx/index.mjs"
+    },
+    "./docx": {
+      "types": "./dist/docx/index.d.mts",
+      "default": "./dist/docx/index.mjs"
+    },
+    "./preview": {
+      "types": "./dist/preview/index.d.mts",
+      "default": "./dist/preview/index.mjs"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.mts",
+      "default": "./dist/react/index.mjs"
+    },
+    "./element": {
+      "types": "./dist/element/index.d.mts",
+      "default": "./dist/element/index.mjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tsdown": "^0.22.14"
+  }
+}

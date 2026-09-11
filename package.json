@@ -1,0 +1,25 @@
+{
+  "name": "aared-workspace",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "bench",
+    "site"
+  ],
+  "scripts": {
+    "dev": "bun run --cwd bench --no-orphans dev",
+    "docs:dev": "bun run --cwd site --no-orphans dev",
+    "docs:build": "bun run --cwd site build",
+    "build": "bun --filter '*' build",
+    "typecheck": "bun --filter '*' typecheck",
+    "test": "bun test",
+    "test:visual": "bun tools/run-visual-tests.ts",
+    "test:visual:artifacts": "bun tools/run-visual-tests.ts --artifacts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.0",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,24 @@
+<!-- Tab switching for the playground page. Lives in .astro (not inline in
+     MDX) because MDX parses <script> bodies as JSX. No frontmatter:
+     this component takes no props and imports nothing — and a
+     comment-only frontmatter fence breaks Vite's dep scanner
+     (TabsScript.astro?id=0 parses as a dangling `*/`). -->
+<script>
+  for (const root of document.querySelectorAll("[data-tabs]")) {
+    const tabs = [...root.querySelectorAll("[data-tab]")];
+    const panels = [...root.querySelectorAll("[data-panel]")];
+    const select = (name: string): void => {
+      for (const tab of tabs) {
+        tab.setAttribute("aria-selected", String(tab.getAttribute("data-tab") === name));
+      }
+      for (const panel of panels) {
+        panel.toggleAttribute("hidden", panel.getAttribute("data-panel") !== name);
+      }
+    };
+    root.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement | null;
+      const tab = target?.closest?.("[data-tab]");
+      if (tab instanceof HTMLElement) select(tab.getAttribute("data-tab") ?? "");
+    });
+  }
+</script>

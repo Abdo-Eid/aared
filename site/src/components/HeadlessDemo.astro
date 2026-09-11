@@ -1,0 +1,63 @@
+---
+import CodeBlock from "./CodeBlock.astro";
+import Picker from "./Picker.astro";
+import type { DemoFixture } from "../lib/demo-frame.js";
+import pptxSource from "../demos/headless-pptx.ts?raw";
+import xlsxSource from "../demos/headless-xlsx.ts?raw";
+import docxSource from "../demos/headless-docx.ts?raw";
+
+interface Props {
+  fixtures: DemoFixture[];
+}
+
+const { fixtures } = Astro.props;
+---
+
+<div class="demo-frame" id="headless-frame" data-format="pptx" data-initial={fixtures[0]?.url ?? ""}>
+  <div class="demo-pills" role="group" aria-label="Format">
+    <button type="button" data-format-pill="pptx" data-active>Presentation</button>
+    <button type="button" data-format-pill="xlsx">Spreadsheet</button>
+    <button type="button" data-format-pill="docx">Document</button>
+  </div>
+  <div data-snippet="pptx">
+    <CodeBlock title="headless-pptx.ts" lang="ts" code={pptxSource} />
+  </div>
+  <div data-snippet="xlsx" hidden>
+    <CodeBlock title="headless-xlsx.ts" lang="ts" code={xlsxSource} />
+  </div>
+  <div data-snippet="docx" hidden>
+    <CodeBlock title="headless-docx.ts" lang="ts" code={docxSource} />
+  </div>
+  <Picker fixtures={fixtures} />
+  <p data-status data-state="idle">Pick a fixture to begin.</p>
+  <div data-stage data-state="idle" class="demo-stage"></div>
+</div>
+
+<script>
+  import { attachDemo } from "../lib/demo-frame.ts";
+  import { runHeadlessPptx } from "../demos/headless-pptx.ts";
+  import { runHeadlessXlsx } from "../demos/headless-xlsx.ts";
+  import { runHeadlessDocx } from "../demos/headless-docx.ts";
+
+  const frame = document.getElementById("headless-frame");
+  if (frame instanceof HTMLElement) {
+    const runners = { pptx: runHeadlessPptx, xlsx: runHeadlessXlsx, docx: runHeadlessDocx } as const;
+    type Format = keyof typeof runners;
+    const isFormat = (value: string): value is Format =>
+      value === "pptx" || value === "xlsx" || value === "docx";
+    // The pills switch both the runner (via dataset.format, read below)
+    // and the visible snippet, so shown code always matches execution.
+    frame.addEventListener("click", (event) => {
+      const pill = (event.target as HTMLElement).closest?.("[data-format-pill]");
+      if (!(pill instanceof HTMLElement)) return;
+      const active = pill.dataset.formatPill ?? "pptx";
+      for (const snippet of frame.querySelectorAll("[data-snippet]")) {
+        (snippet as HTMLElement).hidden = (snippet as HTMLElement).dataset.snippet !== active;
+      }
+    });
+    attachDemo(frame, () => {
+      const format = frame.dataset.format ?? "pptx";
+      return runners[isFormat(format) ? format : "pptx"];
+    });
+  }
+</script>

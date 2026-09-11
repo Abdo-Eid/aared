@@ -1,0 +1,15 @@
+---
+/**
+ * Anti-flash theme init: runs before first paint so the stored (or OS)
+ * theme applies immediately. Same storage key on every route — one
+ * source of truth for what "dark" means.
+ */
+---
+
+<script is:inline>
+  (() => {
+    const stored = typeof localStorage !== "undefined" && localStorage.getItem("starlight-theme");
+    const theme = stored || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
+  })();
+</script>
