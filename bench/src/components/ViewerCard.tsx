@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ADAPTERS, isAbort } from "../adapters";
+import { ADAPTERS, BASELINES, DEFAULT_BASELINE, isAbort } from "../adapters";
 import type { OpenedDoc } from "../adapters";
 import type { BenchTheme } from "../adapters";
-import type { DocMeta, Renderer, RunRecord } from "../lib/doc";
+import type { DocMeta, Renderer } from "../lib/doc";
 import { ViewerFrame, useViewerFrame, type Status } from "./ViewerFrame";
 import { AaredViewerCard } from "./AaredViewerCard";
 
@@ -11,7 +11,6 @@ interface ViewerCardProps {
   renderer: Renderer;
   theme: BenchTheme;
   onClose: () => void;
-  onDone: (record: RunRecord) => void;
 }
 
 /**
@@ -20,25 +19,25 @@ interface ViewerCardProps {
  * their adapter open effect below. Both share every interaction through
  * `ViewerFrame`, so the timing comparison stays apples-to-apples.
  */
-export function ViewerCard({ doc, renderer, theme, onClose, onDone }: ViewerCardProps) {
+export function ViewerCard({ doc, renderer, theme, onClose }: ViewerCardProps) {
   if (renderer === "aared") {
-    return <AaredViewerCard doc={doc} theme={theme} onClose={onClose} onDone={onDone} />;
+    return <AaredViewerCard doc={doc} theme={theme} onClose={onClose} />;
   }
-  return <BaselineViewerCard doc={doc} theme={theme} onClose={onClose} onDone={onDone} />;
+  return <BaselineViewerCard doc={doc} renderer={renderer} theme={theme} onClose={onClose} />;
 }
 
-function BaselineViewerCard({ doc, theme, onClose, onDone }: {
+function BaselineViewerCard({ doc, renderer, theme, onClose }: {
   doc: DocMeta;
+  renderer: Renderer;
   theme: BenchTheme;
   onClose: () => void;
-  onDone: (record: RunRecord) => void;
 }) {
   const [status, setStatus] = useState<Status>({ state: "loading" });
   const hostRef = useRef<HTMLDivElement | null>(null);
   const reportError = useCallback((message: string, ms: number) => {
     setStatus({ state: "error", message, ms });
   }, []);
-  const controller = useViewerFrame({ doc, theme, status, hostRef, reportError });
+  const controller = useViewerFrame({ doc, theme, frameId: `${doc.key}:${renderer}`, renderer, status, hostRef, reportError });
 
   useEffect(() => {
     const host = hostRef.current;
@@ -48,7 +47,12 @@ function BaselineViewerCard({ doc, theme, onClose, onDone }: {
     let handle: OpenedDoc | null = null;
     setStatus({ state: "loading" });
 
-    ADAPTERS[doc.format](doc.bytes, host, ctrl.signal).then(
+    const baselines = BASELINES[doc.format];
+    const adapter =
+      (renderer === "baseline"
+        ? baselines[DEFAULT_BASELINE[doc.format]]
+        : baselines[renderer]) ?? ADAPTERS[doc.format];
+    adapter(doc.bytes, host, ctrl.signal).then(
       (opened) => {
         if (ctrl.signal.aborted) {
           opened.destroy();
@@ -59,15 +63,6 @@ function BaselineViewerCard({ doc, theme, onClose, onDone }: {
         console.info(
           `[bench] ${doc.name} via baseline: ${opened.ms} ms, ${opened.pageCount} pages`,
         );
-        onDone({
-          key: `${doc.key}:baseline`,
-          name: doc.name,
-          format: doc.format,
-          renderer: "baseline",
-          ms: opened.ms,
-          sizeBytes: doc.sizeBytes,
-          at: Date.now(),
-        });
       },
       (error: unknown) => {
         if (ctrl.signal.aborted || isAbort(error)) return;
@@ -76,16 +71,6 @@ function BaselineViewerCard({ doc, theme, onClose, onDone }: {
           error instanceof Error ? error.message : "Could not open this file.";
         console.error(`[bench] ${doc.name} via baseline failed:`, message);
         setStatus({ state: "error", message, ms });
-        onDone({
-          key: `${doc.key}:baseline`,
-          name: doc.name,
-          format: doc.format,
-          renderer: "baseline",
-          ms,
-          sizeBytes: doc.sizeBytes,
-          error: message,
-          at: Date.now(),
-        });
       },
     );
 
@@ -93,7 +78,7 @@ function BaselineViewerCard({ doc, theme, onClose, onDone }: {
       ctrl.abort();
       handle?.destroy();
     };
-  }, [doc, onDone]);
+  }, [doc, renderer]);
 
-  return <ViewerFrame doc={doc} renderer="baseline" onClose={onClose} controller={controller} />;
+  return <ViewerFrame doc={doc} renderer={renderer} onClose={onClose} controller={controller} />;
 }

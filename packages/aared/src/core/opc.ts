@@ -8,11 +8,67 @@
  * into the public `open()` surface.
  */
 
-import { getEntryData, readEntries, throwIfAborted } from "./zip.js";
+import { getEntryData, readEntries } from "./zip.js";
 import type { ZipEntry } from "./zip.js";
-import { AaredError } from "./errors.js";
-import { attr, childElements, parseXml } from "./xml.js";
-import type { XmlElement } from "./xml.js";
+import { AaredError, throwIfAborted } from "./errors.js";
+import { attr, childElements, firstChild, parseXml, textContent } from "./xml.js";
+import type { XmlElement, XmlStreamOptions } from "./xml.js";
+
+export type OfficeFormat = "pptx" | "xlsx" | "docx";
+
+const OFFICE_DOCUMENT = "application/vnd.openxmlformats-officedocument";
+
+/**
+ * Content types of each format's main part: the one place format identity is
+ * decided, so the Worker's sniffing and every format's gate agree. Word and
+ * Excel templates open as their documents; a PowerPoint template
+ * (`presentationml.template`) carries layouts but no slides, so it is not
+ * listed and stays unsupported.
+ */
+const MAIN_PART_TYPES: Record<OfficeFormat, readonly string[]> = {
+  pptx: [`${OFFICE_DOCUMENT}.presentationml.presentation.main+xml`],
+  xlsx: [`${OFFICE_DOCUMENT}.spreadsheetml.sheet.main+xml`, `${OFFICE_DOCUMENT}.spreadsheetml.template.main+xml`],
+  docx: [`${OFFICE_DOCUMENT}.wordprocessingml.document.main+xml`, `${OFFICE_DOCUMENT}.wordprocessingml.template.main+xml`],
+};
+
+const FORMAT_NOUN: Record<OfficeFormat, string> = {
+  pptx: "a PPTX presentation",
+  xlsx: "an XLSX workbook",
+  docx: "a Word document",
+};
+
+/** Image types by extension, for parts a package leaves without a declared content type. */
+const IMAGE_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  bmp: "image/bmp",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  svg: "image/svg+xml",
+  emf: "image/x-emf",
+  wmf: "image/x-wmf",
+};
+
+/**
+ * A media part's content type guessed from its extension alone, for callers
+ * that hold no package; `application/octet-stream` when the extension is
+ * unknown. `OpcPackage.mediaContentType` prefers the type the package declares.
+ */
+export function guessMediaContentType(partName: string): string {
+  const dot = partName.lastIndexOf(".");
+  return (dot === -1 ? undefined : IMAGE_TYPES[partName.slice(dot + 1).toLowerCase()]) ?? "application/octet-stream";
+}
+
+/** The format whose main part has this content type, if any. */
+export function officeFormatOf(contentType: string | undefined): OfficeFormat | undefined {
+  if (contentType === undefined) return undefined;
+  for (const format of ["pptx", "xlsx", "docx"] as const) {
+    if (MAIN_PART_TYPES[format].includes(contentType)) return format;
+  }
+  return undefined;
+}
 
 export interface OpcRelationship {
   id: string;
@@ -21,6 +77,9 @@ export interface OpcRelationship {
   target: string;
   targetMode: "Internal" | "External";
 }
+
+/** One decoder for every part: `TextDecoder` is stateless for whole-buffer `decode()`. */
+const utf8 = new TextDecoder("utf-8");
 
 function normalize(name: string): string {
   return name.startsWith("/") ? name.slice(1) : name;
@@ -78,6 +137,15 @@ function relsPathFor(partName: string): string {
 }
 
 export class OpcPackage {
+  /**
+   * Parsed `.rels` parts by rels path. Relationship lists are tiny and
+   * immutable, while format code asks for the same part's relationships many
+   * times (every placeholder, drawing, and hyperlink lookup), so each rels
+   * part is inflated and parsed once per package. Only finished reads are
+   * stored: a cancelled read never poisons the cache.
+   */
+  private readonly relsCache = new Map<string, OpcRelationship[]>();
+
   private constructor(
     private readonly data: Uint8Array,
     private readonly entries: Map<string, ZipEntry>,
@@ -106,10 +174,10 @@ export class OpcPackage {
       map.set(e.name, e);
     }
     const ct = map.get("[Content_Types].xml");
-    if (ct === undefined) throw new Error("aared/core: missing [Content_Types].xml — not an Office document");
+    if (ct === undefined) throw new Error("aared/core: missing [Content_Types].xml; not an Office document");
     const bytes = await getEntryData(data, ct, signal);
     throwIfAborted(signal);
-    const xml = new TextDecoder("utf-8").decode(bytes);
+    const xml = utf8.decode(bytes);
     throwIfAborted(signal);
     const { defaults, overrides } = parseContentTypes(parseXml(xml));
     throwIfAborted(signal);
@@ -125,7 +193,19 @@ export class OpcPackage {
     return this.entries.has(normalize(name));
   }
 
+  /**
+   * One part's bytes in a buffer the caller owns outright (offset 0, full
+   * length), so it can be transferred to another thread without a copy.
+   */
   async readPart(name: string, signal?: AbortSignal): Promise<Uint8Array> {
+    const bytes = await this.readShared(name, signal);
+    return bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength && bytes.buffer !== this.data.buffer
+      ? bytes
+      : bytes.slice();
+  }
+
+  /** Part bytes that may alias the archive: decode or copy, never transfer or mutate. */
+  private async readShared(name: string, signal?: AbortSignal): Promise<Uint8Array> {
     throwIfAborted(signal);
     const entry = this.entries.get(normalize(name));
     if (entry === undefined) throw new Error(`aared/core: part "${name}" not found in package`);
@@ -136,11 +216,43 @@ export class OpcPackage {
 
   async readText(name: string, signal?: AbortSignal): Promise<string> {
     throwIfAborted(signal);
-    const bytes = await this.readPart(name, signal);
-    throwIfAborted(signal);
-    const text = new TextDecoder("utf-8").decode(bytes);
+    const bytes = await this.readShared(name, signal);
+    const text = utf8.decode(bytes);
     throwIfAborted(signal);
     return text;
+  }
+
+  /**
+   * One part parsed as XML. Cancellation is checked after the inflate and
+   * again after the parse, so an aborted read never hands back a tree.
+   */
+  async readXml(name: string, signal?: AbortSignal, stream?: XmlStreamOptions): Promise<XmlElement> {
+    const root = parseXml(await this.readText(name, signal), stream);
+    throwIfAborted(signal);
+    return root;
+  }
+
+  /** `readXml` for a part a relationship may name without the package carrying it: `undefined` when absent. */
+  async readXmlIfPresent(name: string, signal?: AbortSignal, stream?: XmlStreamOptions): Promise<XmlElement | undefined> {
+    throwIfAborted(signal);
+    return this.hasPart(name) ? this.readXml(name, signal, stream) : undefined;
+  }
+
+  /**
+   * The main document part of `format`: the package's internal
+   * `officeDocument` relationship, provided its content type belongs to that
+   * format. Throws a message naming the format otherwise.
+   */
+  async officeDocument(format: OfficeFormat, signal?: AbortSignal): Promise<string> {
+    const relationships = await this.packageRelationships(signal);
+    const office = relationships.find((relationship) => relationship.type.endsWith("/officeDocument"));
+    if (office === undefined || office.targetMode === "External") {
+      throw new Error(`aared/core: ${format.toUpperCase()} has no internal officeDocument relationship`);
+    }
+    if (officeFormatOf(this.contentTypeOf(office.target)) !== format) {
+      throw new Error(`aared/core: package is not ${FORMAT_NOUN[format]}`);
+    }
+    return office.target;
   }
 
   /** Content type via Override match, else Default by extension. */
@@ -151,6 +263,15 @@ export class OpcPackage {
     const dot = name.lastIndexOf(".");
     if (dot === -1) return undefined;
     return this.defaults.get(name.slice(dot + 1).toLowerCase());
+  }
+
+  /**
+   * A media part's content type: the declared one, else a guess from its
+   * extension, else `application/octet-stream`. Every format resolves its
+   * pictures through this, so an undeclared type is guessed the same way.
+   */
+  mediaContentType(partName: string): string {
+    return this.contentTypeOf(partName) ?? guessMediaContentType(partName);
   }
 
   /** Relationships of one part; parts without a rels file yield []. */
@@ -168,19 +289,41 @@ export class OpcPackage {
     return this.readRels("_rels/.rels", "", signal);
   }
 
+  /**
+   * The document title from the package's core properties (`dc:title` in the
+   * part the `core-properties` relationship names, usually
+   * `docProps/core.xml`), trimmed; `undefined` when the file sets none.
+   */
+  async coreTitle(signal?: AbortSignal): Promise<string | undefined> {
+    const core = (await this.packageRelationships(signal))
+      .find((relationship) => relationship.targetMode !== "External" && relationship.type.endsWith("/core-properties"));
+    if (core === undefined) return undefined;
+    const properties = await this.readXmlIfPresent(core.target, signal);
+    const title = properties === undefined ? undefined : firstChild(properties, "title");
+    const text = title === undefined ? "" : textContent(title).trim();
+    return text === "" ? undefined : text;
+  }
+
+  /**
+   * Shared, read-only relationship list: callers must not mutate it (none
+   * do; `find`/`filter`/iteration only).
+   */
   private async readRels(path: string, dir: string, signal?: AbortSignal): Promise<OpcRelationship[]> {
     throwIfAborted(signal);
+    const cached = this.relsCache.get(path);
+    if (cached !== undefined) return cached;
     const entry = this.entries.get(path);
     if (entry === undefined) return [];
     const bytes = await getEntryData(this.data, entry, signal);
     throwIfAborted(signal);
-    const xml = new TextDecoder("utf-8").decode(bytes);
+    const xml = utf8.decode(bytes);
     throwIfAborted(signal);
-    const relationships = parseRelationships(parseXml(xml)).map((r) => ({
-      ...r,
-      target: r.targetMode === "External" ? r.target : resolveTarget(dir, r.target),
-    }));
+    const relationships = parseRelationships(parseXml(xml));
+    for (const r of relationships) {
+      if (r.targetMode !== "External") r.target = resolveTarget(dir, r.target);
+    }
     throwIfAborted(signal);
+    this.relsCache.set(path, relationships);
     return relationships;
   }
 }

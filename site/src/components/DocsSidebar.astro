@@ -1,0 +1,140 @@
+---
+interface Heading {
+  depth: number;
+  slug: string;
+  text: string;
+}
+
+interface Props {
+  headings: Heading[];
+}
+
+const { headings } = Astro.props;
+
+interface Group {
+  slug: string;
+  text: string;
+  children: Heading[];
+}
+
+const groups: Group[] = [];
+for (const h of headings) {
+  if (h.depth === 2) groups.push({ slug: h.slug, text: h.text, children: [] });
+  else if (h.depth === 3) groups.at(-1)?.children.push(h);
+}
+---
+
+<nav class="docs-nav" aria-label="Sections">
+  <label class="docs-nav-search">
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
+      <line x1="15" y1="15" x2="20.5" y2="20.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+    </svg>
+    <input type="search" placeholder="Filter sections" aria-label="Filter sections" data-nav-filter />
+  </label>
+
+  <ul class="docs-nav-list">
+    {groups.map((group) => (
+      <li data-nav-group>
+        {group.children.length > 0 ? (
+          <details>
+            <summary>
+              <a href={`#${group.slug}`} data-nav-link data-nav-item>{group.text}</a>
+            </summary>
+            <ul>
+              {group.children.map((child) => (
+                <li><a href={`#${child.slug}`} data-nav-link data-nav-item>{child.text}</a></li>
+              ))}
+            </ul>
+          </details>
+        ) : (
+          <a href={`#${group.slug}`} class="docs-nav-solo" data-nav-link data-nav-item>{group.text}</a>
+        )}
+      </li>
+    ))}
+  </ul>
+  <p class="docs-nav-empty" hidden>No matching sections.</p>
+</nav>
+
+<script>
+  const nav = document.querySelector<HTMLElement>(".docs-nav");
+  if (nav) {
+    const links = [...nav.querySelectorAll<HTMLAnchorElement>("[data-nav-link]")];
+    const groups = [...nav.querySelectorAll<HTMLElement>("[data-nav-group]")];
+    const empty = nav.querySelector<HTMLElement>(".docs-nav-empty");
+    const filter = nav.querySelector<HTMLInputElement>("[data-nav-filter]");
+    const sections = [...nav.querySelectorAll<HTMLDetailsElement>("details")];
+
+    // Groups start collapsed. Filtering opens every group so matches show;
+    // clearing the filter puts back whatever was open before it started.
+    let openBeforeFilter: boolean[] | null = null;
+
+    filter?.addEventListener("input", () => {
+      const q = filter.value.trim().toLowerCase();
+      if (q !== "" && openBeforeFilter === null) openBeforeFilter = sections.map((d) => d.open);
+      if (q === "" && openBeforeFilter !== null) {
+        sections.forEach((d, i) => (d.open = openBeforeFilter![i]!));
+        openBeforeFilter = null;
+      }
+      let any = false;
+      for (const group of groups) {
+        const items = [...group.querySelectorAll<HTMLAnchorElement>("[data-nav-item]")];
+        let groupHit = false;
+        for (const a of items) {
+          const hit = q === "" || (a.textContent ?? "").toLowerCase().includes(q);
+          const li = a.closest("li") ?? a;
+          (li as HTMLElement).hidden = !hit && a.closest("summary") === null;
+          if (hit) groupHit = true;
+        }
+        group.hidden = !groupHit;
+        if (groupHit) any = true;
+        const details = group.querySelector("details");
+        if (details && q !== "") details.open = true;
+      }
+      if (empty) empty.hidden = any;
+    });
+
+    const targets = links
+      .map((a) => ({ a, el: document.getElementById(decodeURIComponent(a.hash.slice(1))) }))
+      .filter((t): t is { a: HTMLAnchorElement; el: HTMLElement } => t.el !== null);
+
+    let current: HTMLAnchorElement | null = null;
+    const update = (): void => {
+      let active: HTMLAnchorElement | null = targets[0]?.a ?? null;
+      for (const t of targets) {
+        if (t.el.getBoundingClientRect().top <= 140) active = t.a;
+        else break;
+      }
+      // A subsection inside a collapsed group isn't visible: mark the group.
+      const collapsed = active?.closest("details:not([open])");
+      if (collapsed) active = collapsed.querySelector<HTMLAnchorElement>("summary [data-nav-link]");
+      if (active === current) return;
+      current?.removeAttribute("aria-current");
+      active?.setAttribute("aria-current", "location");
+      current = active;
+      if (active && getComputedStyle(nav).position === "sticky") {
+        const top = active.offsetTop;
+        if (top < nav.scrollTop + 60 || top > nav.scrollTop + nav.clientHeight - 60) {
+          nav.scrollTop = Math.max(0, top - nav.clientHeight / 2);
+        }
+      }
+    };
+
+    let ticking = false;
+    addEventListener(
+      "scroll",
+      () => {
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(() => {
+          ticking = false;
+          update();
+        });
+      },
+      { passive: true },
+    );
+    // Opening or closing a group moves the highlight between it and its subsection.
+    for (const section of sections) section.addEventListener("toggle", update);
+    update();
+  }
+</script>

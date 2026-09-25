@@ -5,12 +5,12 @@
  * sheet is inflated later by `parseXlsxSheet()` in `sheet.ts`.
  */
 
-import { attr, childElements, firstChild, parseXml, textContent } from "../xml.js";
+import { attr, childElements, firstChild, ownString, textContent } from "../xml.js";
 import type { XmlElement } from "../xml.js";
 import type { OpcPackage } from "../opc.js";
 import { readDrawingTheme } from "../theme.js";
 import type { DrawingTheme } from "../theme.js";
-import { throwIfAborted } from "../zip.js";
+import { throwIfAborted } from "../errors.js";
 import { readXlsxStyles } from "./styles.js";
 import type { XlsxStyles } from "./styles.js";
 
@@ -43,24 +43,6 @@ function sheetState(value: string | undefined): XlsxSheetReference["state"] {
   return "visible";
 }
 
-async function workbookPart(pkg: OpcPackage, signal?: AbortSignal): Promise<string> {
-  throwIfAborted(signal);
-  const packageRelationships = await pkg.packageRelationships(signal);
-  throwIfAborted(signal);
-  const office = packageRelationships.find((relationship) => relationship.type.endsWith("/officeDocument"));
-  if (office === undefined || office.targetMode === "External") {
-    throw new Error("aared/core: XLSX has no internal officeDocument relationship");
-  }
-  const contentType = pkg.contentTypeOf(office.target);
-  if (
-    contentType !== "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"
-    && contentType !== "application/vnd.openxmlformats-officedocument.spreadsheetml.template.main+xml"
-  ) {
-    throw new Error("aared/core: package is not an XLSX workbook");
-  }
-  return office.target;
-}
-
 /**
  * Index an XLSX without inflating any sheet, style, or string part. This is
  * the performance boundary: opening lists sheets; `parseXlsxSheet()` parses
@@ -68,10 +50,9 @@ async function workbookPart(pkg: OpcPackage, signal?: AbortSignal): Promise<stri
  */
 export async function indexXlsx(pkg: OpcPackage, signal?: AbortSignal): Promise<XlsxWorkbookIndex> {
   throwIfAborted(signal);
-  const part = await workbookPart(pkg, signal);
+  const part = await pkg.officeDocument("xlsx", signal);
   throwIfAborted(signal);
-  const root = parseXml(await pkg.readText(part, signal));
-  throwIfAborted(signal);
+  const root = await pkg.readXml(part, signal);
   if (root.local !== "workbook") throw new Error("aared/core: xl/workbook.xml root must be <workbook>");
   const relationships = await pkg.relationships(part, signal);
   throwIfAborted(signal);
@@ -110,30 +91,43 @@ function stringItemText(item: XmlElement): string {
   return out;
 }
 
-/** Read `xl/sharedStrings.xml` (absent when a workbook stores only inline values). */
+/**
+ * Read `xl/sharedStrings.xml` (absent when a workbook stores only inline
+ * values). The `<si>` items are streamed: a million-string table never
+ * exists as an element tree, only as the resulting `string[]`.
+ */
 export async function readSharedStrings(pkg: OpcPackage, workbookPart: string, signal?: AbortSignal): Promise<string[]> {
   throwIfAborted(signal);
   const relationships = await pkg.relationships(workbookPart, signal);
   throwIfAborted(signal);
   const part = relationships.find((relationship) => relationship.type.endsWith("/sharedStrings"))?.target
     ?? (pkg.hasPart("xl/sharedStrings.xml") ? "xl/sharedStrings.xml" : undefined);
-  if (part === undefined || !pkg.hasPart(part)) return [];
-  const root = parseXml(await pkg.readText(part, signal));
-  throwIfAborted(signal);
+  if (part === undefined) return [];
+  const strings: string[] = [];
+  const root = await pkg.readXmlIfPresent(part, signal, {
+    streamChildrenOf: "sst",
+    onChild: (item) => {
+      // The workbook keeps these for the session: own them, or each one pins the whole part text.
+      if (item.local === "si") strings.push(ownString(stringItemText(item)));
+    },
+  });
+  if (root === undefined) return [];
   if (root.local !== "sst") throw new Error("aared/core: xl/sharedStrings.xml root must be <sst>");
-  const strings = childElements(root, "si").map(stringItemText);
-  throwIfAborted(signal);
   return strings;
 }
 
-/** Resolve everything `parseXlsxSheet()` needs beyond the sheet part itself. */
-export async function readWorkbook(pkg: OpcPackage, signal?: AbortSignal): Promise<XlsxWorkbook> {
+/**
+ * Resolve everything `parseXlsxSheet()` needs beyond the sheet part itself.
+ * Pass the `indexXlsx()` result when the caller already has it (the worker
+ * always does) so `workbook.xml` and the theme are not parsed a second time.
+ */
+export async function readWorkbook(pkg: OpcPackage, signal?: AbortSignal, known?: XlsxWorkbookIndex): Promise<XlsxWorkbook> {
   throwIfAborted(signal);
-  const index = await indexXlsx(pkg, signal);
+  const index = known ?? await indexXlsx(pkg, signal);
   throwIfAborted(signal);
   const [sharedStrings, styles] = await Promise.all([
     readSharedStrings(pkg, index.workbookPart, signal),
-    readXlsxStyles(pkg, index.workbookPart, signal),
+    readXlsxStyles(pkg, index.workbookPart, signal, index.theme),
   ]);
   throwIfAborted(signal);
   return { ...index, sharedStrings, styles };

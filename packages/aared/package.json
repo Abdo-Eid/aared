@@ -7,6 +7,7 @@
   "author": "Abdulhamed Eid <https://github.com/Abdo-Eid>",
   "type": "module",
   "sideEffects": [
+    "./dist/element/index.mjs",
     "./src/element/index.ts"
   ],
   "exports": {
@@ -41,7 +42,8 @@
     "./element": {
       "types": "./dist/element/index.d.mts",
       "default": "./dist/element/index.mjs"
-    }
+    },
+    "./worker": "./dist/core/worker.mjs"
   },
   "files": [
     "dist"

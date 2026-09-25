@@ -9,7 +9,7 @@ interface Props {
 const { fixtures } = Astro.props;
 ---
 
-<div class="demo-frame" id="element-frame" data-initial={fixtures[0]?.url ?? ""}>
+<div class="demo-frame" data-element-demo data-initial={fixtures[0]?.url ?? ""}>
   <Picker fixtures={fixtures} />
   <p data-status data-state="idle">Pick a fixture to begin.</p>
   <div data-stage data-state="idle" class="demo-stage"></div>
@@ -19,6 +19,7 @@ const { fixtures } = Astro.props;
   import { attachDemo } from "../lib/demo-frame.ts";
   import { runElementDemo } from "../demos/element.ts";
 
-  const frame = document.getElementById("element-frame");
-  if (frame instanceof HTMLElement) attachDemo(frame, () => runElementDemo);
+  for (const frame of document.querySelectorAll<HTMLElement>("[data-element-demo]")) {
+    attachDemo(frame, () => runElementDemo);
+  }
 </script>

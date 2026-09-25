@@ -12,12 +12,13 @@
  * approximation, not Office's exact transform.
  */
 
-import { attr, childElements, firstChild, parseXml } from "../xml.js";
+import { attr, childElements, firstChild } from "../xml.js";
 import type { XmlElement } from "../xml.js";
 import type { OpcPackage } from "../opc.js";
+import { mixColors, parseHexDigits, toHexColor } from "../color.js";
 import { readDrawingTheme } from "../theme.js";
 import type { DrawingTheme } from "../theme.js";
-import { throwIfAborted } from "../zip.js";
+import { throwIfAborted } from "../errors.js";
 import { formatCodeForId } from "./numberfmt.js";
 import type { XlsxCellStyleModel } from "../model.js";
 
@@ -36,25 +37,10 @@ const LEGACY_INDEXED_COLORS = [
   "#003366", "#339966", "#003300", "#333300", "#993300", "#993366", "#333399", "#333333",
 ];
 
-function channels(hex: string): [number, number, number] {
-  return [Number.parseInt(hex.slice(1, 3), 16), Number.parseInt(hex.slice(3, 5), 16), Number.parseInt(hex.slice(5, 7), 16)];
-}
-
-function toHex(channels: [number, number, number]): string {
-  return `#${channels.map((channel) => Math.round(Math.min(Math.max(channel, 0), 255)).toString(16).padStart(2, "0")).join("").toUpperCase()}`;
-}
-
 /** sRGB lerp toward white (positive tint) or black (negative tint). */
 function applyTint(color: string, tint: number): string {
   if (tint === 0) return color;
-  const [red, green, blue] = channels(color);
-  const target: [number, number, number] = tint > 0 ? [255, 255, 255] : [0, 0, 0];
-  const ratio = Math.min(Math.abs(tint), 1);
-  return toHex([
-    red + (target[0] - red) * ratio,
-    green + (target[1] - green) * ratio,
-    blue + (target[2] - blue) * ratio,
-  ]);
+  return mixColors(color, tint > 0 ? "#FFFFFF" : "#000000", Math.abs(tint));
 }
 
 function numberAttribute(element: XmlElement, name: string): number | undefined {
@@ -81,14 +67,14 @@ export function resolveStyleColor(
   if (element === undefined) return undefined;
   const rgb = attr(element, "rgb");
   if (rgb !== undefined) {
-    const hex = rgb.length === 8 ? rgb.slice(2) : rgb;
-    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return undefined;
+    const channels = parseHexDigits(rgb.length === 8 ? rgb.slice(2) : rgb);
+    if (channels === undefined) return undefined;
     if (rgb.length === 8 && !rgb.toUpperCase().startsWith("FF")) {
       const alpha = Number.parseInt(rgb.slice(0, 2), 16) / 255;
-      const [red, green, blue] = channels(`#${hex}`);
+      const [red, green, blue] = channels;
       return `rgba(${red}, ${green}, ${blue}, ${Math.round(alpha * 100) / 100})`;
     }
-    return `#${hex.toUpperCase()}`;
+    return toHexColor(channels);
   }
   const themeIndex = numberAttribute(element, "theme");
   if (themeIndex !== undefined) {
@@ -100,7 +86,7 @@ export function resolveStyleColor(
   const indexed = numberAttribute(element, "indexed");
   if (indexed !== undefined) {
     const override = indexedColors?.[indexed];
-    if (override !== undefined && /^#[0-9a-fA-F]{6}$/.test(override)) return override.toUpperCase();
+    if (override !== undefined) return override;
     return LEGACY_INDEXED_COLORS[indexed];
   }
   return undefined;
@@ -219,12 +205,20 @@ export interface DifferentialStyle {
   fill?: string;
 }
 
+/** Shared by every unstyled cell; never mutated. */
+const EMPTY_STYLE: XlsxCellStyleModel = Object.freeze({});
+
 /** Resolved workbook styles: direct cell formats plus conditional differentials. */
 export interface XlsxStyles {
   theme: DrawingTheme;
   /** Number-format code for a numFmtId (custom records win over builtins). */
   numberFormatCode(id: number): string;
-  /** Resolved direct style for a cellXfs index; unknown indexes yield {}. */
+  /**
+   * Resolved direct style for a cellXfs index; unknown indexes yield {}.
+   * The object is shared by every cell using that index (one allocation per
+   * style, not per cell; structured clone keeps the sharing), so treat it
+   * as read-only.
+   */
   cellStyle(xfId: number): XlsxCellStyleModel;
   /** Resolved differential style for a dxfs index; unknown indexes yield {}. */
   differential(dxfId: number): DifferentialStyle;
@@ -294,9 +288,15 @@ function cellStyleFor(
 }
 
 /** Read `xl/styles.xml` (via the workbook relationship, else the conventional part). */
-export async function readXlsxStyles(pkg: OpcPackage, workbookPart: string, signal?: AbortSignal): Promise<XlsxStyles> {
+export async function readXlsxStyles(
+  pkg: OpcPackage,
+  workbookPart: string,
+  signal?: AbortSignal,
+  /** The workbook's already-parsed theme; read from the package when omitted. */
+  knownTheme?: DrawingTheme,
+): Promise<XlsxStyles> {
   throwIfAborted(signal);
-  const theme = await readDrawingTheme(pkg, signal);
+  const theme = knownTheme ?? await readDrawingTheme(pkg, signal);
   throwIfAborted(signal);
   const relationships = await pkg.relationships(workbookPart, signal);
   throwIfAborted(signal);
@@ -305,13 +305,12 @@ export async function readXlsxStyles(pkg: OpcPackage, workbookPart: string, sign
   const empty: XlsxStyles = {
     theme,
     numberFormatCode: (id) => formatCodeForId(id, new Map()),
-    cellStyle: () => ({}),
+    cellStyle: () => EMPTY_STYLE,
     differential: () => ({}),
     count: 0,
   };
-  if (stylesPart === undefined || !pkg.hasPart(stylesPart)) return empty;
-  const root = parseXml(await pkg.readText(stylesPart, signal));
-  throwIfAborted(signal);
+  const root = stylesPart === undefined ? undefined : await pkg.readXmlIfPresent(stylesPart, signal);
+  if (root === undefined) return empty;
   if (root.local !== "styleSheet") throw new Error("aared/core: xl/styles.xml root must be <styleSheet>");
 
   const numberFormats = new Map<number, string>();
@@ -329,10 +328,10 @@ export async function readXlsxStyles(pkg: OpcPackage, workbookPart: string, sign
   const colors = firstChild(root, "colors");
   const indexed = colors === undefined ? undefined : firstChild(colors, "indexedColors");
   if (indexed !== undefined) {
+    // An unreadable entry keeps its slot (indexes are positional) as black.
     indexedColors = childElements(indexed, "rgbColor").map((entry) => {
       const rgb = attr(entry, "rgb") ?? "";
-      const hex = rgb.length === 8 ? rgb.slice(2) : rgb;
-      return /^[0-9a-fA-F]{6}$/.test(hex) ? `#${hex}` : "#000000";
+      return toHexColor(parseHexDigits(rgb.length === 8 ? rgb.slice(2) : rgb) ?? [0, 0, 0]);
     });
   }
 
@@ -351,7 +350,7 @@ export async function readXlsxStyles(pkg: OpcPackage, workbookPart: string, sign
   return {
     theme,
     numberFormatCode: (id) => formatCodeForId(id, numberFormats),
-    cellStyle: (xfId) => ({ ...(resolved[xfId] ?? {}) }),
+    cellStyle: (xfId) => resolved[xfId] ?? EMPTY_STYLE,
     differential: (dxfId) => {
       const found = differentials[dxfId];
       if (found === undefined) return {};

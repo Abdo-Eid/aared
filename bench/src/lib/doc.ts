@@ -13,19 +13,25 @@ export interface DocMeta {
   origin: DocOrigin;
 }
 
-export type Renderer = "baseline" | "aared";
+export type Renderer = "baseline" | "aared" | BaselineRenderer;
 
-export interface RunRecord {
-  key: string;
-  name: string;
-  format: Format;
-  renderer: Renderer;
-  /** Null only if the open never got far enough to time. */
-  ms: number | null;
-  sizeBytes: number;
-  error?: string;
-  at: number;
-}
+/**
+ * Baseline renderer ids. `"baseline"` is the legacy alias for the per-format
+ * default (see `DEFAULT_BASELINE` in adapters); new UI should name the
+ * renderer explicitly. Flat union on purpose: not every renderer handles
+ * every format — `BASELINE_RENDERERS` owns the per-format allow-list.
+ */
+export type BaselineRenderer =
+  | "pptxviewjs"
+  | "sheetjs"
+  | "docx-preview"
+  | "silurus"
+  | "omni"
+  | "aiden0z"
+  | "mdurbar"
+  | "docx-renderer"
+  | "spreadsheet-preview"
+  | "xlscalc";
 
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

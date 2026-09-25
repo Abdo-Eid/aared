@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { pngSize, within } from "./harness.js";
 import { createHash } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,7 +7,7 @@ import { open } from "../src/xlsx/index.js";
 
 const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const RETAIN_ARTIFACTS = process.env.AARED_VISUAL_ARTIFACTS === "1";
-const COVERAGE_PATH = `${import.meta.dir}/../../../fixtures/arabic-xlsx-rtl-coverage.xlsx`;
+const COVERAGE_PATH = `${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`;
 const TRACKER_PATH = `${import.meta.dir}/../../../fixtures/post-production-tracker.xlsx`;
 // A4 portrait at 96 CSS px/in with Excel "Normal" margins: the page box the
 // native tool prints. The full sheet only ever shrinks to fit, exactly like
@@ -27,7 +28,7 @@ interface FixturePlan {
 
 const PLANS: FixturePlan[] = [
   {
-    file: "arabic-xlsx-rtl-coverage.xlsx",
+    file: "xlsx-coverage.xlsx",
     path: COVERAGE_PATH,
     parts: {
       0: [
@@ -134,28 +135,6 @@ async function browserRenderer(): Promise<string> {
   return result.outputs[0]!.text();
 }
 
-function pngSize(bytes: Uint8Array): { width: number; height: number } {
-  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-  if (!signature.every((value, index) => bytes[index] === value)) {
-    throw new Error("aared visual review: WebView capture was not a PNG");
-  }
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  return { width: view.getUint32(16), height: view.getUint32(20) };
-}
-
-async function within<T>(label: string, task: Promise<T>, milliseconds = 30_000): Promise<T> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      task,
-      new Promise<T>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error(`aared visual review: timed out while ${label}`)), milliseconds);
-      }),
-    ]);
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout);
-  }
-}
 
 const HOST_PAGE = `<!doctype html><style>
   html,body{margin:0;background:#fff}
@@ -207,8 +186,31 @@ const HOST_PAGE = `<!doctype html><style>
   // Render one sheet and report its natural size. Frozen stickiness is
   // neutralized by stylesheet (native print never repeats frozen rows),
   // while the sticky heading row/column repeat on scroll like print
-  // headings.
-  window.renderFull = async (model) => {
+  // headings. The viewport fill is off: it pads a short sheet with inert
+  // empty rows out to the clipping ancestor (here the whole A4 box), which
+  // a printed page never has and which would inflate the natural size the
+  // fit-to-page scale is measured from.
+  // Detached models carry no session, so the paired review feeds the
+  // fixture's own bytes (same honesty rule as the PPTX capture): without
+  // this every floating picture paints a placeholder and the Excel side of
+  // the pair has nothing honest to compare against.
+  const decode = (base64) => Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)).buffer;
+  const resolverFor = (media) => media === undefined ? undefined : async (mediaId) => {
+    const base64 = media[mediaId];
+    if (base64 === undefined) throw new Error("missing media " + mediaId);
+    return decode(base64);
+  };
+  const waitForDrawings = () => new Promise((resolve, reject) => {
+    const deadline = Date.now() + 8000;
+    const poll = () => {
+      const images = [...document.querySelectorAll('[data-aared-element="picture"] img')];
+      if (images.every((img) => img.complete && img.naturalWidth > 0)) resolve(undefined);
+      else if (Date.now() > deadline) reject(new Error("timed out waiting for sheet images"));
+      else setTimeout(poll, 50);
+    };
+    poll();
+  });
+  window.renderFull = async (model, media) => {
     window.renderedSheet?.destroy();
     const host = document.querySelector("#host");
     host.style.transform = "";
@@ -216,9 +218,11 @@ const HOST_PAGE = `<!doctype html><style>
     window.renderedSheet = await render({
       sheet: model,
       target: host,
-      appearance: { spreadsheet: { headers: true } },
+      appearance: { spreadsheet: { headers: true, fill: false } },
+      mediaResolver: resolverFor(media),
     });
     await document.fonts.ready;
+    await waitForDrawings();
     await raf3();
     const grid = document.querySelector('[data-aared-element="grid"]');
     const scroller = document.querySelector('[data-aared-element="sheet-scroll"]');
@@ -385,7 +389,7 @@ visual("visual review: XLSX pairs Excel print with aared full sheets and parts",
   });
   try {
     await using view = new Bun.WebView({ width: 810, height: 1218 });
-    await within("loading the WebView fixture host", view.navigate(server.url.href));
+    await within("loading the WebView fixture host", view.navigate(server.url.href), 30_000);
     for (const plan of PLANS) {
       const specs: Array<{ sheet: number; name: string; range: string }> = [];
       for (const [sheet, parts] of Object.entries(plan.parts)) {
@@ -397,6 +401,7 @@ visual("visual review: XLSX pairs Excel print with aared full sheets and parts",
         const workbook = await open(await Bun.file(plan.path).arrayBuffer());
         const models: unknown[] = [];
         const names: string[] = [];
+        let media: Record<string, string>;
         try {
           for (const handle of workbook.sheets.list()) {
             models.push(await handle.read());
@@ -404,12 +409,16 @@ visual("visual review: XLSX pairs Excel print with aared full sheets and parts",
           names.push(...workbook.info.titles);
           expect(workbook.info.format).toBe("xlsx");
           expect(reference.sheetCount).toBe(workbook.info.count);
+          const ids = new Set<string>();
+          for (const match of JSON.stringify(models).matchAll(/"(?:mediaId|pictureMediaId)":"([^"]+)"/g)) ids.add(match[1]!);
+          media = {};
+          for (const id of ids) media[id] = Buffer.from(await workbook.media.get(id)).toString("base64");
         } finally {
           workbook.close();
         }
         const sheets: AaredSheet[] = [];
         for (const [index, model] of models.entries()) {
-          const full = await within(`rendering ${plan.file} sheet ${index + 1}`, view.evaluate(`renderFull(${JSON.stringify(model)})`)) as {
+          const full = await within(`rendering ${plan.file} sheet ${index + 1}`, view.evaluate(`renderFull(${JSON.stringify(model)}, ${JSON.stringify(media)})`), 30_000) as {
             direction: string | null; canvasCount: number; scale: number; totalHeight: number;
           };
           expect(full.canvasCount).toBe(0);
@@ -425,7 +434,7 @@ visual("visual review: XLSX pairs Excel print with aared full sheets and parts",
           }
           const fullFile = `aared-sheet-${index + 1}.png`;
           if (RETAIN_ARTIFACTS) {
-            const screenshot = await within(`capturing ${plan.file} sheet ${index + 1}`, view.screenshot({ encoding: "buffer", format: "png" }));
+            const screenshot = await within(`capturing ${plan.file} sheet ${index + 1}`, view.screenshot({ encoding: "buffer", format: "png" }), 30_000);
             expect(pngSize(screenshot).width / pngSize(screenshot).height).toBeCloseTo(Math.SQRT1_2, 2);
             await mkdir(reference.outputDir, { recursive: true });
             await writeFile(join(reference.outputDir, fullFile), screenshot);
@@ -440,14 +449,14 @@ visual("visual review: XLSX pairs Excel print with aared full sheets and parts",
             // clean full render.
             // The band sits at the top of the fixed A4 viewport like a
             // native print-area page: same framing both sides.
-            await within(`rendering ${part.name}`, view.evaluate(`renderFull(${JSON.stringify(model)})`));
-            const band = await within(`isolating ${part.name}`, view.evaluate(`bandPart(${JSON.stringify(model)}, ${JSON.stringify(part.range)})`)) as {
+            await within(`rendering ${part.name}`, view.evaluate(`renderFull(${JSON.stringify(model)}, ${JSON.stringify(media)})`), 30_000);
+            const band = await within(`isolating ${part.name}`, view.evaluate(`bandPart(${JSON.stringify(model)}, ${JSON.stringify(part.range)})`), 30_000) as {
               scale: number;
             };
             expect(band.scale).toBeGreaterThan(0);
             expect(band.scale).toBeLessThanOrEqual(1);
             if (RETAIN_ARTIFACTS) {
-              const screenshot = await within(`capturing ${part.name}`, view.screenshot({ encoding: "buffer", format: "png" }));
+              const screenshot = await within(`capturing ${part.name}`, view.screenshot({ encoding: "buffer", format: "png" }), 30_000);
               expect(pngSize(screenshot).width / pngSize(screenshot).height).toBeCloseTo(Math.SQRT1_2, 2);
               const file = `aared-sheet-${index + 1}-part-${part.name}.png`;
               await writeFile(join(reference.outputDir, file), screenshot);

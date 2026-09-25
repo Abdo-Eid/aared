@@ -1,0 +1,130 @@
+---
+/**
+ * The playground's one picker: format pills plus a local-file chooser, shown
+ * beside the tab pills. Each demo keeps its own hidden picker (that is what
+ * attachDemo / the React island listen to); this control drives whichever
+ * demo is on screen and re-applies the choice when you switch tabs.
+ */
+import type { DemoFixture } from "../lib/demo-frame.js";
+
+interface Props {
+  fixtures: DemoFixture[];
+}
+
+const { fixtures } = Astro.props;
+const formatLabels: Record<string, string> = { pptx: "PPTX", xlsx: "XLSX", docx: "DOCX" };
+---
+
+<div class="demo-picker pg-picker" data-pg-picker>
+  <div class="demo-pills" role="group" aria-label="File format">
+    {fixtures.map((fixture, index) => (
+      <button
+        type="button"
+        aria-pressed={index === 0 ? "true" : "false"}
+        data-pg-format={fixture.format}
+      >
+        {formatLabels[fixture.format] ?? fixture.format}
+      </button>
+    ))}
+  </div>
+  <input type="file" accept=".pptx,.xlsx,.docx" aria-label="Local file" data-pg-file />
+</div>
+
+<script>
+  const bar = document.querySelector<HTMLElement>("[data-pg-picker]");
+  const root = document.querySelector<HTMLElement>("[data-tabs]");
+  if (bar && root) {
+    const pills = [...bar.querySelectorAll<HTMLButtonElement>("[data-pg-format]")];
+    const fileInput = bar.querySelector<HTMLInputElement>("[data-pg-file]");
+    let index = 0;
+    let file: File | null = null;
+
+    const activePanel = (): HTMLElement | null =>
+      root.querySelector<HTMLElement>("[data-panel]:not([hidden])");
+
+    // The React island ignores clicks until Astro has hydrated it.
+    const whenReady = (panel: HTMLElement, run: () => void): void => {
+      const island = panel.querySelector("astro-island");
+      if (!island?.hasAttribute("ssr")) {
+        run();
+        return;
+      }
+      let tries = 0;
+      const timer = setInterval(() => {
+        tries += 1;
+        if (!island.hasAttribute("ssr") || tries > 40) {
+          clearInterval(timer);
+          run();
+        }
+      }, 150);
+    };
+
+    const showPressed = (): void => {
+      pills.forEach((pill, i) => pill.setAttribute("aria-pressed", String(file === null && i === index)));
+    };
+
+    // The format whose snippet is on show: the chosen pill, or a local file's
+    // own extension (a file of another format switches the code too).
+    const currentFormat = (): string => {
+      const fromPill = pills[index]?.dataset.pgFormat ?? "pptx";
+      const extension = file?.name.split(".").pop()?.toLowerCase();
+      return extension === "pptx" || extension === "xlsx" || extension === "docx" ? extension : fromPill;
+    };
+
+    const syncSnippets = (panel: HTMLElement): void => {
+      const format = currentFormat();
+      for (const snippet of panel.querySelectorAll<HTMLElement>("[data-snippet]")) {
+        snippet.hidden = snippet.dataset.snippet !== format;
+      }
+    };
+
+    const apply = (panel: HTMLElement | null): void => {
+      if (!panel) return;
+      syncSnippets(panel);
+      whenReady(panel, () => {
+        if (file !== null) {
+          const input = panel.querySelector<HTMLInputElement>('.demo-picker input[type="file"]');
+          if (!input) return;
+          const transfer = new DataTransfer();
+          transfer.items.add(file);
+          input.files = transfer.files;
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+          return;
+        }
+        const back = [...panel.querySelectorAll<HTMLButtonElement>(".demo-picker > button")].find(
+          (button) => button.textContent?.includes("Back to fixtures"),
+        );
+        const target = panel.querySelectorAll<HTMLButtonElement>(".demo-picker .demo-pills button")[index];
+        if (back) {
+          back.click();
+          setTimeout(() => target?.click(), 80);
+        } else if (target && target.getAttribute("aria-pressed") !== "true") {
+          target.click();
+        }
+      });
+    };
+
+    pills.forEach((pill, i) => {
+      pill.addEventListener("click", () => {
+        index = i;
+        file = null;
+        if (fileInput) fileInput.value = "";
+        showPressed();
+        apply(activePanel());
+      });
+    });
+
+    fileInput?.addEventListener("change", () => {
+      file = fileInput.files?.[0] ?? null;
+      showPressed();
+      apply(activePanel());
+    });
+
+    root.addEventListener("click", (event) => {
+      const tab = (event.target as HTMLElement | null)?.closest?.("[data-tab]");
+      if (!tab) return;
+      // Let the tab script reveal the new panel first.
+      setTimeout(() => apply(activePanel()), 0);
+    });
+  }
+</script>

@@ -5,18 +5,18 @@
  *
  * Concept: a 35mm light table. `--lt-ground` is the lit surface,
  * `--lt-mount` is the slide's cardstock mount, `--lt-ink` is the
- * oxblood line work and annotation color, `--lt-amber` is the
- * "lit"/hover state — a loupe finding a frame.
+ * charcoal line work and annotation color, `--lt-accent` is the logo's
+ * red, the "lit"/hover state — a loupe finding a frame.
  */
 @import './fonts.css';
 
-/* Page base shared by every route: the light-table ground, oxblood ink,
+/* Page base shared by every route: the light-table ground, charcoal ink,
    one bilingual UI face. Page-specific layout lives in each route. */
 :root {
-  color-scheme: dark;
-}
-:root[data-theme='light'] {
   color-scheme: light;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
 }
 html,
 body {
@@ -32,16 +32,28 @@ body {
 }
 
 :root {
-  /* ---- light-table palette: dark mode (the table at night) ---- */
-  --lt-ground: #1b2226;
-  --lt-ground-deep: #14191c;
-  --lt-mount: #2a2320;
-  --lt-mount-edge: #473a31;
-  --lt-ink: #ecd9d2;
-  --lt-ink-soft: #c9a29b;
-  --lt-amber: #e7b158;
-  --lt-amber-glow: #f4c876;
-  --lt-amber-dim: #a97a35;
+  /* ---- light-table palette: light mode (the table by day) ----
+     A powder-blue table under a warm-white top bar, cream cards, charcoal
+     text; the selected pill in the home page's selectors is sand. */
+  --lt-ground: #d3e0e8;
+  --lt-ground-deep: #bccdd9;
+  --lt-bar: #fbf9f5;
+  --lt-pill: #ece3d2;
+  --lt-mount: #f6f2ea;
+  --lt-mount-edge: #e1d3bb;
+  --lt-ink: #23201e;
+  --lt-ink-soft: #5a5753;
+  /* A second ink for code, used as a pen: prose is charcoal, links are
+     the accent red, code is slate — three inks, each with one job, so inline code
+     needs no box to be legible. */
+  --lt-ink-code: #2f4f5a;
+  --lt-accent: #b4363c;
+  --lt-accent-glow: #c9414a;
+  --lt-accent-dim: #8a262b;
+  /* Code surfaces sit one step off the cards: a shade deeper in light, a
+     shade lighter than the dark page in dark. */
+  --lt-code: #ece3d2;
+  --lt-code-edge: #dccfb8;
 
   /* Fonts */
   --lt-font-display: 'Reem Kufi', sans-serif;
@@ -58,18 +70,25 @@ body {
   --lt-radius: 3px;
 }
 
-:root[data-theme='light'],
-[data-theme='light'] {
-  /* ---- light-table palette: light mode ---- */
-  --lt-ground: #ccd9df;
-  --lt-ground-deep: #b6c5cd;
-  --lt-mount: #f4ede1;
-  --lt-mount-edge: #e1d3bb;
-  --lt-ink: #3c1215;
-  --lt-ink-soft: #6d3336;
-  --lt-amber: #8f5416;
-  --lt-amber-glow: #c8892b;
-  --lt-amber-dim: #6e4110;
+:root[data-theme='dark'],
+[data-theme='dark'] {
+  /* ---- light-table palette: dark mode (the table at night) ----
+     A cool near-black: cards sit one step above the ground behind a thin
+     grey edge, inks are neutral off-white and grey. The logo red stays the accent. */
+  --lt-ground: #111418;
+  --lt-ground-deep: #0c0e11;
+  --lt-bar: #171a1f;
+  --lt-pill: #111418;
+  --lt-mount: #171a1f;
+  --lt-mount-edge: #2a2f36;
+  --lt-ink: #e6e8eb;
+  --lt-ink-soft: #9aa1a9;
+  --lt-ink-code: #9fc9dc;
+  --lt-code: #1b2226;
+  --lt-code-edge: color-mix(in srgb, var(--lt-ink) 12%, transparent);
+  --lt-accent: #ea6a70;
+  --lt-accent-glow: #f58a8f;
+  --lt-accent-dim: #b4363c;
 }
 
 /* A light "grid paper" texture on the page background — the light table's

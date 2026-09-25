@@ -14,6 +14,8 @@ export type AaredErrorCode =
   | "font-error"
   | "not-found"
   | "invalid-range"
+  | "worker-error"
+  | "closed"
   | "aborted";
 
 /**
@@ -24,6 +26,8 @@ export type AaredErrorCode =
  * Cancellation surfaces as an `AaredError` with `code: "aborted"` and
  * `name: "AbortError"`, so existing `AbortSignal` handling (`instanceof
  * DOMException` checks aside) keeps working while gaining a typed code.
+ * Using a document after `close()` is a usage error, not a cancellation:
+ * it is `code: "closed"`, which `isAbort()` never swallows.
  */
 export class AaredError extends Error {
   readonly code: AaredErrorCode;
@@ -35,12 +39,64 @@ export class AaredError extends Error {
   }
 }
 
-/** Rebuild a worker-serialized `AaredError` on the main thread. */
-export function aaredErrorFrom(code: AaredErrorCode, message: string): AaredError {
-  return new AaredError(code, message);
+/** Internal cancellation error shared by the worker and the main-thread session. */
+export function abortError(): AaredError {
+  return new AaredError("aborted", "aared/core: request was cancelled");
+}
+
+/** Stop between synchronous parsing/decompression stages. */
+export function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted === true) throw abortError();
+}
+
+/**
+ * `list[index]` for a collection's `get()`: an integer inside the list, else a
+ * `not-found` error carrying the caller's own wording (each unit names itself).
+ */
+export function itemAt<T>(list: readonly T[], index: number, outside: () => string): T {
+  const item = list[index];
+  if (!Number.isInteger(index) || item === undefined) throw new AaredError("not-found", outside());
+  return item;
 }
 
 /** Type guard for `catch` sites that branch on `error.code`. */
 export function isAaredError(error: unknown): error is AaredError {
   return error instanceof AaredError;
+}
+
+/**
+ * Canonical abort check: returns `true` for any error representing
+ * cancellation — `DOMException` `AbortError`, typed `AaredError("aborted")`,
+ * or a plain `Error` named `"AbortError"` (the form `aared/core` emits).
+ *
+ * Use this instead of `error instanceof DOMException && error.name === "AbortError"`,
+ * which misses typed `AaredError` aborts on the main thread.
+ */
+export function isAbort(error: unknown): error is Error {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+/**
+ * Human-readable message for a known `AaredError` code. Returns a
+ * fallback string for unknown codes. Intended for UI display or logging;
+ * the returned string never includes the `aared/...` scope prefix.
+ */
+const MESSAGES: Record<AaredErrorCode, string> = {
+  "unsupported-format": "This file format is not supported",
+  "invalid-document": "This file is not a valid or supported document",
+  "encrypted-document": "This file is password-protected and cannot be opened",
+  "unsupported-feature": "This feature is not supported",
+  "network-error": "A network error occurred while loading the file",
+  "media-error": "A media resource could not be loaded",
+  "font-error": "A required font could not be loaded",
+  "not-found": "The requested item was not found",
+  "invalid-range": "The requested range is invalid",
+  "worker-error": "The document worker failed to start or stopped unexpectedly",
+  "closed": "The document was closed",
+  "aborted": "The operation was cancelled",
+};
+
+export function messageFor(error: unknown): string {
+  if (isAaredError(error)) return MESSAGES[error.code];
+  return "An unexpected error occurred";
 }

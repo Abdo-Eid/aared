@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { OpcPackage } from "../src/core/opc.js";
-import { indexPptx, parsePptxSlide, parseTextBody } from "../src/core/pptx.js";
+import { indexPptx, parsePptxSlide, parseTextBody, resolveStyleRef } from "../src/core/pptx.js";
 import { attr, childElements, firstChild, parseXml } from "../src/core/xml.js";
 import type { XmlElement } from "../src/core/xml.js";
 import { findCoverageSlide, findShapesWithPreset, findShapeWithText, findTableWithText, joined } from "./fixture.js";
 
-const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/arabic-pptx-rtl-coverage.pptx`;
+const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 
 async function fixture() {
   const pkg = await OpcPackage.open(await Bun.file(FIXTURE_PATH).arrayBuffer());
@@ -28,10 +28,15 @@ describe("PPTX DrawingML parser", () => {
   test("re-reads slides and RTL text from the real Arabic fixture", async () => {
     const doc = await fixture();
     expect(doc.deck.size).toEqual({ width: 12192000 / 914400, height: 6858000 / 914400 });
-    expect(doc.deck.slideParts).toHaveLength(4);
+    expect(doc.deck.slideParts).toHaveLength(10);
     expect(doc.deck.theme.colors.dk1).toBe("#000000");
     expect(doc.deck.theme.fonts.minor.scripts.Arab).toBe("Arial");
-    expect(doc.deck.tableStyles.get("{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}")).toMatchObject({ whole: "#E7EAED", firstRow: "#156082", band1H: "#CCD2D8" });
+    // Medium Style 2 Accent 1, every region read: fills, text, fonts and all six edges.
+    expect(doc.deck.tableStyles.get("{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}")).toMatchObject({
+      wholeTbl: { fill: "#E7EAED", text: "#000000", font: "+mn-lt", borders: { insideH: { color: "#FFFFFF" }, insideV: { color: "#FFFFFF" } } },
+      firstRow: { fill: "#156082", bold: true },
+      band1H: { fill: "#CCD2D8" },
+    });
 
     const { slide } = await findCoverageSlide(doc.slides, "rtl-text");
     const title = findShapeWithText(slide, "تقرير الإنتاج الأسبوعي");
@@ -139,13 +144,8 @@ describe("PPTX DrawingML parser", () => {
       bounds: { x: 2032000 / 914400, y: 2687320 / 914400, width: 8127999 / 914400, height: 2560320 / 914400 },
     });
     expect(table.rows).toHaveLength(4);
-    expect(table.cellFills[0]).toEqual(["#156082", "#156082", "#156082"]);
-    expect(table.cellFills).toEqual([
-      ["#156082", "#156082", "#156082"],
-      ["#CCD2D8", "#CCD2D8", "#CCD2D8"],
-      ["#E7EAED", "#E7EAED", "#E7EAED"],
-      ["#CCD2D8", "#CCD2D8", "#CCD2D8"],
-    ]);
+    const band = (color: string) => [1, 2, 3].map(() => ({ kind: "solid" as const, color }));
+    expect(table.cellFills).toEqual([band("#156082"), band("#CCD2D8"), band("#E7EAED"), band("#CCD2D8")]);
     expect(table.rows.map((row) => row.cells)).toSatisfy((rows) => rows.every((cells) => cells.length === 3));
     expect(table.rows[0]!.cells.map((cell) => joined(cell.text))).toEqual(["الاسم", "الدور", "الحالة"]);
     expect(table.rows[0]!.cells.every((cell) => cell.text.paragraphs[0]?.direction === "ltr")).toBe(true);
@@ -160,7 +160,8 @@ describe("PPTX DrawingML parser", () => {
     const copy = structuredClone(slide);
 
     expect(copy).toEqual(slide);
-    expect(copy.elements.map((element) => element.kind)).toEqual(["shape", "table"]);
+    // Title, the table, then the slide-number placeholder the fixture carries.
+    expect(copy.elements.map((element) => element.kind)).toEqual(["shape", "table", "shape"]);
     expect(copy.size).toEqual({ width: 12192000 / 914400, height: 6858000 / 914400 });
   });
 
@@ -178,7 +179,7 @@ describe("PPTX DrawingML parser", () => {
   test("resolves positioned, styled common shapes from the real LibreOffice fixture", async () => {
     const doc = await fixture();
     const { slide } = await findCoverageSlide(doc.slides, "shapes");
-    const presets = ["rect", "roundRect", "ellipse", "line", "triangle", "rtTriangle", "diamond", "parallelogram", "hexagon", "octagon"];
+    const presets = ["rect", "roundRect", "ellipse", "line", "triangle", "rtTriangle", "diamond", "parallelogram", "hexagon", "octagon", "star5"];
     const authored = presets.flatMap((preset) => findShapesWithPreset(slide, preset));
 
     expect(authored.every((shape) => shape.geometry?.fallback === undefined && shape.geometry?.path !== "")).toBe(true);
@@ -204,36 +205,171 @@ describe("PPTX DrawingML parser", () => {
     });
     expect(authored.find((shape) => shape.stroke?.color === "#E8A33D")).toMatchObject({ stroke: { color: "#E8A33D", width: 36000 / 914400 } });
     const fallback = slide.elements.find((element) => element.kind === "shape" && element.geometry?.fallback === "unsupported");
-    expect(fallback).toMatchObject({ fill: { kind: "solid", color: "#73A0B4" }, stroke: { color: "#156082", width: 28800 / 914400 }, geometry: { preset: "star5", fallback: "unsupported" } });
+    // star5 resolves its ECMA path; the first remaining unsupported preset is
+    // the up arrow, whose fill and outline come from its shape style.
+    expect(fallback).toMatchObject({ fill: { kind: "solid", color: "#156082" }, stroke: { color: "#030E14", width: 12700 / 914400 }, geometry: { preset: "upArrow", fallback: "unsupported" } });
 
     const title = findShapeWithText(slide, "أشكال ورسومات");
     expect(joined(title.text!)).toBe("أشكال ورسومات");
     expect(title.text?.paragraphs[0]?.runs[0]).toMatchObject({ fontFamily: "Arial" });
   });
 
-  test("resolves LibreOffice linear gradients and explicitly degrades path gradients", async () => {
+  test("style references with idx 0 resolve to nothing; direct fills win", async () => {
+    const doc = await fixture();
+    const { slide } = await findCoverageSlide(doc.slides, "shapes");
+    // The unfilled right brace carries fillRef idx="0" with a vestigial
+    // accent1 child: PowerPoint paints no fill, so neither do we — while its
+    // lnRef idx="2" sibling still resolves the outline.
+    const bare = slide.elements.find((element) => element.kind === "shape" && element.id === "66");
+    if (bare?.kind !== "shape") throw new Error("fixture structure changed: expected Right Brace 65 (id 66)");
+    expect(bare.fill).toBeUndefined();
+    expect(bare.stroke).toMatchObject({ color: "#156082", width: 12700 / 914400 });
+    // The filled left brace next to it keeps its direct black fill and red
+    // outline: direct formatting always wins over style references.
+    const filled = slide.elements.find((element) => element.kind === "shape" && element.id === "5");
+    if (filled?.kind !== "shape") throw new Error("fixture structure changed: expected Left Brace 4 (id 5)");
+    expect(filled).toMatchObject({
+      fill: { kind: "solid", color: "#000000" },
+      stroke: { color: "#FF0000", width: 76200 / 914400 },
+      geometry: { preset: "leftBrace" },
+    });
+  });
+
+  test("resolveStyleRef honors the idx-0-means-none convention", async () => {
+    const doc = await fixture();
+    const theme = doc.deck.theme;
+    const ref = (xml: string): Parameters<typeof resolveStyleRef>[0] => firstChild(parseXml(`<root>${xml}</root>`), "fillRef");
+    expect(resolveStyleRef(ref(`<fillRef idx="0"><schemeClr val="accent1"/></fillRef>`), theme)).toBeUndefined();
+    expect(resolveStyleRef(ref(`<fillRef idx="1"><schemeClr val="accent1"/></fillRef>`), theme)).toBe(theme.colors.accent1);
+    expect(resolveStyleRef(ref(`<fillRef idx="2"><srgbClr val="FF0000"/></fillRef>`), theme)).toBe("#FF0000");
+    expect(resolveStyleRef(ref(`<fillRef><schemeClr val="accent1"/></fillRef>`), theme)).toBeUndefined();
+    expect(resolveStyleRef(undefined, theme)).toBeUndefined();
+  });
+
+  test("resolves linear gradients and every path-gradient type", async () => {
     const doc = await fixture();
     const { slide } = await findCoverageSlide(doc.slides, "gradients");
-    const linear = slide.elements.find((element) => element.kind === "shape" && element.fill?.kind === "linear-gradient");
-    const path = slide.elements.find((element) => element.kind === "shape" && element.fill?.kind === "unsupported");
-    if (linear?.kind !== "shape" || linear.fill?.kind !== "linear-gradient" || path?.kind !== "shape" || path.fill?.kind !== "unsupported"
-    ) {
-      throw new Error("fixture structure changed: expected linear and path gradients");
-    }
+    const fillOf = (name: string) => {
+      const shape = slide.elements.find((element) => element.kind === "shape" && element.name === name);
+      if (shape?.kind !== "shape") throw new Error(`fixture structure changed: expected shape "${name}"`);
+      return shape.fill;
+    };
+    const linear = { fill: fillOf("Rectangle 4") };
+    const radial = { fill: fillOf("Oval 6") };
 
     expect(linear.fill).toEqual({
       kind: "linear-gradient",
       angle: 45,
-      scaled: true,
+      // `<a:lin ang="2700000"/>` states no `scaled`: false, as PowerPoint draws it.
+      scaled: false,
       rotatesWithShape: false,
       stops: [
         { position: 0, color: "#156082" },
         { position: 1, color: "#E8A33D" },
       ],
     });
-    expect(path.fill).toEqual({ kind: "unsupported", source: "gradient-path" });
+    const centre = { left: 0.5, top: 0.5, right: 0.5, bottom: 0.5 };
+    const box = { left: 0, top: 0, right: 0, bottom: 0 };
+    // PowerPoint's centred radial preset: `path="circle"`, focus 50/50/50/50.
+    expect(radial.fill).toEqual({
+      kind: "path-gradient",
+      path: "circle",
+      focus: centre,
+      extent: box,
+      stops: [
+        { position: 0, color: "#156082" },
+        { position: 1, color: "#73A0B4" },
+      ],
+    });
+    // Hand-made in PowerPoint: Radial "From Bottom Right Corner" (the extent
+    // doubled to the right and down, the focus at its far corner) with a
+    // tinted middle stop, and a Path gradient on a star.
+    expect(fillOf("Rectangle 3")).toEqual({
+      kind: "path-gradient",
+      path: "circle",
+      focus: { left: 1, top: 1, right: 0, bottom: 0 },
+      extent: { left: 0, top: 0, right: -1, bottom: -1 },
+      stops: [
+        { position: 0, color: "#156082" },
+        { position: 0.2, color: "#74C4E9" },
+        { position: 1, color: "#E8A33D" },
+      ],
+    });
+    expect(fillOf("Star: 5 Points 8")).toEqual({
+      kind: "path-gradient",
+      path: "shape",
+      focus: centre,
+      extent: box,
+      stops: [
+        { position: 0, color: "#156082" },
+        { position: 1, color: "#E8A33D" },
+      ],
+    });
     const title = findShapeWithText(slide, "تدرجات لونية");
     expect(joined(title.text!)).toBe("تدرجات لونية");
     expect(title.text?.paragraphs[0]?.runs[0]).toMatchObject({ fontFamily: "Arial" });
+  });
+
+  test("resolves pattern, picture and rect-path fills on shapes", async () => {
+    const doc = await fixture();
+    const { slide } = await findCoverageSlide(doc.slides, "shape-fills");
+    const fillOf = (name: string) => {
+      const shape = slide.elements.find((element) => element.kind === "shape" && element.name === name);
+      if (shape?.kind !== "shape") throw new Error(`fixture structure changed: expected shape "${name}"`);
+      return shape.fill;
+    };
+    expect(fillOf("Pattern DkDnDiag")).toEqual({ kind: "pattern", preset: "dkDnDiag", foreground: "#156082", background: "#FFFFFF" });
+    expect(fillOf("Pattern SmGrid")).toEqual({ kind: "pattern", preset: "smGrid", foreground: "#E8A33D", background: "#FFF4E0" });
+    // A plain `a:stretch/a:fillRect` carries no insets, so no `stretch` field.
+    expect(fillOf("Picture Stretch")).toMatchObject({ kind: "picture", contentType: "image/jpeg" });
+    expect(fillOf("Picture Stretch")).not.toHaveProperty("stretch");
+    expect(fillOf("Picture Tile")).toMatchObject({
+      kind: "picture",
+      contentType: "image/png",
+      tile: { scaleX: 0.25, scaleY: 0.25, offsetX: 0, offsetY: 0, align: "tl", flip: "none" },
+    });
+    const stops = [{ position: 0, color: "#156082" }, { position: 1, color: "#E8A33D" }];
+    // `tileRect l=t=-100%` + `fillToRect r=b=100%`: the focus is the box's
+    // top-left corner, as PowerPoint paints it.
+    expect(fillOf("Gradient Rect Corner")).toEqual({
+      kind: "path-gradient",
+      path: "rect",
+      focus: { left: 0, top: 0, right: 1, bottom: 1 },
+      extent: { left: -1, top: -1, right: 0, bottom: 0 },
+      stops,
+    });
+    expect(fillOf("Gradient Rect Center")).toEqual({
+      kind: "path-gradient",
+      path: "rect",
+      focus: { left: 0.5, top: 0.5, right: 0.5, bottom: 0.5 },
+      extent: { left: 0, top: 0, right: 0, bottom: 0 },
+      stops,
+    });
+  });
+
+  test("resolves pattern and tiled-picture slide backgrounds", async () => {
+    const doc = await fixture();
+    const pattern = await findCoverageSlide(doc.slides, "pattern-background");
+    expect(pattern.slide.background).toEqual({ kind: "pattern", preset: "dkDnDiag", foreground: "#D6E4F0", background: "#FFFFFF" });
+    const tiled = await findCoverageSlide(doc.slides, "tiled-background");
+    // Slide-owned, so not `shared`; the tile carries PowerPoint's 30 % scale.
+    expect(tiled.slide.background).toMatchObject({
+      kind: "picture",
+      contentType: "image/png",
+      tile: { scaleX: 0.3, scaleY: 0.3, align: "tl", flip: "none" },
+    });
+    expect(tiled.slide.background).not.toHaveProperty("shared");
+  });
+
+  test("resolves every table-cell fill kind, direct fills over style bands", async () => {
+    const doc = await fixture();
+    const { slide } = await findCoverageSlide(doc.slides, "table-fills");
+    const table = findTableWithText(slide, "البند");
+    const header = { kind: "linear-gradient" as const, angle: 90, scaled: true, rotatesWithShape: true, stops: [{ position: 0, color: "#156082" }, { position: 1, color: "#73A0B4" }] };
+    expect(table.cellFills[0]).toEqual([header, header, header]);
+    // Unfilled cells keep the Medium Style 2 Accent 1 band colours.
+    expect(table.cellFills[1]!.slice(0, 2)).toEqual([{ kind: "solid", color: "#CCD2D8" }, { kind: "solid", color: "#CCD2D8" }]);
+    expect(table.cellFills[1]![2]).toEqual({ kind: "pattern", preset: "smGrid", foreground: "#E8A33D", background: "#FFF4E0" });
+    expect(table.cellFills[2]![2]).toMatchObject({ kind: "path-gradient", path: "rect", focus: { left: 0.5, top: 0.5, right: 0.5, bottom: 0.5 } });
   });
 });

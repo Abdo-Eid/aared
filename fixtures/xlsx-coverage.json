@@ -1,0 +1,9 @@
+{
+  "id": "xlsx-coverage",
+  "sheets": {
+    "rtl-grid": { "hasText": "ميزانية الإنتاج الشهرية" },
+    "summary": { "hasText": "Production budget — summary" },
+    "deep-log": { "hasText": "Shot Log — Episodes 04–06" },
+    "notes": { "hasText": "How to use this workbook" }
+  }
+}

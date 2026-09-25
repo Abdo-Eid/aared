@@ -1,6 +1,7 @@
 import { defineConfig } from 'astro/config';
 import react from '@astrojs/react';
 import mdx from '@astrojs/mdx';
+import { codeThemes } from './src/lib/code-themes.ts';
 
 // Domain-root deploy (no subpath `base`): routes are `/`, `/playground/`,
 // `/api/`. If this ever moves under a project subpath again, every
@@ -18,8 +19,10 @@ export default defineConfig({
     mdx(),
   ],
   markdown: {
+    // Light and dark token colours both ship; the site theme picks one.
     shikiConfig: {
-      theme: 'github-dark',
+      themes: codeThemes,
+      defaultColor: false,
     },
   },
 });

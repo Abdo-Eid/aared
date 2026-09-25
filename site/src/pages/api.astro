@@ -4,9 +4,9 @@ import DocsLayout from "../layouts/DocsLayout.astro";
 
 const [entry] = await getCollection("docs", (entry) => entry.id === "api");
 if (!entry) throw new Error("Missing docs entry: api");
-const { Content } = await render(entry);
+const { Content, headings } = await render(entry);
 ---
 
-<DocsLayout title={entry.data.title} description={entry.data.description} current="/api/">
+<DocsLayout title={entry.data.title} description={entry.data.description} current="/api/" headings={headings}>
   <Content />
 </DocsLayout>

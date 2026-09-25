@@ -1,52 +1,165 @@
 ---
-/**
- * The home-page hero: a light table holding one real slide as two mounted
- * transparencies — the parsed model (`[data-panel="json"]`) and the live
- * DOM/SVG render (`[data-panel="render"]`). Wiring lives in
- * `demos/light-table.ts` + the shared `lib/demo-frame.ts` `attachDemo()`
- * helper; this file is markup + presentation only.
- *
- * Single instance per page (hard-coded id), like the other demo frames.
- */
+import Code from "astro/components/Code.astro";
 import type { DemoFixture } from "../lib/demo-frame.js";
+import { codeThemes } from "../lib/code-themes.ts";
 
 interface Props {
   fixtures: DemoFixture[];
 }
 
 const { fixtures } = Astro.props;
+
+interface Snippet {
+  lang: "html" | "tsx" | "js";
+  code: string;
+}
+
+// One snippet per (code variant x file format). Real API usage taken from
+// the API reference — nothing invented.
+const elementSnippet = (file: string): Snippet => ({
+  lang: "html",
+  code: `<script type="module">
+  import "aared/element";
+</script>
+
+<aared-viewer
+  src="./${file}">
+</aared-viewer>`,
+});
+
+// Per format, what the hook needs beyond the source: PPTX draws its text with
+// the bundled fonts, XLSX shows its sheet tabs. Options live outside the
+// component so they stay referentially stable across renders.
+const reactSnippet = (hook: string, component: string, setup: { imports?: string; options?: string; props?: string } = {}): Snippet => ({
+  lang: "tsx",
+  code: `import { ${hook} } from "aared/react";
+${setup.imports ?? ""}${setup.options !== undefined ? `\n${setup.options}\n` : ""}
+function ${component}({ file }: { file: string | File }) {
+  const { ref } = ${hook}({ source: file${setup.props ?? ""} });
+  return <div ref={ref} />;
+}`,
+});
+
+const snippets: Record<string, Record<string, Snippet>> = {
+  element: {
+    pptx: elementSnippet("post-production-review.pptx"),
+    xlsx: elementSnippet("post-production-tracker.xlsx"),
+    docx: elementSnippet("docx-coverage.docx"),
+  },
+  react: {
+    pptx: reactSnippet("usePptx", "Slide", {
+      imports: `import { defaultResolver } from "aared-fonts";\n`,
+      props: ", fontResolver: defaultResolver",
+    }),
+    xlsx: reactSnippet("useXlsx", "Sheet", {
+      options: "const appearance = { spreadsheet: { sheetTabs: true } };",
+      props: ", appearance",
+    }),
+    docx: reactSnippet("useDocx", "Doc"),
+  },
+  js: {
+    pptx: {
+      lang: "js",
+      code: `import { open, render } from "aared/pptx";
+import { defaultResolver } from "aared-fonts";
+
+const deck = await open(file, { fontResolver: defaultResolver });
+const slide = deck.slides.get(0);
+
+const viewer = await render({ slide, target: el });`,
+    },
+    xlsx: {
+      lang: "js",
+      code: `import { open, render } from "aared/xlsx";
+
+const workbook = await open(file);
+const sheet = workbook.sheets.get(0);
+
+const viewer = await render({
+  sheet,
+  target: el,
+  zoom: 0.7,
+  appearance: { spreadsheet: { sheetTabs: true } },
+});`,
+    },
+    docx: {
+      lang: "js",
+      code: `import { open, render } from "aared/docx";
+
+const document = await open(file);
+
+const viewer = await render({ document, target: el, zoom: 0.65 });`,
+    },
+  },
+};
+
+const formatLabels: Record<string, string> = { pptx: "PPTX", xlsx: "XLSX", docx: "DOCX" };
 ---
 
 <div class="lt-frame" id="light-table-frame" data-initial={fixtures[0]?.url ?? ""}>
+
+  <!-- Toolbar: code-variant pills left, file-format pills + status right -->
   <div class="lt-toolbar">
-    <div class="lt-picker">
-      <span class="lt-picker-label" id="lt-fixture-label">Slide</span>
-      <select data-pick aria-labelledby="lt-fixture-label">
-        {fixtures.map((fixture) => (
-          <option value={fixture.url}>{fixture.label}</option>
-        ))}
-      </select>
+    <div class="lt-tabs" data-variant-tabs>
+      <button class="lt-tab" aria-pressed="true"  data-tab="element">HTML</button>
+      <button class="lt-tab" aria-pressed="false" data-tab="react">React</button>
+      <button class="lt-tab" aria-pressed="false" data-tab="js">JS</button>
     </div>
-    <p data-status data-state="idle" class="lt-status">Loading the light table…</p>
+    <div class="lt-toolbar-right">
+      <div class="lt-tabs" data-format-tabs>
+        {fixtures.map((f, i) => (
+          <button
+            class="lt-tab"
+            aria-pressed={i === 0 ? "true" : "false"}
+            data-format={f.format}
+            data-src={f.url}
+          >
+            {formatLabels[f.format] ?? f.format}
+          </button>
+        ))}
+      </div>
+      <!-- Kept in the DOM for attachDemo's wiring; visually hidden except
+           on error, where the message is worth surfacing. -->
+      <p data-status data-state="idle" class="lt-status">Loading…</p>
+    </div>
+    <!-- Real <select>, kept for the demo-frame wiring; hidden from view,
+         driven programmatically by the format pills above. -->
+    <select data-pick hidden aria-hidden="true" tabindex="-1">
+      {fixtures.map((f) => <option value={f.url}>{f.label}</option>)}
+    </select>
   </div>
 
+  <!-- Stage: code left, live render right -->
   <div data-stage data-state="idle" class="lt-stage">
-    <div class="lt-panel lt-panel-json">
-      <p class="lt-panel-label">the negative — parsed model</p>
-      <div class="lt-json" data-panel="json" role="group" aria-label="Parsed slide data"></div>
+
+    <!-- Code panel — static, tab-switched -->
+    <div class="lt-panel lt-panel-code">
+      {Object.entries(snippets).map(([variant, byFormat]) => (
+        <>
+          {Object.entries(byFormat).map(([format, snippet]) => (
+            <div
+              data-tab-panel={variant}
+              data-format-panel={format}
+              hidden={!(variant === "element" && format === (fixtures[0]?.format ?? "pptx"))}
+            >
+              <Code
+                code={snippet.code}
+                lang={snippet.lang}
+                themes={codeThemes}
+                defaultColor={false}
+                wrap
+              />
+            </div>
+          ))}
+        </>
+      ))}
     </div>
 
-    <div class="lt-loupe" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="22" height="22">
-        <circle cx="10" cy="10" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/>
-        <line x1="15" y1="15" x2="20.5" y2="20.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      </svg>
-    </div>
-
+    <!-- Render panel — live output -->
     <div class="lt-panel lt-panel-render">
-      <p class="lt-panel-label">the print — live render</p>
       <div class="lt-render" data-panel="render"></div>
     </div>
+
   </div>
 </div>
 
@@ -55,22 +168,66 @@ const { fixtures } = Astro.props;
   import { runLightTable } from "../demos/light-table.ts";
 
   const frame = document.getElementById("light-table-frame");
-  if (frame instanceof HTMLElement) attachDemo(frame, () => runLightTable);
+  if (frame instanceof HTMLElement) {
+    // Wire the demo render (reads/writes the hidden <select> under the hood)
+    attachDemo(frame, () => runLightTable);
+
+    const select = frame.querySelector<HTMLSelectElement>("[data-pick]");
+    const variantTabs = frame.querySelectorAll<HTMLButtonElement>("[data-variant-tabs] [data-tab]");
+    const formatTabs = frame.querySelectorAll<HTMLButtonElement>("[data-format-tabs] [data-format]");
+    const codePanels = frame.querySelectorAll<HTMLElement>("[data-tab-panel]");
+
+    let activeVariant = "element";
+    let activeFormat = formatTabs[0]?.dataset.format ?? "pptx";
+
+    frame.dataset.format = activeFormat;
+
+    const showCode = (): void => {
+      codePanels.forEach((p) => {
+        p.hidden = !(p.dataset.tabPanel === activeVariant && p.dataset.formatPanel === activeFormat);
+      });
+    };
+
+    variantTabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        activeVariant = tab.dataset.tab ?? activeVariant;
+        variantTabs.forEach((t) => t.setAttribute("aria-pressed", t === tab ? "true" : "false"));
+        showCode();
+      });
+    });
+
+    formatTabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        activeFormat = tab.dataset.format ?? activeFormat;
+        frame.dataset.format = activeFormat;
+        formatTabs.forEach((t) => t.setAttribute("aria-pressed", t === tab ? "true" : "false"));
+        showCode();
+        if (select && tab.dataset.src) {
+          select.value = tab.dataset.src;
+          select.dispatchEvent(new Event("change"));
+        }
+      });
+    });
+  }
 </script>
 
 <style>
+  /* Local radius tokens — don't touch the global --lt-radius */
   .lt-frame {
-    --lt-panel-gap: 1.75rem;
+    --lt-card-radius: 10px;
+    --lt-pill-radius: 999px;
+
     display: grid;
     gap: 1rem;
     background-image: var(--lt-grid);
     background-size: var(--lt-grid-size) var(--lt-grid-size);
     background-color: var(--lt-ground);
     border: 1px solid var(--lt-mount-edge);
-    border-radius: var(--lt-radius);
-    padding: 1.5rem;
+    border-radius: var(--lt-card-radius);
+    padding: 1.25rem;
   }
 
+  /* ---- Toolbar ---- */
   .lt-toolbar {
     display: flex;
     flex-wrap: wrap;
@@ -81,164 +238,150 @@ const { fixtures } = Astro.props;
     font-size: 0.8rem;
   }
 
-  .lt-picker {
+  .lt-tabs {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .lt-picker-label {
-    color: var(--lt-ink-soft);
-    text-transform: lowercase;
-  }
-  .lt-picker select {
-    font: inherit;
+    gap: 0.35rem;
     background: var(--lt-mount);
-    color: var(--lt-ink);
     border: 1px solid var(--lt-mount-edge);
-    border-radius: var(--lt-radius);
-    padding: 0.35rem 0.5rem;
+    border-radius: var(--lt-pill-radius);
+    padding: 0.25rem;
   }
-  .lt-picker select:focus-visible {
-    outline: 2px solid var(--lt-amber);
+
+  .lt-tab {
+    font: inherit;
+    background: none;
+    border: none;
+    border-radius: var(--lt-pill-radius);
+    padding: 0.3rem 0.85rem;
+    cursor: pointer;
+    color: var(--lt-ink-soft);
+    transition: background 0.12s, color 0.12s;
+  }
+  .lt-tab[aria-pressed="true"] {
+    background: var(--lt-pill);
+    color: var(--lt-ink);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  }
+  .lt-tab:hover:not([aria-pressed="true"]) {
+    color: var(--lt-ink);
+  }
+  .lt-tab:focus-visible {
+    outline: 2px solid var(--lt-accent);
     outline-offset: 2px;
   }
 
-  .lt-status {
-    margin: 0;
-    color: var(--lt-ink-soft);
+  .lt-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
   }
-  .lt-status[data-state="ready"] {
-    color: var(--lt-ink);
+
+  /* Visually hidden by default — attachDemo still needs the element in the
+     DOM to wire loading state. Surfaces only on error. */
+  .lt-status {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
   }
   .lt-status[data-state="error"] {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+    margin: 0;
     color: #c0392b;
   }
 
+  /* ---- Stage: two cards side-by-side ---- */
   .lt-stage {
-    position: relative;
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
     align-items: stretch;
-    gap: var(--lt-panel-gap);
   }
   @media (max-width: 55rem) {
-    .lt-stage {
-      grid-template-columns: 1fr;
-    }
-    .lt-loupe {
-      display: none;
-    }
+    .lt-stage { grid-template-columns: 1fr; }
   }
 
   .lt-panel {
     background: var(--lt-mount);
     border: 1px solid var(--lt-mount-edge);
-    border-radius: var(--lt-radius);
-    padding: 0.85rem;
+    border-radius: var(--lt-card-radius);
+    overflow: hidden;
+    box-shadow: 0 4px 16px -8px rgba(0, 0, 0, 0.18);
+  }
+
+  /* ---- Code panel ---- */
+  .lt-panel-code {
+    padding: 1.25rem;
     min-width: 0;
-    box-shadow: 0 6px 18px -12px rgba(0, 0, 0, 0.4);
   }
 
-  .lt-panel-label {
-    margin: 0 0 0.6rem;
+  /* Shiki dual-theme output: the pre carries --shiki-light/--shiki-dark
+     token colours; the site's data-theme picks which set applies, and the
+     card's own cream/dark surface stays the background. Long lines wrap. */
+  .lt-panel-code :global(pre.astro-code) {
+    margin: 0;
+    padding: 0;
+    background: none !important;
     font-family: var(--lt-font-mono, ui-monospace, monospace);
-    font-size: 0.7rem;
-    letter-spacing: 0.02em;
-    color: var(--lt-ink-soft);
+    font-size: 0.85rem;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    tab-size: 2;
+  }
+  .lt-panel-code :global(pre.astro-code code) {
+    font-family: inherit;
+  }
+  /* Hanging indent: a wrapped continuation sits two columns in, so a folded
+     line reads as one statement instead of a stray line. */
+  .lt-panel-code :global(pre.astro-code .line) {
+    display: inline-block;
+    box-sizing: border-box;
+    width: 100%;
+    padding-inline-start: 2ch;
+    text-indent: -2ch;
+  }
+  .lt-panel-code :global(pre.astro-code span) {
+    color: var(--shiki-light);
+  }
+  :global(:root[data-theme="dark"]) .lt-panel-code :global(pre.astro-code span) {
+    color: var(--shiki-dark);
   }
 
-  .lt-json {
-    font-family: var(--lt-font-mono, ui-monospace, monospace);
-    font-size: 0.78rem;
-    line-height: 1.65;
-    overflow-x: auto;
-    max-height: 26rem;
-    overflow-y: auto;
-  }
-
-  .lt-json :global(.lt-json-line) {
-    white-space: pre;
-  }
-
-  .lt-json :global(.lt-json-row) {
-    border-radius: 2px;
-    transition: background-color 0.15s ease, box-shadow 0.15s ease;
-  }
-  .lt-json :global(.lt-json-row[data-aared-element="shape"]) {
-    cursor: pointer;
-  }
-  .lt-json :global(.lt-json-row[data-static]) {
-    opacity: 0.65;
-  }
-  .lt-json :global(.lt-json-row[data-lit]) {
-    background-color: color-mix(in srgb, var(--lt-amber) 16%, transparent);
-    box-shadow: inset 2px 0 0 var(--lt-amber);
-  }
-  .lt-json :global(.lt-json-row:focus-visible) {
-    outline: 2px solid var(--lt-amber);
-    outline-offset: -2px;
-  }
-
-  .lt-json :global(.tok-key) {
-    color: var(--lt-ink);
-    font-weight: 500;
-  }
-  .lt-json :global(.tok-str) {
-    color: var(--lt-amber-dim, var(--lt-amber));
-  }
-  .lt-json :global(.tok-num) {
-    color: #2f6f5e;
-  }
-  .lt-json :global(.tok-kw) {
-    color: var(--lt-ink-soft);
-    font-style: italic;
-  }
-  .lt-json :global(.tok-elided) {
-    color: var(--lt-ink-soft);
-    font-style: italic;
-  }
-  .lt-json :global(.tok-punct) {
-    color: var(--lt-ink-soft);
-  }
-
+  /* ---- Render panel ---- */
   .lt-render {
     position: relative;
     aspect-ratio: 16 / 9;
     background: #fff;
     overflow: auto;
-    border-radius: 2px;
-  }
-  .lt-render :global([data-aared-element="shape"]) {
-    transition: outline-color 0.15s ease, box-shadow 0.15s ease;
-    outline: 2px solid transparent;
-    outline-offset: 2px;
-  }
-  .lt-render :global([data-aared-element="shape"][data-lit]) {
-    outline-color: var(--lt-amber);
-    box-shadow: 0 0 0 6px color-mix(in srgb, var(--lt-amber) 22%, transparent);
   }
 
-  .lt-loupe {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--lt-ink-soft);
-    align-self: center;
+  /* Slides are 16:9; sheets and documents need room to be legible. */
+  .lt-frame[data-format="xlsx"] .lt-render,
+  .lt-frame[data-format="docx"] .lt-render {
+    aspect-ratio: auto;
+    height: 26rem;
   }
 
-  .lt-stage[data-state="loading"] .lt-render,
-  .lt-stage[data-state="loading"] .lt-json {
+  /* Loading shimmer */
+  .lt-stage[data-state="loading"] .lt-render {
     position: relative;
   }
-  .lt-stage[data-state="loading"] .lt-render::after,
-  .lt-stage[data-state="loading"] .lt-json::after {
+  .lt-stage[data-state="loading"] .lt-render::after {
     content: "";
     position: absolute;
     inset: 0;
     background: linear-gradient(
       100deg,
       transparent 30%,
-      color-mix(in srgb, var(--lt-amber) 12%, transparent) 50%,
+      color-mix(in srgb, var(--lt-accent) 12%, transparent) 50%,
       transparent 70%
     );
     background-size: 200% 100%;
@@ -246,22 +389,11 @@ const { fixtures } = Astro.props;
   }
 
   @keyframes lt-skeleton {
-    from {
-      background-position: 200% 0;
-    }
-    to {
-      background-position: -200% 0;
-    }
+    from { background-position: 200% 0; }
+    to   { background-position: -200% 0; }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .lt-json :global(.lt-json-row),
-    .lt-render :global([data-aared-element="shape"]) {
-      transition: none;
-    }
-    .lt-stage[data-state="loading"] .lt-render::after,
-    .lt-stage[data-state="loading"] .lt-json::after {
-      animation: none;
-    }
+    .lt-stage[data-state="loading"] .lt-render::after { animation: none; }
   }
 </style>

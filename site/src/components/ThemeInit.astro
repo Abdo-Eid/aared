@@ -9,7 +9,7 @@
 <script is:inline>
   (() => {
     const stored = typeof localStorage !== "undefined" && localStorage.getItem("starlight-theme");
-    const theme = stored || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-    document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
+    const theme = stored ?? "light";
+    document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
   })();
 </script>

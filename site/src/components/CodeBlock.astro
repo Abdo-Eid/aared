@@ -1,6 +1,7 @@
 ---
 import Code from "astro/components/Code.astro";
 import type { CodeProps } from "astro/components/Code.astro";
+import { codeThemes } from "../lib/code-themes.ts";
 
 interface Props extends Omit<CodeProps, "lang"> {
   title: string;
@@ -15,15 +16,23 @@ const { title, lang = "ts", code } = Astro.props;
     <span class="code-lang">{lang}</span>
     <span class="code-title">{title}</span>
   </div>
-  <Code {code} lang={lang} />
+  <Code {code} lang={lang} themes={codeThemes} defaultColor={false} wrap />
 </div>
 
 <style>
   .code-block {
     border: 1px solid var(--lt-mount-edge);
-    border-radius: var(--lt-radius);
+    border-radius: var(--docs-radius, 16px);
     overflow: hidden;
     background: var(--lt-mount);
+  }
+  .code-block :global(.code-wrap) {
+    margin: 0;
+  }
+  .code-block :global(pre) {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
   }
   .code-bar {
     display: flex;
@@ -39,7 +48,7 @@ const { title, lang = "ts", code } = Astro.props;
   .code-lang {
     text-transform: uppercase;
     font-weight: 600;
-    color: var(--lt-amber);
+    color: var(--lt-accent);
   }
   .code-title {
     opacity: 0.8;

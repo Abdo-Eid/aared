@@ -14,6 +14,7 @@ import type { XmlElement } from "./xml.js";
 import { resolveDrawingColor } from "./theme.js";
 import type { DrawingTheme } from "./theme.js";
 import type { ChartGraphicModel, ChartGraphicPrimitive } from "./model.js";
+import { EMU_PER_INCH, PX_PER_INCH } from "./units.js";
 
 const VIEW_WIDTH = 1000;
 const VIEW_HEIGHT = 600;
@@ -117,12 +118,28 @@ function collectSeries(chartType: XmlElement, theme: DrawingTheme): ChartSeries[
   });
 }
 
-function axisFontFamily(theme: DrawingTheme): string {
-  return theme.fonts.minor.latin || theme.fonts.minor.complexScript || "Arial";
+/** Widest series (categories or values); a loop, since spreading a large series into `Math.max` overflows the stack. */
+function categoryCountOf(series: readonly ChartSeries[]): number {
+  let count = 0;
+  for (const entry of series) count = Math.max(count, entry.categories.length, entry.values.length);
+  return count;
 }
 
-function escapeText(text: string): string {
-  return text;
+/** Value range across all series, always including zero (the baseline). */
+function valueRange(series: readonly ChartSeries[]): { minValue: number; maxValue: number } {
+  let minValue = 0;
+  let maxValue = 0;
+  for (const entry of series) {
+    for (const value of entry.values) {
+      if (value < minValue) minValue = value;
+      if (value > maxValue) maxValue = value;
+    }
+  }
+  return { minValue, maxValue };
+}
+
+function axisFontFamily(theme: DrawingTheme): string {
+  return theme.fonts.minor.latin || theme.fonts.minor.complexScript || "Arial";
 }
 
 function barPrimitives(
@@ -136,14 +153,12 @@ function barPrimitives(
   const legendReserve = hasLegend ? LEGEND_HEIGHT : 0;
   const plotWidth = VIEW_WIDTH - PLOT_LEFT - PLOT_RIGHT;
   const plotHeight = VIEW_HEIGHT - PLOT_TOP - PLOT_BOTTOM - legendReserve;
-  const categoryCount = Math.max(0, ...series.map((entry) => Math.max(entry.categories.length, entry.values.length)));
+  const categoryCount = categoryCountOf(series);
   if (categoryCount === 0 || series.length === 0) return primitives;
   const categories = series[0]!.categories.length === categoryCount
     ? series[0]!.categories
     : Array.from({ length: categoryCount }, (_, index) => series[0]?.categories[index] ?? `Cat ${index + 1}`);
-  const allValues = series.flatMap((entry) => entry.values);
-  const maxValue = Math.max(0, ...allValues);
-  const minValue = Math.min(0, ...allValues);
+  const { minValue, maxValue } = valueRange(series);
   const span = maxValue - minValue === 0 ? 1 : maxValue - minValue;
   const yFor = (value: number): number => PLOT_TOP + plotHeight - ((value - minValue) / span) * plotHeight;
   const xFor = (value: number): number => PLOT_LEFT + ((value - minValue) / span) * plotWidth;
@@ -159,7 +174,7 @@ function barPrimitives(
       const y = yFor(value);
       primitives.push({ kind: "line", x1: PLOT_LEFT, y1: y, x2: PLOT_LEFT + plotWidth, y2: y, stroke: { color: tick === 0 ? axisColor : gridColor, width: 2 } });
       primitives.push({
-        kind: "text", x: PLOT_LEFT - 10, y: y + 7, text: escapeText(String(Math.round(value * 100) / 100)),
+        kind: "text", x: PLOT_LEFT - 10, y: y + 7, text: String(Math.round(value * 100) / 100),
         fontSize: 20, fontFamily, textAnchor: "end", fill: "#5B6470",
       });
     }
@@ -171,7 +186,7 @@ function barPrimitives(
       const x = xFor(value);
       primitives.push({ kind: "line", x1: x, y1: PLOT_TOP, x2: x, y2: PLOT_TOP + plotHeight, stroke: { color: tick === 0 ? axisColor : gridColor, width: 2 } });
       primitives.push({
-        kind: "text", x, y: PLOT_TOP + plotHeight + 24, text: escapeText(String(Math.round(value * 100) / 100)),
+        kind: "text", x, y: PLOT_TOP + plotHeight + 24, text: String(Math.round(value * 100) / 100),
         fontSize: 20, fontFamily, textAnchor: "middle", fill: "#5B6470",
       });
     }
@@ -192,14 +207,14 @@ function barPrimitives(
         primitives.push({ kind: "rect", x, y, width: barWidth, height, fill: entry.fill ?? FALLBACK_PALETTE[seriesIndex % FALLBACK_PALETTE.length]! });
         primitives.push({
           kind: "text", x: x + barWidth / 2, y: (value >= 0 ? y - 6 : y + height + 20),
-          text: escapeText(String(value)), fontSize: 18, fontFamily, textAnchor: "middle", fill: "#5B6470",
+          text: String(value), fontSize: 18, fontFamily, textAnchor: "middle", fill: "#5B6470",
         });
       });
     });
     categories.forEach((category, index) => {
       primitives.push({
         kind: "text", x: PLOT_LEFT + groupWidth * index + groupWidth / 2, y: PLOT_TOP + plotHeight + 28,
-        text: escapeText(category), fontSize: 20, fontFamily, textAnchor: "middle", fill: "#5B6470",
+        text: category, fontSize: 20, fontFamily, textAnchor: "middle", fill: "#5B6470",
       });
     });
   } else {
@@ -215,7 +230,7 @@ function barPrimitives(
         primitives.push({ kind: "rect", x, y, width, height: barHeight, fill: entry.fill ?? FALLBACK_PALETTE[seriesIndex % FALLBACK_PALETTE.length]! });
         primitives.push({
           kind: "text", x: (value >= 0 ? x + width + 6 : x - 6), y: y + barHeight / 2 + 6,
-          text: escapeText(String(value)), fontSize: 18, fontFamily,
+          text: String(value), fontSize: 18, fontFamily,
           textAnchor: value >= 0 ? "start" : "end", fill: "#5B6470",
         });
       });
@@ -223,7 +238,7 @@ function barPrimitives(
     categories.forEach((category, index) => {
       primitives.push({
         kind: "text", x: PLOT_LEFT - 10, y: PLOT_TOP + groupHeight * index + groupHeight / 2 + 6,
-        text: escapeText(category), fontSize: 20, fontFamily, textAnchor: "end", fill: "#5B6470",
+        text: category, fontSize: 20, fontFamily, textAnchor: "end", fill: "#5B6470",
       });
     });
   }
@@ -236,7 +251,7 @@ function barPrimitives(
       primitives.push({ kind: "rect", x: cursor, y: legendY - 14, width: 22, height: 14, fill: color });
       cursor += 28;
       const label = entry.name === "" ? `Series ${index + 1}` : entry.name;
-      primitives.push({ kind: "text", x: cursor, y: legendY, text: escapeText(label), fontSize: 20, fontFamily, textAnchor: "start", fill: "#5B6470" });
+      primitives.push({ kind: "text", x: cursor, y: legendY, text: label, fontSize: 20, fontFamily, textAnchor: "start", fill: "#5B6470" });
       cursor += Math.max(60, label.length * 11 + 24);
     });
   }
@@ -249,14 +264,12 @@ function linePrimitives(series: ChartSeries[], theme: DrawingTheme, hasLegend: b
   const legendReserve = hasLegend ? LEGEND_HEIGHT : 0;
   const plotWidth = VIEW_WIDTH - PLOT_LEFT - PLOT_RIGHT;
   const plotHeight = VIEW_HEIGHT - PLOT_TOP - PLOT_BOTTOM - legendReserve;
-  const categoryCount = Math.max(0, ...series.map((entry) => Math.max(entry.categories.length, entry.values.length)));
+  const categoryCount = categoryCountOf(series);
   if (categoryCount === 0 || series.length === 0) return primitives;
   const categories = series[0]!.categories.length === categoryCount
     ? series[0]!.categories
     : Array.from({ length: categoryCount }, (_, index) => series[0]?.categories[index] ?? `Cat ${index + 1}`);
-  const allValues = series.flatMap((entry) => entry.values);
-  const maxValue = Math.max(0, ...allValues);
-  const minValue = Math.min(0, ...allValues);
+  const { minValue, maxValue } = valueRange(series);
   const span = maxValue - minValue === 0 ? 1 : maxValue - minValue;
   const xFor = (index: number): number => categoryCount === 1 ? PLOT_LEFT + plotWidth / 2 : PLOT_LEFT + (plotWidth * index) / (categoryCount - 1);
   const yFor = (value: number): number => PLOT_TOP + plotHeight - ((value - minValue) / span) * plotHeight;
@@ -266,7 +279,7 @@ function linePrimitives(series: ChartSeries[], theme: DrawingTheme, hasLegend: b
     const y = yFor(value);
     primitives.push({ kind: "line", x1: PLOT_LEFT, y1: y, x2: PLOT_LEFT + plotWidth, y2: y, stroke: { color: tick === 0 ? "#888888" : "#E6E2DA", width: 2 } });
     primitives.push({
-      kind: "text", x: PLOT_LEFT - 10, y: y + 7, text: escapeText(String(Math.round(value * 100) / 100)),
+      kind: "text", x: PLOT_LEFT - 10, y: y + 7, text: String(Math.round(value * 100) / 100),
       fontSize: 20, fontFamily, textAnchor: "end", fill: "#5B6470",
     });
   }
@@ -281,7 +294,7 @@ function linePrimitives(series: ChartSeries[], theme: DrawingTheme, hasLegend: b
     for (const point of points) {
       primitives.push({ kind: "rect", x: point.x - 5, y: point.y - 5, width: 10, height: 10, fill: color });
       primitives.push({
-        kind: "text", x: point.x, y: point.y - 10, text: escapeText(String(point.value)),
+        kind: "text", x: point.x, y: point.y - 10, text: String(point.value),
         fontSize: 18, fontFamily, textAnchor: "middle", fill: "#5B6470",
       });
     }
@@ -290,7 +303,7 @@ function linePrimitives(series: ChartSeries[], theme: DrawingTheme, hasLegend: b
   categories.forEach((category, index) => {
     primitives.push({
       kind: "text", x: xFor(index), y: PLOT_TOP + plotHeight + 28,
-      text: escapeText(category), fontSize: 20, fontFamily, textAnchor: "middle", fill: "#5B6470",
+      text: category, fontSize: 20, fontFamily, textAnchor: "middle", fill: "#5B6470",
     });
   });
 
@@ -302,7 +315,7 @@ function linePrimitives(series: ChartSeries[], theme: DrawingTheme, hasLegend: b
       primitives.push({ kind: "line", x1: cursor, y1: legendY - 5, x2: cursor + 26, y2: legendY - 5, stroke: { color, width: 4 } });
       cursor += 32;
       const label = entry.name === "" ? `Series ${index + 1}` : entry.name;
-      primitives.push({ kind: "text", x: cursor, y: legendY, text: escapeText(label), fontSize: 20, fontFamily, textAnchor: "start", fill: "#5B6470" });
+      primitives.push({ kind: "text", x: cursor, y: legendY, text: label, fontSize: 20, fontFamily, textAnchor: "start", fill: "#5B6470" });
       cursor += Math.max(60, label.length * 11 + 24);
     });
   }
@@ -353,7 +366,7 @@ function piePrimitives(chartType: XmlElement, theme: DrawingTheme, hasLegend: bo
     const percent = `${round((clamped / total) * 1000) / 10}%`;
     primitives.push({
       kind: "text", x: round(labelX), y: round(labelY),
-      text: escapeText(category === "" ? percent : `${category} ${percent}`),
+      text: category === "" ? percent : `${category} ${percent}`,
       fontSize: 20, fontFamily, textAnchor: "middle", fill: "#FFFFFF",
     });
     angle += sweep;
@@ -367,37 +380,113 @@ function piePrimitives(chartType: XmlElement, theme: DrawingTheme, hasLegend: bo
       const label = first.categories[index] ?? `Slice ${index + 1}`;
       primitives.push({ kind: "rect", x: cursor, y: legendY - 14, width: 22, height: 14, fill });
       cursor += 28;
-      primitives.push({ kind: "text", x: cursor, y: legendY, text: escapeText(label), fontSize: 20, fontFamily, textAnchor: "start", fill: "#5B6470" });
+      primitives.push({ kind: "text", x: cursor, y: legendY, text: label, fontSize: 20, fontFamily, textAnchor: "start", fill: "#5B6470" });
       cursor += Math.max(60, label.length * 11 + 24);
     });
   }
   return primitives;
 }
 
+function plotAreaOf(chartSpace: XmlElement): { chart?: XmlElement; plotArea?: XmlElement } {
+  // Accept the part root (`c:chartSpace`) or its `c:chart` child.
+  const chart = chartSpace.local === "chart" ? chartSpace : firstChild(chartSpace, "chart");
+  if (chart === undefined) return {};
+  const plotArea = firstChild(chart, "plotArea");
+  return plotArea === undefined ? { chart } : { chart, plotArea };
+}
+
+const viewBox = (): ChartGraphicModel["viewBox"] => ({ width: VIEW_WIDTH, height: VIEW_HEIGHT });
+
+/**
+ * The chart's authored title (`c:chart/c:title/c:tx`), trimmed. Titles live
+ * outside the plot area in DrawingML, so every chart kind shares this one
+ * reader; an overlay title (`overlay="1"`) is still painted — preview has no
+ * layout pass that could reflow around it.
+ */
+function chartTitle(chart: XmlElement): string {
+  const tx = firstChild(firstChild(chart, "title") ?? chart, "tx");
+  return tx === undefined ? "" : textContent(tx).trim();
+}
+
+/** Centered title primitive for the reserved band above the plot (`PLOT_TOP`). */
+function titlePrimitive(title: string, theme: DrawingTheme): ChartGraphicPrimitive {
+  return {
+    kind: "text",
+    x: VIEW_WIDTH / 2,
+    y: PLOT_TOP - 8,
+    text: title,
+    fontSize: 22,
+    fontFamily: axisFontFamily(theme),
+    fontWeight: "bold",
+    textAnchor: "middle",
+    fill: "#5B6470",
+  };
+}
+
+/** EMU per CSS pixel (96 dpi). */
+const EMU_PER_PIXEL = EMU_PER_INCH / PX_PER_INCH;
+
+/** The chart area's authored fill and outline, when the part is a `c:chartSpace`. */
+function chartBackground(chartSpace: XmlElement, theme: DrawingTheme): ChartGraphicModel["background"] {
+  const spPr = chartSpace.local === "chartSpace" ? firstChild(chartSpace, "spPr") : undefined;
+  if (spPr === undefined) return undefined;
+  const fill = resolveDrawingColor(firstChild(spPr, "solidFill"), theme);
+  const line = firstChild(spPr, "ln");
+  const lineColor = line === undefined ? undefined : resolveDrawingColor(firstChild(line, "solidFill"), theme);
+  if (fill === undefined && lineColor === undefined) return undefined;
+  const background: NonNullable<ChartGraphicModel["background"]> = {};
+  if (fill !== undefined) background.fill = fill;
+  if (line !== undefined && lineColor !== undefined) {
+    const width = Number(attr(line, "w"));
+    background.stroke = { color: lineColor, width: Number.isFinite(width) && width > 0 ? Math.max(1, width / EMU_PER_PIXEL) : 1 };
+  }
+  return background;
+}
+
 /** Parse a DrawingML `c:chartSpace` element into typed SVG primitives. */
 export function parseChartGraphic(chartSpace: XmlElement, theme: DrawingTheme): ChartGraphicModel | undefined {
-  const chart = firstChild(chartSpace, "chart");
-  const plotArea = chart === undefined ? undefined : firstChild(chart, "plotArea");
-  if (plotArea === undefined) return undefined;
-  const hasLegend = chart === undefined ? false : firstChild(chart, "legend") !== undefined;
+  const graphic = parseChartPrimitives(chartSpace, theme);
+  if (graphic === undefined) return undefined;
+  const background = chartBackground(chartSpace, theme);
+  return background === undefined ? graphic : { ...graphic, background };
+}
+
+function parseChartPrimitives(chartSpace: XmlElement, theme: DrawingTheme): ChartGraphicModel | undefined {
+  const { chart, plotArea } = plotAreaOf(chartSpace);
+  if (chart === undefined || plotArea === undefined) return undefined;
+  const hasLegend = firstChild(chart, "legend") !== undefined;
+  const title = chartTitle(chart);
+  const titled = (primitives: ChartGraphicPrimitive[]): ChartGraphicPrimitive[] =>
+    title === "" ? primitives : [titlePrimitive(title, theme), ...primitives];
   const barChart = firstChild(plotArea, "barChart");
   const lineChart = firstChild(plotArea, "lineChart");
-  const pieChart = firstChild(plotArea, "pieChart");
+  const pieChart = firstChild(plotArea, "pieChart") ?? firstChild(plotArea, "doughnutChart");
   if (barChart !== undefined) {
     const direction = attr(firstChild(barChart, "barDir") ?? barChart, "val") === "bar" ? "bar" : "col";
     const series = collectSeries(barChart, theme);
     if (series.length === 0) return undefined;
-    return { viewBox: { width: VIEW_WIDTH, height: VIEW_HEIGHT }, primitives: barPrimitives(series, direction, theme, hasLegend) };
+    return { viewBox: viewBox(), primitives: titled(barPrimitives(series, direction, theme, hasLegend)) };
   }
   if (lineChart !== undefined) {
     const series = collectSeries(lineChart, theme);
     if (series.length === 0) return undefined;
-    return { viewBox: { width: VIEW_WIDTH, height: VIEW_HEIGHT }, primitives: linePrimitives(series, theme, hasLegend) };
+    return { viewBox: viewBox(), primitives: titled(linePrimitives(series, theme, hasLegend)) };
   }
   if (pieChart !== undefined) {
     const primitives = piePrimitives(pieChart, theme, hasLegend);
     if (primitives.length === 0) return undefined;
-    return { viewBox: { width: VIEW_WIDTH, height: VIEW_HEIGHT }, primitives };
+    return { viewBox: viewBox(), primitives: titled(primitives) };
   }
   return undefined;
+}
+
+/** Why `parseChartGraphic` drew nothing for this chart, phrased for an `unsupported` report. */
+export function chartUnsupportedReason(chartSpace: XmlElement): string {
+  const { plotArea } = plotAreaOf(chartSpace);
+  if (plotArea === undefined) return "this chart has no plot area to preview";
+  const types = plotArea.children.map((child) => child.local).filter((local) => local.endsWith("Chart"));
+  if (types.some((type) => type === "barChart" || type === "lineChart" || type === "pieChart" || type === "doughnutChart")) {
+    return "this chart has no cached values to preview";
+  }
+  return `chart type ${types.length === 0 ? "unknown" : types.join(", ")} is not previewed`;
 }

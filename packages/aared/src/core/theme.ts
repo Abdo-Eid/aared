@@ -1,12 +1,20 @@
 /** Shared DrawingML theme reader for PPTX, XLSX, and DOCX drawing content. */
 
-import { attr, childElements, firstChild, parseXml } from "./xml.js";
+import { attr, childElements, firstChild, ownTree } from "./xml.js";
 import type { XmlElement } from "./xml.js";
 import type { OpcPackage } from "./opc.js";
-import { throwIfAborted } from "./zip.js";
+import { clampChannel, linearToSrgb, parseHexColor, srgbToLinear, toHexColor } from "./color.js";
+import { throwIfAborted } from "./errors.js";
+import { usesArabic } from "./typography.js";
 
 export interface DrawingTheme {
   colors: Record<string, string>;
+  /**
+   * The theme's background fill styles (`a:bgFillStyleLst`), in order. A
+   * `p:bgRef idx="1001+"` picks one and substitutes its own colour for the
+   * style's `phClr` placeholder.
+   */
+  backgroundFills?: XmlElement[];
   fonts: {
     major: { latin: string; complexScript: string; scripts: Record<string, string> };
     minor: { latin: string; complexScript: string; scripts: Record<string, string> };
@@ -45,10 +53,7 @@ export async function readDrawingTheme(pkg: OpcPackage, signal?: AbortSignal): P
   throwIfAborted(signal);
   const part = pkg.partNames().find((name) => pkg.contentTypeOf(name) === "application/vnd.openxmlformats-officedocument.theme+xml");
   if (part === undefined) return { colors: {}, fonts: { major: { latin: "", complexScript: "", scripts: {} }, minor: { latin: "", complexScript: "", scripts: {} } } };
-  const xml = await pkg.readText(part, signal);
-  throwIfAborted(signal);
-  const root = parseXml(xml);
-  throwIfAborted(signal);
+  const root = await pkg.readXml(part, signal);
   const elements = firstChild(root, "themeElements");
   const scheme = elements === undefined ? undefined : firstChild(elements, "clrScheme");
   const fontScheme = elements === undefined ? undefined : firstChild(elements, "fontScheme");
@@ -59,8 +64,12 @@ export async function readDrawingTheme(pkg: OpcPackage, signal?: AbortSignal): P
       if (value !== undefined) colors[color.local] = value;
     }
   }
+  const formats = elements === undefined ? undefined : firstChild(elements, "fmtScheme");
+  const backgroundStyles = formats === undefined ? undefined : firstChild(formats, "bgFillStyleLst");
   return {
     colors,
+    // Kept for the session: owned copies, so the theme part's text can be collected.
+    ...(backgroundStyles === undefined ? {} : { backgroundFills: backgroundStyles.children.map(ownTree) }),
     fonts: {
       major: readFontFamily(fontScheme === undefined ? undefined : firstChild(fontScheme, "majorFont")),
       minor: readFontFamily(fontScheme === undefined ? undefined : firstChild(fontScheme, "minorFont")),
@@ -68,9 +77,18 @@ export async function readDrawingTheme(pkg: OpcPackage, signal?: AbortSignal): P
   };
 }
 
-/** Whether text needs the theme's Arabic complex-script slot. */
-export function usesArabic(text: string): boolean {
-  return /[\u0600-\u06ff]/u.test(text);
+/**
+ * A theme font slot as a browser family: `latin` for the Latin slot, `cs` for
+ * the complex-script slot. Themes routinely leave `cs` empty (Word's and
+ * PowerPoint's defaults do), and Arabic text then takes the theme's `Arab`
+ * script font. Ground truth: native Word sets a `w:rtl` run whose theme `cs`
+ * is empty in that entry (a probe with `Arab` = Tahoma painted Tahoma), and a
+ * literal `w:cs` typeface still wins over it.
+ */
+export function themeFontFamily(font: DrawingTheme["fonts"]["major"], slot: "latin" | "cs", arabic: boolean): string | undefined {
+  if (slot === "latin") return font.latin === "" ? undefined : font.latin;
+  if (font.complexScript !== "") return font.complexScript;
+  return arabic ? font.scripts["Arab"] : undefined;
 }
 
 /** Resolve a theme token or literal DrawingML typeface to a browser family. */
@@ -78,10 +96,7 @@ export function resolveThemeTypeface(typeface: string | undefined, text: string,
   if (typeface === undefined || typeface === "") return undefined;
   const match = /^\+m([jn])-(lt|cs)$/.exec(typeface);
   if (match === null) return typeface;
-  const family = match[1] === "j" ? theme.fonts.major : theme.fonts.minor;
-  if (match[2] === "lt") return family.latin || undefined;
-  if (family.complexScript !== "") return family.complexScript;
-  return usesArabic(text) ? family.scripts["Arab"] : undefined;
+  return themeFontFamily(match[1] === "j" ? theme.fonts.major : theme.fonts.minor, match[2] === "lt" ? "latin" : "cs", usesArabic(text));
 }
 
 function rgbToHsl(channels: number[]): [number, number, number] {
@@ -108,18 +123,8 @@ function hslToRgb(hue: number, saturation: number, lightness: number): number[] 
   return [hueChannel(0), hueChannel(8), hueChannel(4)];
 }
 
-function sRgbToLinear(channel: number): number {
-  const value = channel / 255;
-  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-}
-
-function linearToSRgb(value: number): number {
-  const clamped = Math.min(Math.max(value, 0), 1);
-  return Math.round((clamped <= 0.0031308 ? clamped * 12.92 : 1.055 * clamped ** (1 / 2.4) - 0.055) * 255);
-}
-
 function tintChannels(channels: number[], sourceRatio: number): number[] {
-  return channels.map((channel) => linearToSRgb(sRgbToLinear(channel) * sourceRatio + (1 - sourceRatio)));
+  return channels.map((channel) => linearToSrgb(srgbToLinear(channel) * sourceRatio + (1 - sourceRatio)));
 }
 
 /**
@@ -136,8 +141,9 @@ export function resolveDrawingColor(element: XmlElement | undefined, theme: Draw
   const raw = attr(color, "val");
   const system = attr(color, "lastClr");
   const source = color.local === "srgbClr" ? raw : color.local === "schemeClr" ? (raw === undefined ? undefined : theme.colors[raw]) : system;
-  if (source === undefined || !/^#[0-9a-fA-F]{6}$/.test(source.startsWith("#") ? source : `#${source}`)) return undefined;
-  let channels = [1, 3, 5].map((offset) => Number.parseInt((source.startsWith("#") ? source : `#${source}`).slice(offset, offset + 2), 16));
+  const parsed = source === undefined ? undefined : parseHexColor(source);
+  if (parsed === undefined) return undefined;
+  let channels: number[] = parsed;
   let alpha = 1;
   for (const transform of color.children) {
     const rawValue = attr(transform, "val");
@@ -156,8 +162,16 @@ export function resolveDrawingColor(element: XmlElement | undefined, theme: Draw
         channels = channels.map((channel) => channel * ratio);
         break;
       case "lumMod": {
+        // A multiplier, not a fraction: 110000 (110%) brightens.
         const [hue, saturation, lightness] = rgbToHsl(channels);
-        channels = hslToRgb(hue, saturation, lightness * ratio);
+        channels = hslToRgb(hue, saturation, Math.min(lightness * Math.max(numeric / 100000, 0), 1));
+        break;
+      }
+      case "satMod": {
+        // Ground truth: PowerPoint's own render of a theme background style
+        // (`tint 95000` + `satMod 170000` on a dark scheme colour).
+        const [hue, saturation, lightness] = rgbToHsl(channels);
+        channels = hslToRgb(hue, Math.min(saturation * Math.max(numeric / 100000, 0), 1), lightness);
         break;
       }
       case "lumOff": {
@@ -170,6 +184,5 @@ export function resolveDrawingColor(element: XmlElement | undefined, theme: Draw
         break;
     }
   }
-  const hex = `#${channels.map((channel) => Math.round(Math.min(Math.max(channel, 0), 255)).toString(16).padStart(2, "0")).join("").toUpperCase()}`;
-  return alpha === 1 ? hex : `rgb(${channels.map((channel) => Math.round(Math.min(Math.max(channel, 0), 255))).join(" ")} / ${alpha})`;
+  return alpha === 1 ? toHexColor(channels) : `rgb(${channels.map(clampChannel).join(" ")} / ${alpha})`;
 }

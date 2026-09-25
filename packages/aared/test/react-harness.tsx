@@ -1,4 +1,5 @@
 import { StrictMode } from "react";
+import type { ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { useDocx, usePreview, usePptx, useXlsx } from "../src/react/index.js";
@@ -28,6 +29,8 @@ type HookWindow = Window &
     unmountHook?: () => number;
     hookGoTo?: (index: number) => Promise<unknown>;
     hookSetZoom?: (zoom: ZoomValue) => Promise<unknown>;
+    rerenderHook?: () => void;
+    workerFactoryCalls?: number;
     snapshot?: () => unknown;
   };
 
@@ -36,7 +39,7 @@ const w = window as HookWindow;
 function publish(result: UsePreviewResult): void {
   w.probe = {
     status: result.status,
-    format: result.viewer?.format ?? null,
+    format: result.format,
     count: result.info?.count ?? null,
     index: result.index,
     zoom: result.zoom,
@@ -60,7 +63,7 @@ function XlsxProbe({ source }: { source: string }) {
 }
 
 function DocxProbe({ source }: { source: string }) {
-  const result = useDocx({ source, docx: { pagination: { mode: "layout" } } });
+  const result = useDocx({ source, pagination: { mode: "layout" } });
   publish(result);
   return <div ref={result.ref} />;
 }
@@ -71,7 +74,21 @@ function AutoProbe({ source }: { source: string }) {
   return <div ref={result.ref} />;
 }
 
+/** An inline worker factory: a new identity every render, which must not remount. */
+function WorkerProbe({ source }: { source: string }) {
+  const result = usePreview({
+    source,
+    worker: () => {
+      w.workerFactoryCalls = (w.workerFactoryCalls ?? 0) + 1;
+      return new Worker("/custom-worker.mjs", { type: "module" });
+    },
+  });
+  publish(result);
+  return <div ref={result.ref} />;
+}
+
 let root: Root | null = null;
+let mounted: { node: ReactElement; strict: boolean } | null = null;
 
 function unmountHook(): number {
   root?.unmount();
@@ -98,8 +115,18 @@ w.mountHook = (kind: string, source: string, strict?: boolean) => {
     ? <XlsxProbe source={source} />
     : kind === "docx"
     ? <DocxProbe source={source} />
+    : kind === "worker"
+    ? <WorkerProbe source={source} />
     : <AutoProbe source={source} />;
-  root.render(strict === true ? <StrictMode>{node}</StrictMode> : node);
+  mounted = { node, strict: strict === true };
+  root.render(mounted.strict ? <StrictMode>{node}</StrictMode> : node);
+};
+
+/** Render the mounted probe again with the same props (a parent re-render). */
+w.rerenderHook = () => {
+  if (root === null || mounted === null) return;
+  const node = { ...mounted.node };
+  root.render(mounted.strict ? <StrictMode>{node}</StrictMode> : node);
 };
 
 w.hookGoTo = async (index: number) => {

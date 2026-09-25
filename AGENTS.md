@@ -87,6 +87,19 @@ public export must be named there.
    ECMA-376 spec text alone — the spec and what Office actually writes
    diverge more often than you'd expect.
 
+## Load-bearing code facts
+
+- **Resolved models are read-only.** XLSX cells sharing a style id share one
+  style object (same for shared hyperlinks; structured clone preserves it) —
+  clone before mutating. Parsed XML trees are frozen the same way
+  (`sheetData`/`sharedStrings` stream rather than materialize).
+- **Shipped JS stays Latin-1.** A character above U+00FF in any shipped
+  literal makes V8 hold the whole script (the Worker's included) two bytes
+  per character; the few aared needs come from `src/core/chars.ts`.
+- **Imports have a canonical home:** abort helpers from `core/errors.ts`
+  (not `zip.ts`); `FontResolver` from `core/index.ts`. The Worker reaches
+  format parsers only via dynamic `import()` — never static.
+
 ## Capability delivery
 
 "One thing at a time" means one coherent, *usable* capability — not the
@@ -120,7 +133,11 @@ behavior. Identify the root cause, not merely the clipped glyph or wrong pixel.
 1. Inspect the relevant architecture and surrounding code; trace data and
    control flow end to end. Search for shared helpers, defaults, inheritance,
    duplicated logic, and host-environment coupling that can produce the same
-   class of failure elsewhere.
+   class of failure elsewhere. The shared homes (units, colour, theme fonts,
+   appearance tokens, media URLs, text and table painting, …) are listed in
+   [`docs/ARCHITECTURE.md § Shared modules`](docs/ARCHITECTURE.md#shared-modules):
+   put a rule two formats need there once, and pass what differs as a
+   parameter, instead of writing a second copy.
 2. Assess blast radius before choosing a change. Check every caller and format
    route the shared code affects, preserve public contracts unless a documented
    change is necessary, and add coverage for related edge cases rather than
@@ -150,6 +167,9 @@ behavior. Identify the root cause, not merely the clipped glyph or wrong pixel.
 - **Only commit when explicitly asked.** Before staging, always inspect
   `git status` and stage only the intended files — never sweep in someone
   else's in-progress work.
+- **"Commit" means one commit for all the work.** When the user says commit,
+  put everything achieved up to that point in a single commit — never split
+  into multiple commits or stage by pieces without being asked.
 
 ## Authoring API design
 
@@ -163,6 +183,10 @@ the API reference page (`site/src/content/docs/api.mdx`) for the shape this
 produces.
 
 ## Pre-release breaking changes
+
+(The npm placeholder `@aared/viewer@0.0.0` only holds the name and does not
+end this stance; the first real release, `0.1.0`, does. See
+[`HANDOFF.md`](HANDOFF.md) "Publishing" and DECISION_LOG §42.)
 
 While `aared` is pre-release (`private: true`, v0.0.0, unpublished), **best
 design wins over backward compatibility.** Prefer the single canonical shape
@@ -191,17 +215,25 @@ callable identifier named there must exist as a real export. Wire
 this in as part of M1, not deferred indefinitely — see
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+Docs-only changes (markdown/site text, no code) skip verification runs —
+no typecheck, tests, or build.
+
 **Visual review:** a `bun:test` suite drives `Bun.WebView` (built into Bun
 1.4+ — no Playwright/Puppeteer dependency) to load aared's DOM/SVG render and
 call `.screenshot()`. `tools/powerpoint-render/` exports the same fixture with
 native PowerPoint, at the same dimensions; `tools/excel-render/` prints every
 visible sheet to A4 with native Excel and rasterizes with PyMuPDF, paired
-against an aared A4 fit (scaled to equal display width in review). Inspect
+against an aared A4 fit (scaled to equal display width in review);
+`tools/word-render/` exports a DOCX through native Word to per-page PNGs plus
+the exact position and size of every text span (read layout numbers from
+that, not from a screenshot), and its `capture.ts` renders the same pages
+through aared for side-by-side review. Inspect
 the paired captures and `review.html` from `bun run test:visual:artifacts`
 for typography, bidi placement, and wrapping. LibreOffice conversion, when
 useful, is never a PPTX or XLSX oracle because it substitutes fonts. Plain
 unit tests do not require Office; the capture tests do (PowerPoint/Excel on
-Windows, plus Python with PyMuPDF for the Excel route).
+Windows, plus Python with PyMuPDF for the Excel route; Word and PyMuPDF for
+`tools/word-render/`, which is run by hand, not by a test).
 
 ## Ground-truth probe
 

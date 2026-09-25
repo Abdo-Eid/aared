@@ -4,7 +4,7 @@ Exports a real `.xlsx` through the installed Microsoft Excel application,
 not LibreOffice: every visible sheet prints to A4, one page per sheet.
 
 ```bash
-bun tools/excel-render/index.ts fixtures/arabic-xlsx-rtl-coverage.xlsx
+bun tools/excel-render/index.ts fixtures/xlsx-coverage.xlsx
 ```
 
 The tool requires Windows, Excel, PowerShell 7, and Python with PyMuPDF

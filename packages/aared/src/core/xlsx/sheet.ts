@@ -3,26 +3,28 @@
  *
  * View-only throughout: formulas are never evaluated (the file's cached
  * `<v>` is formatted and shown), conditional formatting is a one-time
- * snapshot computed from cached values, and charts go through a narrow
- * adapter that emits the same `ChartGraphicPrimitive` vocabulary the shared
- * chart contract uses — pending `core/chart.ts`, which this branch does not
- * yet contain. See the report note, not a duplicate engine.
+ * snapshot computed from cached values, and charts are drawn by the shared
+ * `core/chart.ts` module, exactly as PPTX charts are.
  */
 
-import { attr, childElements, firstChild, parseXml, textContent } from "../xml.js";
+import { attr, childElements, firstChild, numberAttr, textContent } from "../xml.js";
 import type { XmlElement } from "../xml.js";
 import type { OpcPackage } from "../opc.js";
-import { throwIfAborted } from "../zip.js";
-import { AaredError } from "../errors.js";
+import { mixColors } from "../color.js";
+import { AaredError, throwIfAborted } from "../errors.js";
+import { PX_PER_INCH, emuToInches, inchesToEmu, ptToInches } from "../units.js";
+import { MAX_COLUMNS } from "./limits.js";
+import { parseCell, spanRange } from "./range.js";
 import { formatNumberValue } from "./numberfmt.js";
 import type { XlsxStyles } from "./styles.js";
 import type { XlsxWorkbook } from "./workbook.js";
+import { chartUnsupportedReason, parseChartGraphic } from "../chart.js";
+import type { DrawingTheme } from "../theme.js";
 import type {
   BoundsModel,
   CellModel,
   CellRange,
   ChartGraphicModel,
-  ChartGraphicPrimitive,
   RowModel,
   SheetChartModel,
   SheetDrawingModel,
@@ -33,27 +35,12 @@ import type {
   XlsxCellType,
 } from "../model.js";
 
-/** EMU per inch; shared with DrawingML geometry. */
-const EMUS_PER_INCH = 914400;
 /** Excel column-width units (characters) to pixels at the default font. */
 const PIXELS_PER_COLUMN_CHAR = 7;
 const COLUMN_PADDING_PIXELS = 5;
-const PIXELS_PER_INCH = 96;
 
 function columnCharsToInches(width: number): number {
-  return (width * PIXELS_PER_COLUMN_CHAR + COLUMN_PADDING_PIXELS) / PIXELS_PER_INCH;
-}
-
-function pointsToInches(points: number): number {
-  return points / 72;
-}
-
-function numberAttribute(element: XmlElement, name: string, context: string): number | undefined {
-  const value = attr(element, name);
-  if (value === undefined) return undefined;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) throw new Error(`aared/core: invalid ${name}="${value}" on ${context}`);
-  return parsed;
+  return (width * PIXELS_PER_COLUMN_CHAR + COLUMN_PADDING_PIXELS) / PX_PER_INCH;
 }
 
 function booleanAttribute(element: XmlElement, name: string): boolean {
@@ -63,26 +50,16 @@ function booleanAttribute(element: XmlElement, name: string): boolean {
 
 /** Parse an A1 cell reference into zero-based coordinates. */
 export function parseCellReference(reference: string): { row: number; col: number } {
-  const match = /^([A-Za-z]{1,3})(\d{1,7})$/.exec(reference);
-  if (match === null) throw new Error(`aared/core: invalid cell reference "${reference}"`);
-  let col = 0;
-  for (const char of match[1]!.toUpperCase()) col = col * 26 + (char.charCodeAt(0) - 64);
-  const row = Number(match[2]!);
-  if (row < 1 || row > 1048576 || col < 1 || col > 16384) {
-    throw new Error(`aared/core: cell reference "${reference}" is outside the worksheet grid`);
-  }
-  return { row: row - 1, col: col - 1 };
+  const cell = parseCell(reference);
+  if (cell === undefined) throw new Error(`aared/core: invalid cell reference "${reference}"`);
+  return cell;
 }
 
 /** Parse an A1 range (`A1:H1`) into an inclusive zero-based `CellRange`. */
 export function parseCellRange(reference: string): CellRange {
   const parts = reference.split(":");
   const start = parseCellReference(parts[0]!);
-  const end = parts.length === 1 ? start : parseCellReference(parts[1]!);
-  return {
-    start: { row: Math.min(start.row, end.row), col: Math.min(start.col, end.col) },
-    end: { row: Math.max(start.row, end.row), col: Math.max(start.col, end.col) },
-  };
+  return spanRange(start, parts.length === 1 ? start : parseCellReference(parts[1]!));
 }
 
 /** Parse a `dimension` ref (`A1:H34`); single cells yield a 1x1 extent. */
@@ -123,7 +100,8 @@ function cachedValue(
   date1904: boolean,
 ): CachedValue {
   const kind = attr(cell, "t") ?? "n";
-  const raw = firstChild(cell, "v") === undefined ? undefined : textContent(firstChild(cell, "v")!);
+  const v = firstChild(cell, "v");
+  const raw = v === undefined ? undefined : textContent(v);
   switch (kind) {
     case "s": {
       const index = raw === undefined ? Number.NaN : Number(raw);
@@ -160,15 +138,63 @@ function cachedValue(
   }
 }
 
-interface HyperlinkTarget {
-  target: string;
-  display?: string;
+/** One parsed cell with its column, as `RowModel.cells` stores it. */
+type GridEntry = RowModel["cells"][number];
+
+/**
+ * Parsed cells grouped by row, each row's cells sorted by column. This is
+ * both the shape `SheetModel.rows` needs and the lookup structure for
+ * hyperlinks and conditional formats: no per-cell `"row:col"` string keys,
+ * and range visits cost the cells that exist, not the range's area (a rule
+ * on `A1:A1048576` touches only authored cells).
+ */
+interface CellGrid {
+  byRow: Map<number, GridEntry[]>;
+  /** Keys of `byRow`, ascending. */
+  rowOrder: number[];
 }
 
-function hyperlinkTargets(sheet: XmlElement, relationships: { id: string; target: string }[]): Map<string, HyperlinkTarget> {
-  const out = new Map<string, HyperlinkTarget>();
+/** First index in `sorted` whose value is >= `target`. */
+function lowerBound<T>(sorted: readonly T[], target: number, key: (item: T) => number): number {
+  let low = 0;
+  let high = sorted.length;
+  while (low < high) {
+    const mid = (low + high) >>> 1;
+    if (key(sorted[mid]!) < target) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
+const entryCol = (entry: GridEntry): number => entry.col;
+const identity = (value: number): number => value;
+const rowIndexOf = (row: RowModel): number => row.index;
+
+/** Visit every parsed cell inside `range`, row-major, columns ascending. */
+function forEachCellInRange(grid: CellGrid, range: CellRange, visit: (cell: CellModel) => void): void {
+  const { start, end } = range;
+  const visitRow = (entries: GridEntry[]): void => {
+    for (let i = lowerBound(entries, start.col, entryCol); i < entries.length && entries[i]!.col <= end.col; i++) {
+      visit(entries[i]!.cell);
+    }
+  };
+  const { byRow, rowOrder } = grid;
+  if (end.row - start.row < rowOrder.length) {
+    for (let row = start.row; row <= end.row; row++) {
+      const entries = byRow.get(row);
+      if (entries !== undefined) visitRow(entries);
+    }
+    return;
+  }
+  for (let i = lowerBound(rowOrder, start.row, identity); i < rowOrder.length && rowOrder[i]! <= end.row; i++) {
+    visitRow(byRow.get(rowOrder[i]!)!);
+  }
+}
+
+/** Resolve `<hyperlinks>` onto the parsed cells; a later link over the same cell wins. */
+function applyHyperlinks(sheet: XmlElement, relationships: readonly { id: string; target: string }[], grid: CellGrid): void {
   const links = firstChild(sheet, "hyperlinks");
-  if (links === undefined) return out;
+  if (links === undefined) return;
   for (const link of childElements(links, "hyperlink")) {
     const ref = attr(link, "ref");
     if (ref === undefined) continue;
@@ -179,18 +205,18 @@ function hyperlinkTargets(sheet: XmlElement, relationships: { id: string; target
       ? location === undefined ? undefined : `#${location}`
       : relationships.find((relationship) => relationship.id === id)?.target;
     if (target === undefined) continue;
+    let range: CellRange;
     try {
-      const range = parseCellRange(ref);
-      for (let row = range.start.row; row <= range.end.row; row++) {
-        for (let col = range.start.col; col <= range.end.col; col++) {
-          out.set(`${row}:${col}`, { target, ...(display === undefined ? {} : { display }) });
-        }
-      }
+      range = parseCellRange(ref);
     } catch {
       continue;
     }
+    // One object per link, shared by the cells it covers (read-only model).
+    const hyperlink = { target, ...(display === undefined ? {} : { display }) };
+    forEachCellInRange(grid, range, (cell) => {
+      cell.hyperlink = hyperlink;
+    });
   }
-  return out;
 }
 
 interface ConditionalRule {
@@ -222,8 +248,8 @@ function conditionalRules(sheet: XmlElement): Array<{ ranges: CellRange[]; rule:
     }
     if (ranges.length === 0) continue;
     for (const element of childElements(formatting, "cfRule")) {
-      const priority = numberAttribute(element, "priority", "c:cfRule") ?? 0;
-      const dxfId = numberAttribute(element, "dxfId", "c:cfRule");
+      const priority = numberAttr(element, "priority", "c:cfRule") ?? 0;
+      const dxfId = numberAttr(element, "dxfId", "c:cfRule");
       const operator = attr(element, "operator");
       const rule: ConditionalRule = {
         priority,
@@ -287,31 +313,40 @@ function matchesCellIs(cell: CellModel, operator: string | undefined, formulas: 
   }
 }
 
-function lerpColor(low: string, high: string, ratio: number): string {
-  const clamped = Math.min(Math.max(ratio, 0), 1);
-  const channels = (hex: string): [number, number, number] => [
-    Number.parseInt(hex.slice(1, 3), 16),
-    Number.parseInt(hex.slice(3, 5), 16),
-    Number.parseInt(hex.slice(5, 7), 16),
-  ];
-  const [r1, g1, b1] = channels(low);
-  const [r2, g2, b2] = channels(high);
-  const mix = (a: number, b: number): string => Math.round(a + (b - a) * clamped).toString(16).padStart(2, "0").toUpperCase();
-  return `#${mix(r1, r2)}${mix(g1, g2)}${mix(b1, b2)}`;
+/** Min and max of `values` without spreading them into `Math.min` (which overflows the stack on big ranges). */
+function extremes(values: readonly number[]): { min: number; max: number } | undefined {
+  if (values.length === 0) return undefined;
+  let min = values[0]!;
+  let max = min;
+  for (const value of values) {
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  return { min, max };
 }
 
-function scaleBound(bound: { type: string; value: number }, values: number[], edge: "min" | "max"): number | undefined {
+function scaleBound(bound: { type: string; value: number }, values: readonly number[], edge: "min" | "max"): number | undefined {
   if (bound.type === "num" && Number.isFinite(bound.value)) return bound.value;
   if (bound.type === "min" || bound.type === "max") {
-    if (values.length === 0) return undefined;
-    return edge === "min" ? Math.min(...values) : Math.max(...values);
+    const found = extremes(values);
+    return found === undefined ? undefined : found[edge];
   }
   return undefined;
 }
 
+function numericValuesIn(grid: CellGrid, ranges: readonly CellRange[]): number[] {
+  const values: number[] = [];
+  for (const range of ranges) {
+    forEachCellInRange(grid, range, (cell) => {
+      if (typeof cell.value === "number") values.push(cell.value);
+    });
+  }
+  return values;
+}
+
 /** Apply cached conditional-formatting results onto parsed cells (view-only snapshot). */
 function applyConditionalFormatting(
-  cells: Map<string, CellModel>,
+  grid: CellGrid,
   formats: Array<{ ranges: CellRange[]; rule: ConditionalRule }>,
   styles: XlsxStyles,
   unsupported: SheetUnsupportedModel[],
@@ -329,15 +364,7 @@ function applyConditionalFormatting(
         reportOnce("a color-scale rule needs numeric bounds; it is shown without its gradient");
         continue;
       }
-      const numericValues: number[] = [];
-      for (const range of ranges) {
-        for (let row = range.start.row; row <= range.end.row; row++) {
-          for (let col = range.start.col; col <= range.end.col; col++) {
-            const cell = cells.get(`${row}:${col}`);
-            if (cell !== undefined && typeof cell.value === "number") numericValues.push(cell.value);
-          }
-        }
-      }
+      const numericValues = numericValuesIn(grid, ranges);
       const low = scaleBound(values[0]!, numericValues, "min");
       const high = scaleBound(values[values.length - 1]!, numericValues, "max");
       if (low === undefined || high === undefined) {
@@ -348,44 +375,31 @@ function applyConditionalFormatting(
       const from = colors[0]!;
       const to = colors[colors.length - 1]!;
       for (const range of ranges) {
-        for (let row = range.start.row; row <= range.end.row; row++) {
-          for (let col = range.start.col; col <= range.end.col; col++) {
-            const cell = cells.get(`${row}:${col}`);
-            if (cell === undefined || typeof cell.value !== "number" || cell.conditional?.fill !== undefined) continue;
-            cell.conditional = { ...(cell.conditional ?? {}), fill: lerpColor(from, to, (cell.value - low) / span) };
-          }
-        }
+        forEachCellInRange(grid, range, (cell) => {
+          if (typeof cell.value !== "number" || cell.conditional?.fill !== undefined) return;
+          cell.conditional = { ...(cell.conditional ?? {}), fill: mixColors(from, to, (cell.value - low) / span) };
+        });
       }
       continue;
     }
     if (rule.dataBar !== undefined) {
-      const numericValues: number[] = [];
-      for (const range of ranges) {
-        for (let row = range.start.row; row <= range.end.row; row++) {
-          for (let col = range.start.col; col <= range.end.col; col++) {
-            const cell = cells.get(`${row}:${col}`);
-            if (cell !== undefined && typeof cell.value === "number") numericValues.push(cell.value);
-          }
-        }
-      }
-      const low = scaleBound(rule.dataBar.min, numericValues, "min");
-      const high = scaleBound(rule.dataBar.max, numericValues, "max");
+      const bar = rule.dataBar;
+      const numericValues = numericValuesIn(grid, ranges);
+      const low = scaleBound(bar.min, numericValues, "min");
+      const high = scaleBound(bar.max, numericValues, "max");
       if (low === undefined || high === undefined) {
         reportOnce("a data-bar rule uses unsupported bounds; its bars are not drawn");
         continue;
       }
       const span = high - low === 0 ? 1 : high - low;
       for (const range of ranges) {
-        for (let row = range.start.row; row <= range.end.row; row++) {
-          for (let col = range.start.col; col <= range.end.col; col++) {
-            const cell = cells.get(`${row}:${col}`);
-            if (cell === undefined || typeof cell.value !== "number" || cell.conditional?.dataBar !== undefined) continue;
-            cell.conditional = {
-              ...(cell.conditional ?? {}),
-              dataBar: { ratio: Math.min(Math.max((cell.value - low) / span, 0), 1), color: rule.dataBar.color },
-            };
-          }
-        }
+        forEachCellInRange(grid, range, (cell) => {
+          if (typeof cell.value !== "number" || cell.conditional?.dataBar !== undefined) return;
+          cell.conditional = {
+            ...(cell.conditional ?? {}),
+            dataBar: { ratio: Math.min(Math.max((cell.value - low) / span, 0), 1), color: bar.color },
+          };
+        });
       }
       continue;
     }
@@ -396,19 +410,16 @@ function applyConditionalFormatting(
     const differential = styles.differential(rule.dxfId);
     if (differential.fill === undefined && differential.font === undefined) continue;
     for (const range of ranges) {
-      for (let row = range.start.row; row <= range.end.row; row++) {
-        for (let col = range.start.col; col <= range.end.col; col++) {
-          const cell = cells.get(`${row}:${col}`);
-          if (cell === undefined || cell.conditional?.fill !== undefined) continue;
-          if (!matchesCellIs(cell, rule.operator, rule.formulas)) continue;
-          cell.conditional = {
-            ...(cell.conditional ?? {}),
-            ...(differential.fill === undefined ? {} : { fill: differential.fill }),
-            ...(differential.font?.color === undefined ? {} : { color: differential.font.color }),
-            ...(differential.font?.bold === undefined ? {} : { bold: differential.font.bold }),
-          };
-        }
-      }
+      forEachCellInRange(grid, range, (cell) => {
+        if (cell.conditional?.fill !== undefined) return;
+        if (!matchesCellIs(cell, rule.operator, rule.formulas)) return;
+        cell.conditional = {
+          ...(cell.conditional ?? {}),
+          ...(differential.fill === undefined ? {} : { fill: differential.fill }),
+          ...(differential.font?.color === undefined ? {} : { color: differential.font.color }),
+          ...(differential.font?.bold === undefined ? {} : { bold: differential.font.bold }),
+        };
+      });
     }
   }
 }
@@ -438,240 +449,35 @@ function anchorFrom(element: XmlElement, context: string): DrawingAnchor["from"]
   };
 }
 
-const CHART_PALETTE = ["#2E7D74", "#B24830", "#E8A33D", "#156082", "#73A0B4", "#8E6FB8"];
-
-function seriesColor(series: XmlElement, fallback: string): string {
-  const properties = firstChild(series, "spPr");
-  const fill = properties === undefined ? undefined : firstChild(properties, "solidFill");
-  const srgb = fill === undefined ? undefined : firstChild(fill, "srgbClr");
-  const value = srgb === undefined ? undefined : attr(srgb, "val");
-  return value !== undefined && /^[0-9a-fA-F]{6}$/.test(value) ? `#${value.toUpperCase()}` : fallback;
-}
-
-function cachePoints(container: XmlElement | undefined, kind: "str" | "num"): string[] {
-  if (container === undefined) return [];
-  const reference = firstChild(container, kind === "str" ? "strRef" : "numRef");
-  const literal = firstChild(container, kind === "str" ? "strLit" : "numLit");
-  const cache = reference === undefined ? undefined : firstChild(reference, kind === "str" ? "strCache" : "numCache");
-  const source = cache ?? literal;
-  if (source === undefined) return [];
-  return childElements(source, "pt").map((point) => textContent(firstChild(point, "v") ?? point));
-}
-
-function seriesTitle(series: XmlElement): string {
-  const tx = firstChild(series, "tx");
-  if (tx === undefined) return "";
-  const direct = firstChild(tx, "v");
-  if (direct !== undefined) return textContent(direct);
-  const reference = firstChild(tx, "strRef");
-  const cache = reference === undefined ? undefined : firstChild(reference, "strCache");
-  const point = cache === undefined ? undefined : firstChild(cache, "pt");
-  if (point !== undefined) return textContent(firstChild(point, "v") ?? point);
-  const rich = firstChild(tx, "rich");
-  if (rich !== undefined) return textContent(rich);
-  return "";
+/**
+ * Spreadsheet charts go through the shared chart module (`core/chart.ts`),
+ * so XLSX and PPTX draw the same chart the same way. Any chart the shared
+ * module cannot draw is reported through `unsupportedReason` instead of
+ * guessed at; the drawing keeps its frame either way.
+ */
+export function adaptChartGraphic(chart: XmlElement, theme: DrawingTheme): { graphic?: ChartGraphicModel; unsupportedReason?: string } {
+  const space = chart.local === "chartSpace" ? chart : firstChild(chart, "chartSpace");
+  const graphic = parseChartGraphic(space ?? chart, theme);
+  // A chart with series but no cached points draws nothing: say so instead of an empty frame.
+  if (graphic !== undefined && graphic.primitives.length > 0) return { graphic };
+  return { unsupportedReason: chartUnsupportedReason(space ?? chart) };
 }
 
 /**
- * Narrow spreadsheet chart adapter. Covers bar/column, line, and pie charts
- * from their cached values — the common preview cases — and reports any
- * other chart type through `unsupportedReason` instead of guessing. When the
- * shared `core/chart.ts` lands, this adapter should delegate to it; the
- * primitive vocabulary is already identical.
+ * Absolute EMU offset of a grid line: the sum of the first `index` track
+ * sizes, clamped to the sheet extent (anchors past it stop growing, exactly
+ * as a precomputed per-track array would). Summed in track order so the
+ * floating-point result is stable; only called per drawing anchor, so the
+ * sheet never materializes a row-height array the size of its extent.
  */
-export function adaptChartGraphic(chart: XmlElement): { graphic?: ChartGraphicModel; unsupportedReason?: string } {
-  const space = chart.local === "chartSpace" ? chart : firstChild(chart, "chartSpace");
-  const root = space ?? chart;
-  const chartElement = firstChild(root, "chart") ?? (root.local === "chart" ? root : undefined);
-  if (chartElement === undefined) return { unsupportedReason: "this chart has no plot area to preview" };
-  const titleElement = firstChild(firstChild(chartElement, "title") ?? chartElement, "tx");
-  const title = titleElement === undefined ? "" : textContent(titleElement);
-  const plotArea = firstChild(chartElement, "plotArea");
-  if (plotArea === undefined) return { unsupportedReason: "this chart has no plot area to preview" };
-  const barChart = firstChild(plotArea, "barChart");
-  const lineChart = firstChild(plotArea, "lineChart");
-  const pieChart = firstChild(plotArea, "pieChart") ?? firstChild(plotArea, "doughnutChart");
-  if (barChart !== undefined) return adaptCartesian(barChart, title, attr(barChart, "barDir") === "bar" ? "bar" : "column");
-  if (lineChart !== undefined) return adaptCartesian(lineChart, title, "line");
-  if (pieChart !== undefined) return adaptPie(pieChart, title);
-  const present = plotArea.children.map((child) => child.local).join(", ");
-  return { unsupportedReason: `chart type ${present === "" ? "unknown" : present} is not previewed` };
-}
-
-interface ChartSeries {
-  name: string;
-  categories: string[];
-  values: number[];
-  color: string;
-}
-
-function chartSeries(plot: XmlElement): ChartSeries[] {
-  return childElements(plot, "ser").map((series, index) => {
-    const values = cachePoints(firstChild(series, "val"), "num").map(Number).filter((value) => Number.isFinite(value));
-    let categories = cachePoints(firstChild(series, "cat"), "str");
-    if (categories.length === 0) {
-      categories = cachePoints(firstChild(series, "cat"), "num");
-    }
-    return {
-      name: seriesTitle(series),
-      categories,
-      values,
-      color: seriesColor(series, CHART_PALETTE[index % CHART_PALETTE.length]!),
-    };
-  });
-}
-
-function chartText(
-  primitives: ChartGraphicPrimitive[],
-  x: number,
-  y: number,
-  text: string,
-  options?: { fontSize?: number; anchor?: "start" | "middle" | "end"; bold?: boolean },
-): void {
-  if (text === "") return;
-  primitives.push({
-    kind: "text",
-    x: Math.round(x * 10) / 10,
-    y: Math.round(y * 10) / 10,
-    text,
-    fontSize: options?.fontSize ?? 10,
-    textAnchor: options?.anchor ?? "start",
-    ...(options?.bold === true ? { fontWeight: "bold" as const } : {}),
-  });
-}
-
-function adaptCartesian(plot: XmlElement, title: string, mode: "column" | "bar" | "line"): { graphic: ChartGraphicModel } {
-  const viewBox = { width: 400, height: 300 };
-  const margin = { left: 44, right: 10, top: title === "" ? 10 : 28, bottom: 30 };
-  const plotWidth = viewBox.width - margin.left - margin.right;
-  const plotHeight = viewBox.height - margin.top - margin.bottom;
-  const series = chartSeries(plot).filter((entry) => entry.values.length > 0);
-  const categories = series[0]?.categories ?? [];
-  const count = Math.max(...series.map((entry) => entry.values.length), 0);
-  const flat = series.flatMap((entry) => entry.values);
-  const max = Math.max(0, ...flat);
-  const min = Math.min(0, ...flat);
-  const span = max - min === 0 ? 1 : max - min;
-  const primitives: ChartGraphicPrimitive[] = [];
-  if (title !== "") chartText(primitives, viewBox.width / 2, 16, title, { fontSize: 12, anchor: "middle", bold: true });
-  const baseline = margin.top + ((max - 0) / span) * plotHeight;
-  const valueToY = (value: number): number => margin.top + ((max - value) / span) * plotHeight;
-  // Value axis with three ticks; category slots share the plot width evenly.
-  for (const tick of [max, (max + min) / 2, min]) {
-    const y = valueToY(tick);
-    primitives.push({ kind: "line", x1: margin.left, y1: y, x2: viewBox.width - margin.right, y2: y, stroke: { color: "#878787", width: 0.75 } });
-    chartText(primitives, margin.left - 4, y + 3, String(Math.round(tick * 10) / 10), { fontSize: 9, anchor: "end" });
-  }
-  const slot = count === 0 ? plotWidth : plotWidth / count;
-  series.forEach((entry, seriesIndex) => {
-    const group = mode === "column" || mode === "bar" ? slot / Math.max(series.length, 1) : 0;
-    entry.values.forEach((value, index) => {
-      if (mode === "line") return;
-      if (mode === "column") {
-        const x = margin.left + index * slot + seriesIndex * group + group * 0.15;
-        const width = group * 0.7;
-        const y = value >= 0 ? valueToY(value) : baseline;
-        const height = Math.abs(valueToY(value) - baseline);
-        primitives.push({ kind: "rect", x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, width: Math.round(width * 10) / 10, height: Math.round(height * 10) / 10, fill: entry.color });
-      } else {
-        const bandHeight = plotHeight / Math.max(count, 1);
-        const y = margin.top + index * bandHeight + seriesIndex * (bandHeight / Math.max(series.length, 1)) + bandHeight / Math.max(series.length, 1) * 0.15;
-        const height = (bandHeight / Math.max(series.length, 1)) * 0.7;
-        const zeroX = margin.left + ((0 - min) / span) * plotWidth;
-        const valueX = margin.left + ((value - min) / span) * plotWidth;
-        primitives.push({
-          kind: "rect",
-          x: Math.round(Math.min(zeroX, valueX) * 10) / 10,
-          y: Math.round(y * 10) / 10,
-          width: Math.round(Math.abs(valueX - zeroX) * 10) / 10,
-          height: Math.round(height * 10) / 10,
-          fill: entry.color,
-        });
-      }
-    });
-  });
-  if (mode === "line") {
-    for (const entry of series) {
-      const points = entry.values.map((value, index) => ({
-        x: margin.left + (index + 0.5) * slot,
-        y: valueToY(value),
-      }));
-      const path = points.map((point, index) => `${index === 0 ? "M" : "L"} ${Math.round(point.x * 10) / 10} ${Math.round(point.y * 10) / 10}`).join(" ");
-      if (path !== "") primitives.push({ kind: "path", path, stroke: { color: entry.color, width: 2 } });
-      for (const point of points) {
-        primitives.push({ kind: "rect", x: Math.round((point.x - 2) * 10) / 10, y: Math.round((point.y - 2) * 10) / 10, width: 4, height: 4, fill: entry.color });
-      }
-    }
-  }
-  for (let index = 0; index < count; index++) {
-    const label = categories[index] ?? `Item ${index + 1}`;
-    if (mode === "bar") {
-      const bandHeight = plotHeight / Math.max(count, 1);
-      chartText(primitives, margin.left - 4, margin.top + index * bandHeight + bandHeight / 2 + 3, label, { fontSize: 9, anchor: "end" });
-    } else {
-      chartText(primitives, margin.left + index * slot + slot / 2, viewBox.height - 12, label, { fontSize: 9, anchor: "middle" });
-    }
-  }
-  if (series.length > 1) {
-    series.forEach((entry, seriesIndex) => {
-      const x = margin.left + seriesIndex * 110;
-      primitives.push({ kind: "rect", x, y: viewBox.height - 10, width: 10, height: 10, fill: entry.color });
-      chartText(primitives, x + 13, viewBox.height - 2, entry.name === "" ? `Series ${seriesIndex + 1}` : entry.name, { fontSize: 9 });
-    });
-  }
-  return { graphic: { viewBox, primitives } };
-}
-
-function adaptPie(plot: XmlElement, title: string): { graphic: ChartGraphicModel } {
-  const viewBox = { width: 400, height: 300 };
-  const primitives: ChartGraphicPrimitive[] = [];
-  if (title !== "") chartText(primitives, viewBox.width / 2, 16, title, { fontSize: 12, anchor: "middle", bold: true });
-  const series = chartSeries(plot).find((entry) => entry.values.length > 0);
-  const values = series?.values ?? [];
-  const labels = series?.categories ?? [];
-  const total = values.reduce((sum, value) => sum + Math.max(value, 0), 0);
-  const centerX = viewBox.width / 2;
-  const centerY = (viewBox.height + (title === "" ? 0 : 20)) / 2;
-  const radius = 100;
-  if (total <= 0) {
-    chartText(primitives, centerX, centerY, "No data", { anchor: "middle" });
-    return { graphic: { viewBox, primitives } };
-  }
-  let angle = -Math.PI / 2;
-  values.forEach((value, index) => {
-    const share = Math.max(value, 0) / total;
-    if (share <= 0) return;
-    const start = angle;
-    angle += share * Math.PI * 2;
-    const largeArc = share > 0.5 ? 1 : 0;
-    const x1 = centerX + radius * Math.cos(start);
-    const y1 = centerY + radius * Math.sin(start);
-    const x2 = centerX + radius * Math.cos(angle);
-    const y2 = centerY + radius * Math.sin(angle);
-    const color = CHART_PALETTE[index % CHART_PALETTE.length]!;
-    primitives.push({
-      kind: "path",
-      path: `M ${round(centerX)} ${round(centerY)} L ${round(x1)} ${round(y1)} A ${radius} ${radius} 0 ${largeArc} 1 ${round(x2)} ${round(y2)} Z`,
-      fill: color,
-      stroke: { color: "#FFFFFF", width: 1 },
-    });
-    const mid = (start + angle) / 2;
-    const label = labels[index] ?? "";
-    const percent = `${Math.round(share * 1000) / 10}%`;
-    chartText(primitives, centerX + (radius + 14) * Math.cos(mid), centerY + (radius + 14) * Math.sin(mid), label === "" ? percent : `${label} ${percent}`, { fontSize: 9, anchor: "middle" });
-  });
-  return { graphic: { viewBox, primitives } };
-}
-
-function round(value: number): number {
-  return Math.round(value * 10) / 10;
-}
+type GridOffset = (index: number) => number;
 
 async function parseDrawings(
   pkg: OpcPackage,
   sheetPart: string,
-  columnEmu: number[],
-  rowEmu: number[],
+  columnOffset: GridOffset,
+  rowOffset: GridOffset,
+  theme: DrawingTheme,
   signal?: AbortSignal,
 ): Promise<{ drawings: SheetDrawingModel[]; unsupported: SheetUnsupportedModel[] }> {
   throwIfAborted(signal);
@@ -681,16 +487,10 @@ async function parseDrawings(
   throwIfAborted(signal);
   const drawingRel = relationships.find((relationship) => relationship.type.endsWith("/drawing"));
   if (drawingRel === undefined) return { drawings, unsupported };
-  if (!pkg.hasPart(drawingRel.target)) return { drawings, unsupported };
-  const drawing = parseXml(await pkg.readText(drawingRel.target, signal));
-  throwIfAborted(signal);
+  const drawing = await pkg.readXmlIfPresent(drawingRel.target, signal);
+  if (drawing === undefined) return { drawings, unsupported };
   const drawingRels = await pkg.relationships(drawingRel.target, signal);
   throwIfAborted(signal);
-  const position = (index: number, offsets: number[]): number => {
-    let total = 0;
-    for (let i = 0; i < index && i < offsets.length; i++) total += offsets[i]!;
-    return total;
-  };
   for (const anchor of drawing.children) {
     throwIfAborted(signal);
     if (anchor.local !== "twoCellAnchor" && anchor.local !== "oneCellAnchor" && anchor.local !== "absoluteAnchor") continue;
@@ -704,10 +504,10 @@ async function parseDrawings(
       if (fromElement !== undefined && toElement !== undefined) {
         const from = anchorFrom(fromElement, "xdr:from");
         const to = anchorFrom(toElement, "xdr:to");
-        const x = (position(from.col, columnEmu) + from.colOff) / EMUS_PER_INCH;
-        const y = (position(from.row, rowEmu) + from.rowOff) / EMUS_PER_INCH;
-        const x2 = (position(to.col, columnEmu) + to.colOff) / EMUS_PER_INCH;
-        const y2 = (position(to.row, rowEmu) + to.rowOff) / EMUS_PER_INCH;
+        const x = emuToInches(columnOffset(from.col) + from.colOff);
+        const y = emuToInches(rowOffset(from.row) + from.rowOff);
+        const x2 = emuToInches(columnOffset(to.col) + to.colOff);
+        const y2 = emuToInches(rowOffset(to.row) + to.rowOff);
         bounds = { x, y, width: Math.max(x2 - x, 0), height: Math.max(y2 - y, 0) };
         range = {
           start: { row: Math.min(from.row, to.row), col: Math.min(from.col, to.col) },
@@ -715,23 +515,23 @@ async function parseDrawings(
         };
       } else if (fromElement !== undefined && extElement !== undefined) {
         const from = anchorFrom(fromElement, "xdr:from");
-        const cx = numberAttribute(extElement, "cx", "a:ext") ?? 0;
-        const cy = numberAttribute(extElement, "cy", "a:ext") ?? 0;
+        const cx = numberAttr(extElement, "cx", "a:ext") ?? 0;
+        const cy = numberAttr(extElement, "cy", "a:ext") ?? 0;
         bounds = {
-          x: (position(from.col, columnEmu) + from.colOff) / EMUS_PER_INCH,
-          y: (position(from.row, rowEmu) + from.rowOff) / EMUS_PER_INCH,
-          width: cx / EMUS_PER_INCH,
-          height: cy / EMUS_PER_INCH,
+          x: emuToInches(columnOffset(from.col) + from.colOff),
+          y: emuToInches(rowOffset(from.row) + from.rowOff),
+          width: emuToInches(cx),
+          height: emuToInches(cy),
         };
         range = { start: { row: from.row, col: from.col }, end: { row: from.row, col: from.col } };
       } else if (posElement !== undefined && extElement !== undefined) {
-        const x = (numberAttribute(posElement, "x", "xdr:pos") ?? 0) / EMUS_PER_INCH;
-        const y = (numberAttribute(posElement, "y", "xdr:pos") ?? 0) / EMUS_PER_INCH;
+        const x = emuToInches(numberAttr(posElement, "x", "xdr:pos") ?? 0);
+        const y = emuToInches(numberAttr(posElement, "y", "xdr:pos") ?? 0);
         bounds = {
           x,
           y,
-          width: (numberAttribute(extElement, "cx", "a:ext") ?? 0) / EMUS_PER_INCH,
-          height: (numberAttribute(extElement, "cy", "a:ext") ?? 0) / EMUS_PER_INCH,
+          width: emuToInches(numberAttr(extElement, "cx", "a:ext") ?? 0),
+          height: emuToInches(numberAttr(extElement, "cy", "a:ext") ?? 0),
         };
       }
     } catch {
@@ -748,14 +548,14 @@ async function parseDrawings(
       const nameElement = firstChild(firstChild(picture, "nvPicPr") ?? picture, "cNvPr");
       const name = nameElement === undefined ? "Picture" : (attr(nameElement, "name") ?? "Picture");
       if (target === undefined || !pkg.hasPart(target)) {
-        unsupported.push({ kind: "drawing", detail: `an image ("${name}") points at a missing part; its frame is kept`, range });
+        unsupported.push({ kind: "drawing", detail: `an image ("${name}") points at a missing part and is not previewed`, range });
         continue;
       }
       const pictureModel: SheetPictureModel = {
         kind: "picture",
         name,
         mediaId: target,
-        contentType: pkg.contentTypeOf(target) ?? "application/octet-stream",
+        contentType: pkg.mediaContentType(target),
         bounds,
         anchor: range,
       };
@@ -771,12 +571,11 @@ async function parseDrawings(
       const name = nameElement === undefined ? "Chart" : (attr(nameElement, "name") ?? "Chart");
       const target = chartId === undefined ? undefined : drawingRels.find((relationship) => relationship.id === chartId)?.target;
       if (target === undefined || !pkg.hasPart(target)) {
-        unsupported.push({ kind: "drawing", detail: `a chart ("${name}") points at a missing part; its frame is kept`, range });
+        unsupported.push({ kind: "drawing", detail: `a chart ("${name}") points at a missing part and is not previewed`, range });
         continue;
       }
-      const chartRoot = parseXml(await pkg.readText(target, signal));
-      throwIfAborted(signal);
-      const adapted = adaptChartGraphic(chartRoot);
+      const chartRoot = await pkg.readXml(target, signal);
+      const adapted = adaptChartGraphic(chartRoot, theme);
       const chartModel: SheetChartModel = {
         kind: "chart",
         name,
@@ -798,7 +597,18 @@ async function parseDrawings(
   return { drawings, unsupported };
 }
 
-/** Inflate and parse exactly one worksheet previously listed by `indexXlsx()`. */
+function hasOwnKeys(value: object): boolean {
+  for (const _ in value) return true;
+  return false;
+}
+
+/**
+ * Inflate and parse exactly one worksheet previously listed by `indexXlsx()`.
+ *
+ * `<sheetData>` is streamed row by row (`parseXml`'s streaming mode): each
+ * `<row>` element tree is built, turned into cell models, and dropped, so
+ * peak memory tracks the resulting model rather than the sheet's XML tree.
+ */
 export async function parseXlsxSheet(
   pkg: OpcPackage,
   workbook: XlsxWorkbook,
@@ -810,9 +620,60 @@ export async function parseXlsxSheet(
   if (reference === undefined) {
     throw new AaredError("not-found", `aared/core: sheet index ${index} is outside this ${workbook.sheets.length}-sheet workbook`);
   }
-  const root = parseXml(await pkg.readText(reference.part, signal));
-  throwIfAborted(signal);
+  const { styles, sharedStrings, date1904 } = workbook;
+  const byRow = new Map<number, GridEntry[]>();
+  /** Rows whose cells arrived out of column order (or repeated): sorted and de-duplicated once below. */
+  const unsortedRows = new Set<number>();
+  const rowHeights = new Map<number, number>();
+  const hiddenRows = new Set<number>();
+  const readRow = (row: XmlElement): void => {
+    if (row.local !== "row") return;
+    throwIfAborted(signal);
+    const rowIndex = (numberAttr(row, "r", "row") ?? 0) - 1;
+    if (rowIndex < 0) return;
+    if (booleanAttribute(row, "hidden")) hiddenRows.add(rowIndex);
+    const heightPoints = numberAttr(row, "ht", "row");
+    if (heightPoints !== undefined) rowHeights.set(rowIndex, ptToInches(heightPoints));
+    for (const cell of row.children) {
+      if (cell.local !== "c") continue;
+      const ref = attr(cell, "r");
+      if (ref === undefined) continue;
+      let position: { row: number; col: number };
+      try {
+        position = parseCellReference(ref);
+      } catch {
+        continue;
+      }
+      const style = styles.cellStyle(numberAttr(cell, "s", "c") ?? 0);
+      const cached = cachedValue(cell, sharedStrings, style, date1904);
+      const formulaElement = firstChild(cell, "f");
+      const formula = formulaElement === undefined ? "" : textContent(formulaElement);
+      const model: CellModel = {
+        value: cached.value,
+        formatted: cached.formatted,
+        type: cached.type,
+        ...(formula === "" ? {} : { formula }),
+      };
+      if (hasOwnKeys(style)) model.style = style;
+      // A cell's own reference decides its row, even inside another <row>.
+      let entries = byRow.get(position.row);
+      if (entries === undefined) {
+        entries = [];
+        byRow.set(position.row, entries);
+      } else if (entries[entries.length - 1]!.col >= position.col) {
+        unsortedRows.add(position.row);
+      }
+      entries.push({ col: position.col, cell: model });
+    }
+  };
+  const root = await pkg.readXml(reference.part, signal, { streamChildrenOf: "sheetData", onChild: readRow });
   if (root.local !== "worksheet") throw new Error(`aared/core: "${reference.part}" root must be <worksheet>`);
+  for (const row of unsortedRows) {
+    // Stable sort, then keep the last cell written for a repeated reference.
+    const sorted = byRow.get(row)!.sort((a, b) => a.col - b.col);
+    byRow.set(row, sorted.filter((entry, i) => sorted[i + 1]?.col !== entry.col));
+  }
+  const grid: CellGrid = { byRow, rowOrder: [...byRow.keys()].sort((a, b) => a - b) };
   const unsupported: SheetUnsupportedModel[] = [];
 
   const dimensionElement = firstChild(root, "dimension");
@@ -825,14 +686,14 @@ export async function parseXlsxSheet(
   const showGridlines = view === undefined || attr(view, "showGridLines") !== "0";
   const pane = view === undefined ? undefined : firstChild(view, "pane");
   const frozen = {
-    rows: pane === undefined ? 0 : Math.max(Math.trunc(numberAttribute(pane, "ySplit", "x:pane") ?? 0), 0),
-    cols: pane === undefined ? 0 : Math.max(Math.trunc(numberAttribute(pane, "xSplit", "x:pane") ?? 0), 0),
+    rows: pane === undefined ? 0 : Math.max(Math.trunc(numberAttr(pane, "ySplit", "x:pane") ?? 0), 0),
+    cols: pane === undefined ? 0 : Math.max(Math.trunc(numberAttr(pane, "xSplit", "x:pane") ?? 0), 0),
   };
 
   const format = firstChild(root, "sheetFormatPr");
-  const defaultRowPoints = format === undefined ? 15 : (numberAttribute(format, "defaultRowHeight", "sheetFormatPr") ?? 15);
-  const defaultRowHeight = pointsToInches(defaultRowPoints);
-  const defaultColChars = format === undefined ? 8.43 : (numberAttribute(format, "defaultColWidth", "sheetFormatPr") ?? 8.43);
+  const defaultRowPoints = format === undefined ? 15 : (numberAttr(format, "defaultRowHeight", "sheetFormatPr") ?? 15);
+  const defaultRowHeight = ptToInches(defaultRowPoints);
+  const defaultColChars = format === undefined ? 8.43 : (numberAttr(format, "defaultColWidth", "sheetFormatPr") ?? 8.43);
 
   const columnWidths = new Map<number, number>();
   const columnHidden = new Set<number>();
@@ -840,15 +701,15 @@ export async function parseXlsxSheet(
   if (cols !== undefined) {
     for (const col of childElements(cols, "col")) {
       throwIfAborted(signal);
-      const min = numberAttribute(col, "min", "col") ?? 1;
-      const max = numberAttribute(col, "max", "col") ?? min;
+      const min = numberAttr(col, "min", "col") ?? 1;
+      // Clamp to the grid: a corrupt `max` must not spin through billions of columns.
+      const max = Math.min(numberAttr(col, "max", "col") ?? min, MAX_COLUMNS);
       const width = attr(col, "width");
+      const chars = width === undefined ? Number.NaN : Number(width);
+      const inches = Number.isFinite(chars) ? columnCharsToInches(chars) : undefined;
       const hidden = booleanAttribute(col, "hidden");
       for (let i = min; i <= max; i++) {
-        if (width !== undefined) {
-          const chars = Number(width);
-          if (Number.isFinite(chars)) columnWidths.set(i - 1, columnCharsToInches(chars));
-        }
+        if (inches !== undefined) columnWidths.set(i - 1, inches);
         if (hidden) columnHidden.add(i - 1);
       }
     }
@@ -856,47 +717,7 @@ export async function parseXlsxSheet(
 
   const sheetRels = await pkg.relationships(reference.part, signal);
   throwIfAborted(signal);
-  const hyperlinks = hyperlinkTargets(root, sheetRels.map((relationship) => ({ id: relationship.id, target: relationship.target })));
-
-  const cells = new Map<string, CellModel>();
-  const rowHeights = new Map<number, number>();
-  const hiddenRows = new Set<number>();
-  const data = firstChild(root, "sheetData");
-  if (data !== undefined) {
-    for (const row of childElements(data, "row")) {
-      throwIfAborted(signal);
-      const rowIndex = (numberAttribute(row, "r", "row") ?? 0) - 1;
-      if (rowIndex < 0) continue;
-      if (booleanAttribute(row, "hidden")) hiddenRows.add(rowIndex);
-      const heightPoints = numberAttribute(row, "ht", "row");
-      if (heightPoints !== undefined) rowHeights.set(rowIndex, pointsToInches(heightPoints));
-      for (const cell of childElements(row, "c")) {
-        throwIfAborted(signal);
-        const ref = attr(cell, "r");
-        if (ref === undefined) continue;
-        let position: { row: number; col: number };
-        try {
-          position = parseCellReference(ref);
-        } catch {
-          continue;
-        }
-        const styleId = numberAttribute(cell, "s", "c") ?? 0;
-        const formula = firstChild(cell, "f");
-        const style = workbook.styles.cellStyle(styleId);
-        const cached = cachedValue(cell, workbook.sharedStrings, style, workbook.date1904);
-        const model: CellModel = {
-          value: cached.value,
-          formatted: cached.formatted,
-          type: cached.type,
-          ...(formula === undefined || textContent(formula) === "" ? {} : { formula: textContent(formula) }),
-        };
-        if (Object.keys(style).length > 0) model.style = style;
-        const hyperlink = hyperlinks.get(`${position.row}:${position.col}`);
-        if (hyperlink !== undefined) model.hyperlink = { ...hyperlink };
-        cells.set(`${position.row}:${position.col}`, model);
-      }
-    }
-  }
+  applyHyperlinks(root, sheetRels, grid);
 
   const merges: CellRange[] = [];
   const mergeCells = firstChild(root, "mergeCells");
@@ -914,7 +735,7 @@ export async function parseXlsxSheet(
   }
 
   const formats = conditionalRules(root);
-  if (formats.length > 0) applyConditionalFormatting(cells, formats, workbook.styles, unsupported);
+  if (formats.length > 0) applyConditionalFormatting(grid, formats, styles, unsupported);
 
   // Extent: authored dimension wins; otherwise derive from content so a
   // missing dimension still yields a bounded, renderable grid.
@@ -922,10 +743,9 @@ export async function parseXlsxSheet(
   if (extent === undefined) {
     let cols = 0;
     let rows = 0;
-    for (const key of cells.keys()) {
-      const [row, col] = key.split(":").map(Number);
-      rows = Math.max(rows, (row ?? -1) + 1);
-      cols = Math.max(cols, (col ?? -1) + 1);
+    for (const [row, entries] of byRow) {
+      rows = Math.max(rows, row + 1);
+      cols = Math.max(cols, entries[entries.length - 1]!.col + 1);
     }
     for (const merge of merges) {
       rows = Math.max(rows, merge.end.row + 1);
@@ -933,26 +753,22 @@ export async function parseXlsxSheet(
     }
     extent = { cols, rows };
   }
+  const { rows: extentRows, cols: extentCols } = extent;
 
+  const defaultColumnWidth = columnCharsToInches(defaultColChars);
   const widths: number[] = [];
-  for (let col = 0; col < extent.cols; col++) {
-    widths.push(columnWidths.get(col) ?? columnCharsToInches(defaultColChars));
+  for (let col = 0; col < extentCols; col++) {
+    widths.push(columnWidths.get(col) ?? defaultColumnWidth);
   }
-  const hiddenColumns = [...columnHidden].filter((col) => col < extent.cols).sort((a, b) => a - b);
-  const hidden = [...hiddenRows].filter((row) => row < extent.rows).sort((a, b) => a - b);
+  const hiddenColumns = [...columnHidden].filter((col) => col < extentCols).sort((a, b) => a - b);
+  const hidden = [...hiddenRows].filter((row) => row < extentRows).sort((a, b) => a - b);
 
   const rows: RowModel[] = [];
-  const byRow = new Map<number, Array<{ col: number; cell: CellModel }>>();
-  for (const [key, cell] of cells) {
-    const [row, col] = key.split(":").map(Number);
-    const list = byRow.get(row!) ?? [];
-    list.push({ col: col!, cell });
-    byRow.set(row!, list);
-  }
-  const orderedRows = [...byRow.keys()].sort((a, b) => a - b);
-  for (const rowIndex of orderedRows) {
-    if (rowIndex >= extent.rows) continue;
-    const entries = (byRow.get(rowIndex) ?? []).filter((entry) => entry.col < extent.cols).sort((a, b) => a.col - b.col);
+  for (const rowIndex of grid.rowOrder) {
+    if (rowIndex >= extentRows) break;
+    let entries = byRow.get(rowIndex)!;
+    // Columns are sorted: trimming past the extent is a single cut.
+    if (entries[entries.length - 1]!.col >= extentCols) entries = entries.slice(0, lowerBound(entries, extentCols, entryCol));
     if (entries.length === 0) continue;
     const height = rowHeights.get(rowIndex);
     rows.push({
@@ -964,17 +780,22 @@ export async function parseXlsxSheet(
   }
 
   // Drawing bounds need absolute EMU offsets: column widths plus row heights.
-  const columnEmu = widths.map((width) => width * EMUS_PER_INCH);
-  const rowEmu: number[] = [];
-  for (let row = 0; row < extent.rows; row++) {
-    rowEmu.push((rowHeights.get(row) ?? defaultRowHeight) * EMUS_PER_INCH);
-  }
-  const { drawings, unsupported: drawingUnsupported } = await parseDrawings(pkg, reference.part, columnEmu, rowEmu, signal);
+  const columnOffset: GridOffset = (index) => {
+    let total = 0;
+    for (let i = 0; i < index && i < extentCols; i++) total += inchesToEmu(widths[i]!);
+    return total;
+  };
+  const rowOffset: GridOffset = (index) => {
+    let total = 0;
+    for (let i = 0; i < index && i < extentRows; i++) total += inchesToEmu(rowHeights.get(i) ?? defaultRowHeight);
+    return total;
+  };
+  const { drawings, unsupported: drawingUnsupported } = await parseDrawings(pkg, reference.part, columnOffset, rowOffset, workbook.theme, signal);
   throwIfAborted(signal);
   unsupported.push(...drawingUnsupported);
 
   const validations = firstChild(root, "dataValidations");
-  if (validations !== undefined && (numberAttribute(validations, "count", "dataValidations") ?? childElements(validations, "dataValidation").length) > 0) {
+  if (validations !== undefined && (numberAttr(validations, "count", "dataValidations") ?? childElements(validations, "dataValidation").length) > 0) {
     unsupported.push({ kind: "data-validation", detail: "drop-down and input validation are not interactive in previews" });
   }
   if (sheetRels.some((relationship) => relationship.type.endsWith("/comments"))) {
@@ -1022,12 +843,17 @@ export async function parseXlsxSheet(
  * empty, exactly like sparse authored rows.
  */
 export function sliceSheetToRange(sheet: SheetModel, range: CellRange): SheetRangeModel {
-  const rows = sheet.rows.filter((row) => row.index >= range.start.row && row.index <= range.end.row)
-    .map((row) => ({
-      ...row,
-      cells: row.cells.filter(({ col }) => col >= range.start.col && col <= range.end.col),
-    }))
-    .filter((row) => row.cells.length > 0);
+  // Rows are sorted by index and cells by column: binary-search both edges.
+  const rows: RowModel[] = [];
+  const all = sheet.rows;
+  for (let i = lowerBound(all, range.start.row, rowIndexOf); i < all.length && all[i]!.index <= range.end.row; i++) {
+    const row = all[i]!;
+    const cells = row.cells;
+    const from = lowerBound(cells, range.start.col, entryCol);
+    let to = from;
+    while (to < cells.length && cells[to]!.col <= range.end.col) to++;
+    if (to > from) rows.push({ ...row, cells: cells.slice(from, to) });
+  }
   const merges: CellRange[] = [];
   for (const merge of sheet.merges) {
     const start = {

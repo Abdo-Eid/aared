@@ -23,14 +23,21 @@ export interface LocalViewBoxModel {
 
 export type TextDirection = "ltr" | "rtl";
 
+/** Paragraph alignment in physical terms; a bidi paragraph's start/end resolve to left/right before they reach the model. */
+export type TextAlign = "left" | "right" | "center" | "justify";
+
 export type TextBodyVerticalAlign = "top" | "middle" | "bottom" | "justify" | "distributed";
 
 export type TextWrappingMode = "none" | "square";
 
 export type TextAutofitMode = "none" | "shrinkText" | "resizeShape";
 
-export interface TextBodyInsetsModel {
-  /** All inset values are in inches. */
+/**
+ * Box insets in inches, every side optional (absent: not authored). The one
+ * shape behind a text body's insets (`a:bodyPr`), a PPTX cell's margins
+ * (`a:tcPr`) and a Word cell's padding (`w:tblCellMar` / `w:tcMar`).
+ */
+export interface InsetsModel {
   left?: number;
   right?: number;
   top?: number;
@@ -46,30 +53,84 @@ export interface TextRunModel {
   language?: string;
   latinTypeface?: string;
   complexScriptTypeface?: string;
+  /** East Asian (`a:ea`) and symbol (`a:sym`) typeface slots; families resolve like latin/cs. */
+  eastAsianTypeface?: string;
+  symbolTypeface?: string;
   /** Resolved CSS color, not a scheme token. */
   color?: string;
   /** Resolved Office/theme font family; font files resolve separately. */
   fontFamily?: string;
   /** Word `w:u` single (or heavier) underline; absent means none. */
   underline?: boolean;
+  /**
+   * DrawingML underline style token (`a:rPr/@u`: `sng`, `dbl`, `dotted`,
+   * `dashed`, `wavy`, …); `none` means no underline. Word keeps `underline`.
+   */
+  underlineStyle?: string;
+  /** Resolved CSS underline color from `a:uFill`/`a:uLn`; absent follows the run color. */
+  underlineColor?: string;
   /** Word `w:strike` / `w:dstrike`. */
   strikethrough?: boolean;
+  /** DrawingML caps (`a:rPr/@cap`): `all` caps, `small` small-caps. */
+  caps?: "all" | "small";
+  /** Character spacing in points (DrawingML `a:rPr/@spc` hundredths, Word `w:spacing` twentieths). */
+  letterSpacingPt?: number;
+  /** DrawingML baseline shift as a percentage of the font size (`a:rPr/@baseline` thousandths of a percent). */
+  baselinePct?: number;
+  /** DrawingML `a:noFill`: outline-only text (fill explicitly none). */
+  noFill?: boolean;
+  /** DrawingML `a:grpFill`: fill inherits the group (marked, not resolved). */
+  groupFill?: boolean;
+  /** DrawingML text outline (`a:ln` on the run): stroke color + width in points. Painted via text-stroke. */
+  outline?: { color: string; widthPt: number };
+  /**
+   * DrawingML text fill gradient (`a:gradFill` on the run). Linear gradients
+   * paint via background-clip; path/unsupported kinds are marked, never
+   * approximated — same contract as shape fills.
+   */
+  gradient?: ShapeFillModel;
+  /** Run glow (`a:effectLst/a:glow`): color + radius in points. Approximated as text-shadow. */
+  glow?: { color: string; radiusPt: number };
+  /** Run shadow (`a:outerShdw`/`a:innerShdw`/`a:prstShdw`): color + blur + offset in points. Approximated as text-shadow. */
+  shadow?: { color: string; blurPt: number; dxPt: number; dyPt: number };
   /** Word `w:vertAlign` superscript/subscript (footnote markers, endnotes). */
   verticalAlign?: "subscript" | "superscript";
-  /** Resolved CSS highlight color behind the run (`w:highlight`). */
+  /** Resolved CSS highlight color behind the run (`w:highlight`, `a:highlight`). */
   highlight?: string;
   /** Resolved CSS run shading fill (`w:shd`). */
   shading?: string;
-  /** Hyperlink target for runs inside `w:hyperlink`; externals resolved, internals kept as `#anchor`. */
+  /**
+   * Hyperlink target. Word: runs inside `w:hyperlink` (externals resolved,
+   * internals kept as `#anchor`). PPTX: `a:hlinkClick` `r:id` resolved
+   * through slide relationships; slide jumps kept as `#slide-N`.
+   */
   hyperlink?: string;
   /** Footnote/endnote entry id when this run is its in-text marker. */
   footnoteRef?: string;
   /**
-   * Live page field this run evaluates (`w:instrText PAGE`/`NUMPAGES` or
-   * `w:fldSimple`). `text` carries the static flow fiction (`"1"`); layout
-   * pagination substitutes the real value per page, flow rendering keeps it.
+   * Live field this run evaluates. DOCX: `PAGE`/`NUMPAGES` (`w:instrText` or
+   * `w:fldSimple`); `text` carries the field's cached result from the file
+   * (`"1"` when it has none), layout pagination substitutes the real value per
+   * page, and flow rendering shows the cached text.
+   * PPTX: `slidenum` (the renderer shows `SlideModel.number`) and `datetime`
+   * (`text` keeps the value cached in the file).
    */
-  field?: "PAGE" | "NUMPAGES";
+  field?: "PAGE" | "NUMPAGES" | "slidenum" | "datetime";
+  /**
+   * Word inline drawing that sits on the text line (`wp:inline` inside a
+   * paragraph that also carries text). `text` is empty; the renderer paints
+   * the picture in the line, so a header logo stays beside its wordmark.
+   */
+  image?: DocxInlineImage;
+}
+
+/** An inline picture riding on a text line; extent in inches. */
+export interface DocxInlineImage {
+  mediaId: string;
+  contentType: string;
+  width: number;
+  height: number;
+  alt?: string;
 }
 
 export interface TextParagraphModel {
@@ -78,8 +139,24 @@ export interface TextParagraphModel {
   fontSizePt?: number;
   /** Absent when the source did not explicitly set paragraph direction. */
   direction?: TextDirection;
-  align?: "left" | "right" | "center" | "justify";
-  bullet?: { char?: string; typeface?: string };
+  align?: TextAlign;
+  bullet?: {
+    char?: string;
+    typeface?: string;
+    /** Resolved CSS color from `a:buClr`; absent (or `buClrTx`) follows the paragraph text. */
+    color?: string;
+    /** Bullet size as a percentage of the run size (`a:buSzPct`, 100 = full). Absent (or `buSzTx`) follows text. */
+    sizePct?: number;
+    /** Bullet size in absolute points (`a:buSzPts`). Wins over `sizePct` when both resolve. */
+    sizePts?: number;
+    /**
+     * Picture bullet (`a:buBlip`): media part target for session fetch plus
+     * content type. The renderer paints the image, falling back to `char`
+     * (or `•`) when fetch fails or no resolver is wired.
+     */
+    pictureMediaId?: string;
+    pictureContentType?: string;
+  };
   level?: number;
   /** Paragraph margins and first-line indent in inches. */
   leftIndent?: number;
@@ -96,10 +173,16 @@ export interface TextParagraphModel {
 
 export interface TextBodyModel {
   paragraphs: TextParagraphModel[];
-  insets?: TextBodyInsetsModel;
+  insets?: InsetsModel;
   verticalAlign?: TextBodyVerticalAlign;
   wrapping?: TextWrappingMode;
   autofit?: TextAutofitMode;
+  /**
+   * WordArt preset warp (`a:bodyPr/a:prstTxWarp/@prst`, e.g. `textArchUp`).
+   * Painted unwarped and marked — true glyph warping needs per-glyph path
+   * morphing and is explicitly out of scope.
+   */
+  textWarp?: string;
 }
 
 export interface TransformModel {
@@ -112,17 +195,44 @@ export interface TransformModel {
 export interface ShapeGeometryModel {
   /** DrawingML preset name when the source uses `a:prstGeom`. */
   preset?: string;
-  /** SVG path data in the local coordinate system defined by `viewBox`. */
+  /** SVG path data in the local coordinate system defined by `viewBox`; painted with the shape's fill and outline. */
   path: string;
+  /**
+   * Subpaths painted with the fill but no outline, beneath `path` — DrawingML
+   * paths marked `stroke="false"` (a can's body, a cube's shaded faces).
+   */
+  fillOnly?: string;
+  /**
+   * Subpaths painted with the outline but no fill, above `path` — DrawingML
+   * paths marked `fill="none"` (a can's rim, a callout's leader line).
+   */
+  strokeOnly?: string;
   viewBox: LocalViewBoxModel;
   /** Source geometry could not be rendered faithfully; `path` is a visible bounds fallback. */
   fallback?: "unsupported" | "custom" | "missing";
+  /**
+   * @internal Worker-to-session transport, never present on models a session
+   * returns: geometry the worker described but did not evaluate. The session
+   * resolves it on the main thread, lazily loading the evaluator and preset
+   * catalog, then removes it — replacing `path` and `fallback` on success.
+   */
+  deferred?: DeferredGeometryModel;
+}
+
+/** @internal See `ShapeGeometryModel.deferred`. */
+export interface DeferredGeometryModel {
+  /** Encoded `a:custGeom`; absent for a preset, which the catalog supplies by `preset` name. */
+  program?: string;
+  /** Authored `a:avLst` values overriding the program's defaults by name. */
+  adjustments?: Record<string, number>;
 }
 
 export interface StrokeModel {
   color: string;
   /** Stroke width in inches. */
   width: number;
+  /** Dash family from `a:prstDash`; absent means solid. Read for table cell edges only so far. */
+  dash?: "dash" | "dot";
 }
 
 export interface SolidFillModel {
@@ -149,14 +259,114 @@ export interface LinearGradientFillModel {
   stops: LinearGradientStopModel[];
 }
 
+/**
+ * Edges of a rectangle as fractions of a fill box (1 = the box's full width
+ * or height), each measured inward from the matching edge of the box. A
+ * negative value extends that edge outward, as DrawingML `CT_RelativeRect`
+ * allows.
+ */
+export interface RelativeRectModel {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * An `a:path` gradient: the first stop paints the `focus` rectangle and
+ * colour runs outward to the last stop. How far "outward" reaches depends on
+ * `path`, each measured against PowerPoint renders (DECISION_LOG §28):
+ *
+ * - `circle` — a true circle in slide units (never an ellipse fitted to the
+ *   box): the weight is the distance from the focus divided by half the
+ *   diagonal of `extent`.
+ * - `rect` — per side: each side runs from the focus edge to the matching
+ *   `extent` edge, so the sides meet on the focus-to-extent diagonals.
+ * - `shape` — the fill's own outline: the weight is how far along the ray
+ *   from the focus centre to the outline a point sits.
+ *
+ * Both rectangles are fractions of the fill box. PowerPoint reads
+ * `fillToRect` against the fill box, not against `tileRect` as the spec
+ * text suggests: a `tileRect l=t=-100%` + `fillToRect r=b=100%` gradient
+ * puts the first stop at the box's top-left corner (`pptx-coverage.pptx`,
+ * slides 4 and 7).
+ */
+export interface PathGradientFillModel {
+  kind: "path-gradient";
+  path: "circle" | "rect" | "shape";
+  /** The first stop's rectangle (`a:fillToRect`), measured from `extent`'s edges. */
+  focus: RelativeRectModel;
+  /** The gradient box (`a:tileRect`); zeros are the fill box itself. */
+  extent: RelativeRectModel;
+  stops: LinearGradientStopModel[];
+}
+
+/**
+ * A two-colour pattern (`a:pattFill`): one of DrawingML's 54 preset 8×8
+ * bitmaps. Each bitmap cell is one CSS pixel (the tile is 1/12 inch), the
+ * pattern scales with the slide, and it is anchored to the slide's origin
+ * rather than to each shape, as PowerPoint draws it.
+ */
+export interface PatternFillModel {
+  kind: "pattern";
+  /** `ST_PresetPatternVal`, e.g. `dkDnDiag`, `smGrid`, `pct50`. */
+  preset: string;
+  /** Resolved CSS colour of the bitmap's set cells (`a:fgClr`). */
+  foreground: string;
+  /** Resolved CSS colour of the remaining cells (`a:bgClr`). */
+  background: string;
+}
+
+/** How a tiled picture fill (`a:tile`) repeats. */
+export interface PictureTileModel {
+  /** Tile width and height as a fraction of the image's natural size at 96 DPI (1 = 100 %). */
+  scaleX: number;
+  scaleY: number;
+  /** Offset of the tile grid in inches, after alignment. */
+  offsetX: number;
+  offsetY: number;
+  /** Which point of the fill box the first tile aligns to. */
+  align: "tl" | "t" | "tr" | "l" | "ctr" | "r" | "bl" | "b" | "br";
+  /** Mirror every other tile horizontally (`x`), vertically (`y`), or both. */
+  flip: "none" | "x" | "y" | "xy";
+}
+
+/**
+ * A picture fill (`a:blipFill`) on a shape, table cell, or slide background.
+ * Without `tile` the picture stretches over `stretch` (the fill box when
+ * absent); `crop` removes a fraction of the image from each edge first.
+ */
+export interface PictureFillModel {
+  kind: "picture";
+  /** Identifier accepted by `MediaCollection.get()` (the OPC part path). */
+  mediaId: string;
+  contentType: string;
+  /** `a:srcRect`: fractions of the image cut from each edge; negative pads. */
+  crop?: RelativeRectModel;
+  /** `a:stretch/a:fillRect`: where the stretched image sits inside the fill box. */
+  stretch?: RelativeRectModel;
+  tile?: PictureTileModel;
+  /** True when inherited from the layout or master, so many slides share one image. */
+  shared?: true;
+}
+
 /** A deliberately unpainted source fill that cannot be represented faithfully. */
 export interface UnsupportedShapeFillModel {
   kind: "unsupported";
   source: "gradient-path" | "gradient-linear" | "image" | "pattern";
 }
 
-/** Resolved DrawingML shape paint, never raw OOXML or SVG markup. */
-export type ShapeFillModel = SolidFillModel | LinearGradientFillModel | UnsupportedShapeFillModel;
+/**
+ * Resolved DrawingML paint for shapes, table cells and slide backgrounds,
+ * never raw OOXML or SVG markup.
+ */
+export type ShapeFillModel =
+  | SolidFillModel
+  | LinearGradientFillModel
+  | PathGradientFillModel
+  | PatternFillModel
+  | PictureFillModel
+  | UnsupportedShapeFillModel;
 
 export interface ShapeModel {
   kind: "shape";
@@ -165,6 +375,12 @@ export interface ShapeModel {
   placeholder?: { type: string; index: string };
   bounds?: BoundsModel;
   text?: TextBodyModel;
+  /**
+   * Whole-shape hyperlink (`p:cNvPr/a:hlinkClick`), resolved through the
+   * owning part's rels. The renderer surfaces clicks as `linkactivate`;
+   * run-level links (`TextRunModel.hyperlink`) win for their own runs.
+   */
+  hyperlink?: string;
   /** Present when the parser resolves DrawingML geometry to an SVG path. */
   geometry?: ShapeGeometryModel;
   /** Resolved shape paint when the parser supports the source fill. */
@@ -180,14 +396,23 @@ export interface TableCellModel {
   rowSpan?: number;
   columnSpan?: number;
   /** Resolved cell insets in inches, from `a:tcPr/@marL|marR|marT|marB`. */
-  margins?: { left?: number; right?: number; top?: number; bottom?: number };
-  /** Resolved cell edge strokes, from `a:tcPr/a:lnL|lnR|lnT|lnB`. Widths are inches. */
+  margins?: InsetsModel;
+  /**
+   * Resolved cell edge strokes: the direct `a:tcPr/a:lnL|lnR|lnT|lnB` edge,
+   * else the table style's region edge. A missing side paints no line.
+   * Widths are inches.
+   */
   borders?: {
-    left?: { color: string; width: number };
-    right?: { color: string; width: number };
-    top?: { color: string; width: number };
-    bottom?: { color: string; width: number };
+    left?: StrokeModel;
+    right?: StrokeModel;
+    top?: StrokeModel;
+    bottom?: StrokeModel;
+    /** Diagonals: `lnTlToBr` (top-left to bottom-right) and `lnBlToTr`. */
+    diagonalDown?: StrokeModel;
+    diagonalUp?: StrokeModel;
   };
+  /** Rotated cell text from `a:tcPr/@vert`: `vert` reads top to bottom, `vert270` bottom to top. */
+  textRotation?: 90 | 270;
 }
 
 export interface TableRowModel {
@@ -207,8 +432,11 @@ export interface TableModel {
   /** Column widths in inches, in logical XML order. */
   columns: number[];
   rows: TableRowModel[];
-  /** Resolved table-style backgrounds per logical XML cell, if present. */
-  cellFills: Array<Array<string | undefined>>;
+  /**
+   * Resolved background per logical XML cell: the cell's own `a:tcPr` fill,
+   * else its table-style band colour. `undefined` paints no background.
+   */
+  cellFills: Array<Array<ShapeFillModel | undefined>>;
   transform?: TransformModel;
 }
 
@@ -275,6 +503,16 @@ export type ChartGraphicPrimitive =
 export interface ChartGraphicModel {
   viewBox: LocalViewBoxModel;
   primitives: ChartGraphicPrimitive[];
+  /**
+   * The chart area's own fill and outline (`c:chartSpace/c:spPr`), painted
+   * behind the whole frame. Absent when the chart authors neither, so hosts
+   * keep whatever surface is under it.
+   */
+  background?: {
+    fill?: string;
+    /** Outline width in CSS pixels. */
+    stroke?: { color: string; width: number };
+  };
 }
 
 export interface ChartModel {
@@ -289,7 +527,39 @@ export interface ChartModel {
   transform?: TransformModel;
 }
 
-export type SlideElementModel = ShapeModel | TableModel | PictureModel | ChartModel;
+/**
+ * A grouped shape tree (`p:grpSp`). Children keep their authored coordinates
+ * in `childSpace`; the renderer maps that space onto `bounds`. Nested groups
+ * recurse through `children`.
+ */
+export interface GroupModel {
+  kind: "group";
+  id: string;
+  name: string;
+  bounds?: BoundsModel;
+  /** Group rotation/flips from `p:grpSpPr/a:xfrm`. */
+  transform?: TransformModel;
+  /** Child coordinate space (`a:chOff` + `a:chExt`), absent when identity. */
+  childSpace?: BoundsModel;
+  /** Back-to-front children: shapes, tables, pictures, charts, nested groups. */
+  children: SlideElementModel[];
+}
+
+export type SlideElementModel = ShapeModel | TableModel | PictureModel | ChartModel | GroupModel;
+
+/**
+ * The shared, non-placeholder graphics a layout and its master paint under
+ * every slide that uses the layout (logos, bars, header text boxes). Stored
+ * once per layout: the Worker parses it once, the session sends it to the
+ * main thread once, and every slide on that layout carries the SAME object.
+ * Treat it as read-only. Placeholders are prototypes, never painted here.
+ */
+export interface SlideLayoutModel {
+  /** OPC part name of the layout. */
+  id: string;
+  /** Master graphics first, then the layout's, back-to-front. */
+  graphics: SlideElementModel[];
+}
 
 export interface SlideModel {
   /** OPC part name for the source slide. */
@@ -298,6 +568,24 @@ export interface SlideModel {
   size: SizeModel;
   /** Back-to-front z-order. */
   elements: SlideElementModel[];
+  /**
+   * Resolved slide background (slide, else layout, else master). Absent means
+   * the slide paints no authored background (white). `unsupported` marks a
+   * background the renderer cannot paint yet (an off-center circle or
+   * `shape`-path gradient, a missing picture).
+   */
+  background?: ShapeFillModel;
+  /** 1-based position in the deck, shown by `slidenum` fields. */
+  number?: number;
+  /** Set by the Worker when the slide's layout has shared graphics to fetch. */
+  layoutId?: string;
+  /**
+   * Shared layout/master graphics, attached by `SlideHandle.read()` from
+   * `layoutId`. Painted under `elements` unless `hideBackgroundGraphics`.
+   */
+  layout?: SlideLayoutModel;
+  /** The slide hides background graphics (`showMasterSp="0"`). */
+  hideBackgroundGraphics?: boolean;
   notes?: string;
 }
 
@@ -490,9 +778,7 @@ export type UnitModel = SlideModel | SheetModel | SheetRangeModel | DocumentSect
  * `root` without re-parsing.
  */
 
-export type DocxTextAlign = "left" | "right" | "center" | "justify";
-
-/** Shared flow-paragraph layout; Word `w:spacing`/`w:ind` resolved once in the worker. */
+/** One side of a Word paragraph or table border (`w:pBdr`, `w:tblBorders`); widths are points. */
 export interface DocxParagraphBorder {
   /** Resolved CSS color; `currentColor` when the source names none. */
   color: string;
@@ -510,21 +796,36 @@ export interface DocxParagraphBorders {
   left?: DocxParagraphBorder;
 }
 
-export interface DocxParagraphLayout {
-  /** Effective default run size for paragraph-level layout, in points. */
-  fontSizePt?: number;
-  align?: DocxTextAlign;
-  /** Authored relative line spacing; the renderer clamps its CSS box, never this value. */
-  lineSpacing?: number;
-  /** Explicit line height in points when the source does not use a multiplier. */
-  lineSpacingPt?: number;
-  /** Space before and after the paragraph, in points. */
-  spaceBeforePt?: number;
-  spaceAfterPt?: number;
-  /** Paragraph margins and first-line indent in inches. */
-  leftIndent?: number;
-  rightIndent?: number;
-  firstLineIndent?: number;
+/** One Word tab stop (`w:tabs/w:tab`); `pos` is inches from the text margin's start edge. */
+export interface DocxTabStop {
+  pos: number;
+  align: "left" | "center" | "right" | "decimal";
+  /** Fill drawn across the tab's width; absent means blank. */
+  leader?: "dot" | "hyphen" | "underscore" | "middleDot";
+}
+
+/**
+ * Shared flow-paragraph layout, `w:spacing`/`w:ind` resolved once in the
+ * worker: the paragraph fields a PPTX paragraph has (font size, alignment,
+ * line spacing, space before/after, indents) plus Word's tab stops, shading
+ * and borders. `lineSpacing` is the authored multiple; the renderer clamps its
+ * CSS box, never this value.
+ */
+export interface DocxParagraphLayout
+  extends Pick<
+    TextParagraphModel,
+    | "fontSizePt"
+    | "align"
+    | "lineSpacing"
+    | "lineSpacingPt"
+    | "spaceBeforePt"
+    | "spaceAfterPt"
+    | "leftIndent"
+    | "rightIndent"
+    | "firstLineIndent"
+  > {
+  /** Custom tab stops in ascending position; text tabs past the last stop use the default grid. */
+  tabStops?: DocxTabStop[];
   /** Resolved CSS paragraph shading (`w:shd`). */
   shading?: string;
   /** Resolved paragraph borders (`w:pBdr`), per side. */
@@ -550,8 +851,25 @@ export interface DocxHeadingNode extends DocxParagraphLayout {
   runs: TextRunModel[];
 }
 
+/** A table or cell edge: `"none"` is an authored `nil` that clears an inherited border. */
+export type DocxTableEdge = DocxParagraphBorder | "none";
+
+/** Table-level borders (`w:tblBorders`); the `inside*` edges sit between cells. */
+export interface DocxTableBorders {
+  top?: DocxTableEdge;
+  right?: DocxTableEdge;
+  bottom?: DocxTableEdge;
+  left?: DocxTableEdge;
+  insideH?: DocxTableEdge;
+  insideV?: DocxTableEdge;
+}
+
 export interface DocxTableCellNode {
   nodes: FlowNode[];
+  /** Per-cell padding (`w:tcMar`); absent falls back to the table's `cellMargins`. */
+  margins?: InsetsModel;
+  /** Per-cell edges (`w:tcBorders`), overriding the table's borders on that side. */
+  borders?: Pick<DocxTableBorders, "top" | "right" | "bottom" | "left">;
   verticalAlign?: "top" | "middle" | "bottom";
   /** Resolved CSS cell shading (`w:shd`). */
   shading?: string;
@@ -576,6 +894,12 @@ export interface DocxTableNode {
   /** Column widths in inches, in logical XML order. */
   columns: number[];
   rows: DocxTableRowNode[];
+  /** Preferred table width in inches (`w:tblW` in dxa); absent means the columns' sum. */
+  width?: number;
+  /** Table borders as authored; absent means no borders. */
+  borders?: DocxTableBorders;
+  /** Default cell padding (`w:tblCellMar`, else the Normal Table default). */
+  cellMargins?: InsetsModel;
 }
 
 export interface DocxImageNode {
@@ -595,7 +919,7 @@ export interface DocxImageNode {
    * paragraphs center their image. Absent when unauthored — and never set
    * for floats, which paragraph alignment does not position.
    */
-  align?: DocxTextAlign;
+  align?: TextAlign;
 }
 
 export interface DocxListItemNode {
@@ -605,6 +929,14 @@ export interface DocxListItemNode {
   ordered: boolean;
   /** Resolved marker text for this item (`1.`, `b)`, `●`). */
   marker: string;
+  /**
+   * The marker's own run formatting from the numbering level (`w:lvl/w:rPr`):
+   * colour, weight, size, family. Absent when the level authors none, in which
+   * case the marker follows the paragraph text. `text` repeats `marker`.
+   */
+  markerRun?: TextRunModel;
+  /** What follows the marker (`w:suff`); absent is Word's default, a tab to the text indent. */
+  markerSuffix?: "space" | "nothing";
   paragraph: DocxParagraphNode;
 }
 

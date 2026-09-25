@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { open } from "../src/xlsx/index.js";
 
-const XLSX_FIXTURE = `${import.meta.dir}/../../../fixtures/arabic-xlsx-rtl-coverage.xlsx`;
+const XLSX_FIXTURE = `${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`;
 
 test("sheetStates are exposed in document info", async () => {
   const workbook = await open(await Bun.file(XLSX_FIXTURE).arrayBuffer());
@@ -25,13 +25,14 @@ test("count matches sheet collection length", async () => {
   }
 });
 
-test("search returns cell addresses in A1 notation", async () => {
+test("search names each cell as { address, row, col } in its sheet's { index, title }", async () => {
   const workbook = await open(await Bun.file(XLSX_FIXTURE).arrayBuffer());
   try {
     const matches = await workbook.search("budget");
+    expect(matches.length).toBeGreaterThan(0);
     for (const match of matches) {
-      expect(match.cell).toMatch(/^[A-Z]+[0-9]+$/);
-      expect(match.sheet).toBeTruthy();
+      expect(match.address).toMatch(/^[A-Z]+[0-9]+$/);
+      expect(match.sheet.title).toBe(workbook.sheets.get(match.sheet.index).info.title);
       expect(match.text.length).toBeGreaterThan(0);
     }
   } finally {

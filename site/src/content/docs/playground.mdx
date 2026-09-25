@@ -2,55 +2,88 @@
 title: Playground
 ---
 
-import CodeBlock from '../../components/CodeBlock.astro';
+import PlaygroundCode from '../../components/PlaygroundCode.astro';
 import ElementDemo from '../../components/ElementDemo.astro';
 import FacadeDemo from '../../components/FacadeDemo.astro';
 import HeadlessDemo from '../../components/HeadlessDemo.astro';
 import TabsScript from '../../components/TabsScript.astro';
+import PlaygroundPicker from '../../components/PlaygroundPicker.astro';
 import { HooksDemo } from '../../demos/HooksDemo.tsx';
-import elementSource from '../../demos/element.ts?raw';
-import facadeSource from '../../demos/facade.ts?raw';
-import hooksSource from '../../demos/HooksDemo.tsx?raw';
-import pptxUrl from '../../../../fixtures/arabic-pptx-rtl-coverage.pptx?url';
-import xlsxUrl from '../../../../fixtures/arabic-xlsx-rtl-coverage.xlsx?url';
-import docxUrl from '../../../../fixtures/arabic-docx-bidi-coverage.docx?url';
+import { htmlSnippets, reactSnippets, facadeSnippets, headlessSnippets } from '../../lib/playground-snippets.ts';
+import pptxUrl from '../../../../fixtures/post-production-review.pptx?url';
+import xlsxUrl from '../../../../fixtures/post-production-tracker.xlsx?url';
+import docxUrl from '../../../../fixtures/docx-coverage.docx?url';
 
 export const fixtures = [
-  { label: 'Arabic deck (.pptx)', url: pptxUrl, format: 'pptx' },
-  { label: 'Arabic workbook (.xlsx)', url: xlsxUrl, format: 'xlsx' },
-  { label: 'Arabic document (.docx)', url: docxUrl, format: 'docx' },
+  { label: 'Post-production review', url: pptxUrl, format: 'pptx' },
+  { label: 'Post-production tracker', url: xlsxUrl, format: 'xlsx' },
+  { label: 'Arabic document', url: docxUrl, format: 'docx' },
 ];
 
-Every tab below runs entirely in your browser: fixtures parse in a Worker
-and paint real DOM — nothing is uploaded anywhere. Pick a fixture or drop
-your own file. The snippet above each demo is the exact module being
-executed, so the code you read is the code that runs.
+aared works three ways: as an HTML element, as a React hook, or from plain
+JavaScript (two flavours). Each tab runs a live demo on the right, with the
+code you would write on the left. Pick a format, or choose a local file of your own; your choice
+follows you between tabs, and nothing is uploaded anywhere. The status line
+above each demo says what was opened: how many slides, sheets, or (for Word)
+one document. New here? Start with **HTML** — it's a single tag.
 
 <div class="playground-tabs" data-tabs>
-  <div class="demo-pills" role="tablist" aria-label="Integration paths">
-    <button type="button" role="tab" aria-selected="true" data-tab="component">Component</button>
-    <button type="button" role="tab" aria-selected="false" data-tab="facade">One call</button>
-    <button type="button" role="tab" aria-selected="false" data-tab="headless">Headless</button>
-    <button type="button" role="tab" aria-selected="false" data-tab="react">React</button>
+  <div class="pg-toolbar">
+    <div class="demo-pills" role="tablist" aria-label="How you use aared">
+      <button type="button" role="tab" aria-selected="true" data-tab="component">HTML</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="react">React</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="facade">JS · one call</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="headless">JS · full control</button>
+    </div>
+    <PlaygroundPicker fixtures={fixtures} />
   </div>
 
   <div role="tabpanel" data-panel="component">
-    <CodeBlock title="element.ts" lang="ts" code={elementSource} />
-    <ElementDemo fixtures={fixtures} />
-  </div>
-
-  <div role="tabpanel" data-panel="facade" hidden>
-    <CodeBlock title="facade.ts" lang="ts" code={facadeSource} />
-    <FacadeDemo fixtures={fixtures} />
-  </div>
-
-  <div role="tabpanel" data-panel="headless" hidden>
-    <HeadlessDemo fixtures={fixtures} />
+    <p class="tab-intro"><strong>The easiest way: one tag.</strong> Add
+    <code>&lt;aared-viewer src="file.pptx" controls&gt;</code> and you're done — it
+    detects the format, opens the file, and draws it with built-in paging and zoom.
+    Use it when you just want a viewer without writing render code.</p>
+    <div class="pg-split">
+      <div class="pg-code"><PlaygroundCode snippets={htmlSnippets} /></div>
+      <div class="pg-demo"><ElementDemo fixtures={fixtures} /></div>
+    </div>
   </div>
 
   <div role="tabpanel" data-panel="react" hidden>
-    <CodeBlock title="HooksDemo.tsx" lang="tsx" code={hooksSource} />
-    <HooksDemo client:visible="react" fixtures={fixtures} />
+    <p class="tab-intro"><strong>A hook for React apps.</strong>
+    <code>usePreview(&#123; source &#125;)</code> gives you a <code>ref</code> for a
+    <code>&lt;div&gt;</code> plus the loading and error state, and cleans up when the
+    component unmounts or the file changes. Use it when your app is React and you want a
+    viewer without managing the lifecycle yourself.</p>
+    <div class="pg-split">
+      <div class="pg-code"><PlaygroundCode snippets={reactSnippets} /></div>
+      <div class="pg-demo"><HooksDemo client:visible="react" fixtures={fixtures} /></div>
+    </div>
+  </div>
+
+  <div role="tabpanel" data-panel="facade" hidden>
+    <p class="tab-intro"><strong>One function, any format.</strong>
+    <code>preview(source, container)</code> from <code>aared/preview</code> detects the
+    format, loads only the code it needs, draws into your container, and returns a handle
+    (<code>goTo</code>, <code>setZoom</code>, <code>destroy</code>). Use it when you build
+    your own UI around the viewer but don't want a separate code path for each format.</p>
+    <div class="pg-split">
+      <div class="pg-code"><PlaygroundCode snippets={facadeSnippets} /></div>
+      <div class="pg-demo"><FacadeDemo fixtures={fixtures} /></div>
+    </div>
+  </div>
+
+  <div role="tabpanel" data-panel="headless" hidden>
+    <p class="tab-intro"><strong>One module per format, everything in your hands.</strong>
+    <code>open()</code> → <code>.get()</code> → <code>render()</code> from
+    <code>aared/pptx</code>, <code>aared/xlsx</code> or <code>aared/docx</code>, with
+    explicit cleanup. The format you pick switches which module runs, and the code on the
+    left follows. Use it when you need search, range reads, media access, or control
+    over a single slide, sheet or document.</p>
+    <div class="pg-split">
+      <div class="pg-code"><PlaygroundCode snippets={headlessSnippets} /></div>
+      <div class="pg-demo"><HeadlessDemo fixtures={fixtures} /></div>
+    </div>
   </div>
 </div>
 

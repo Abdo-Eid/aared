@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Moon, Sun } from "lucide-react";
-import { formatOfFile, SAMPLES, type SampleDef } from "./lib/format";
-import type { DocMeta, Renderer, RunRecord } from "./lib/doc";
+import { Moon, PanelLeft, Sun } from "lucide-react";
+import { BASELINES, DEFAULT_BASELINE } from "./adapters";
+import { formatOfFile, type SampleDef } from "./lib/format";
+import type { DocMeta, Renderer } from "./lib/doc";
 import { IconButton } from "./components/chrome";
 import { ControlRail } from "./components/ControlRail";
 import { ViewerCard } from "./components/ViewerCard";
@@ -15,7 +16,7 @@ export function App() {
   const [mode, setMode] = useState<Mode>("single");
   const [singleRenderer, setSingleRenderer] = useState<Renderer>("aared");
   const [dark, setDark] = useState(false);
-  const [history, setHistory] = useState<RunRecord[]>([]);
+  const [railOpen, setRailOpen] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [activeSample, setActiveSample] = useState<string | null>(null);
   const uploadUrlRef = useRef<string | null>(null);
@@ -91,17 +92,31 @@ export function App() {
     [openBytes],
   );
 
-  const pushRun = useCallback((record: RunRecord) => {
-    setHistory((previous) => [record, ...previous].slice(0, 12));
-  }, []);
-
   const closeDoc = useCallback(() => {
     setDoc(null);
   }, []);
 
+  const baselineOptions = doc !== null ? Object.keys(BASELINES[doc.format]) : [];
+  const baselineDefault =
+    doc !== null ? DEFAULT_BASELINE[doc.format] : "baseline";
+  // Single-mode value: "aared" or an explicit baseline id ("baseline" legacy
+  // maps to the per-format default). Compare mode steers its left card with
+  // the same control — left is "the other one" when aared is selected.
+  const effectiveSingle: Renderer =
+    singleRenderer === "baseline" ? (baselineDefault as Renderer) : singleRenderer;
+  const compareLeft: Renderer =
+    effectiveSingle === "aared" ? (baselineDefault as Renderer) : effectiveSingle;
+
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-card px-4">
+        <IconButton
+          label={railOpen ? "Hide sidebar" : "Show sidebar"}
+          onClick={() => setRailOpen((value) => !value)}
+          pressed={railOpen}
+        >
+          <PanelLeft className="size-4" />
+        </IconButton>
         <div className="flex min-w-0 items-baseline gap-2">
           <h1 className="text-sm font-extrabold tracking-tight">
             aared bench
@@ -133,29 +148,27 @@ export function App() {
               </button>
             ))}
           </div>
-          {mode === "single" && doc !== null && doc.format !== "pdf" ? (
-            <div
-              role="group"
-              aria-label="Single renderer"
-              className="flex items-center gap-0.5 rounded-lg border border-border p-0.5"
-            >
-              {(["aared", "baseline"] as const).map((renderer) => (
-                <button
-                  key={renderer}
-                  type="button"
-                  onClick={() => setSingleRenderer(renderer)}
-                  aria-pressed={singleRenderer === renderer}
-                  className={cn(
-                    "focus-ring cursor-pointer rounded-md px-2.5 py-1 text-xs font-semibold transition-colors",
-                    singleRenderer === renderer
-                      ? "bg-foreground text-background"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {renderer === "aared" ? "aared" : "Baseline"}
-                </button>
-              ))}
-            </div>
+          {doc !== null && doc.format !== "pdf" ? (
+            <label className="flex items-center gap-1.5 rounded-lg border border-border p-0.5 pl-2 text-xs">
+              <span className="font-semibold text-muted-foreground">
+                {mode === "single" ? "Renderer" : "Compare vs"}
+              </span>
+              <select
+                aria-label={mode === "single" ? "Single renderer" : "Baseline renderer to compare against"}
+                className="focus-ring cursor-pointer rounded-md bg-transparent px-1 py-1 font-semibold"
+                value={mode === "single" ? effectiveSingle : compareLeft}
+                onChange={(e) => setSingleRenderer(e.target.value as Renderer)}
+              >
+                {mode === "single" ? (
+                  <option value="aared">aared</option>
+                ) : null}
+                {baselineOptions.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </select>
+            </label>
           ) : null}
           <IconButton
             label={dark ? "Switch to light theme" : "Switch to dark theme"}
@@ -172,17 +185,16 @@ export function App() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <aside className="w-80 shrink-0 overflow-y-auto border-r border-border bg-card p-5">
-          <ControlRail
-            activeSample={activeSample}
-            docFormat={doc?.format ?? null}
-            onSample={(sample) => void openSample(sample)}
-            onFile={(file) => void openFile(file)}
-            history={history}
-            onClearHistory={() => setHistory([])}
-            notice={notice}
-          />
-        </aside>
+        {railOpen ? (
+          <aside className="w-80 shrink-0 overflow-y-auto border-r border-border bg-card p-5">
+            <ControlRail
+              activeSample={activeSample}
+              onSample={(sample) => void openSample(sample)}
+              onFile={(file) => void openFile(file)}
+              notice={notice}
+            />
+          </aside>
+        ) : null}
 
         <main
           className="flex min-w-0 flex-1 gap-2 overflow-hidden p-2"
@@ -206,17 +218,15 @@ export function App() {
               renderer={doc.format === "pdf" ? "baseline" : singleRenderer}
               theme={dark ? "dark" : "light"}
               onClose={closeDoc}
-              onDone={pushRun}
             />
           ) : (
             <>
               <ViewerCard
-                key={`${doc.key}:baseline`}
+                key={`${doc.key}:${compareLeft}`}
                 doc={doc}
-                renderer="baseline"
+                renderer={doc.format === "pdf" ? "baseline" : compareLeft}
                 theme={dark ? "dark" : "light"}
                 onClose={closeDoc}
-                onDone={pushRun}
               />
               <ViewerCard
                 key={`${doc.key}:aared`}
@@ -224,7 +234,6 @@ export function App() {
                 renderer="aared"
                 theme={dark ? "dark" : "light"}
                 onClose={closeDoc}
-                onDone={pushRun}
               />
             </>
           )}

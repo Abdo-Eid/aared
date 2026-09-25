@@ -72,19 +72,23 @@ test("API reference callable examples resolve to public implementations", async 
     "deck.close",
     "render",
     "viewer.setZoom",
+    "viewer.setAppearance",
     "viewer.goTo",
+    "viewer.goToCell",
     "viewer.goToSheet",
     "viewer.goToHeading",
+    "paged.goToPage",
     "viewer.scrollTo",
     "viewer.focus",
     "viewer.destroy",
     "viewer.open",
-    "viewer.goTo",
+    "paintSlide",
   ]) {
     expect(api, `documented callable ${callable}`).toContain(callable);
   }
   expect(core).toContain("export type { AaredErrorCode }");
-  expect(core).toContain("export { AaredError, isAaredError }");
+  expect(core).toContain("export { AaredError, isAaredError, isAbort, messageFor }");
+  expect(core).toContain("WorkerInit");
   expect(core).not.toContain("export async function open");
   expect(pptx).toContain("export async function open");
   expect(pptx).toContain("export async function render");
@@ -92,13 +96,22 @@ test("API reference callable examples resolve to public implementations", async 
   expect(pptx).toContain("close(): void");
   expect(xlsx).toContain("export async function open");
   expect(xlsx).toContain("export async function render");
-  expect(xlsx).toContain("read(range?: string | CellRange | null");
+  expect(xlsx).toContain("read(options?: SheetReadOptions): Promise<SheetRangeModel>");
+  expect(xlsx).toContain("goToCell(cell: string): Promise<void>");
   expect(docx).toContain("export async function open");
   expect(docx).toContain("export async function render");
-  expect(docx).toContain("search(query: string): DocxSearchMatch[]");
+  expect(docx).toContain("search(query: string, options?: ReadOptions): Promise<DocxSearchMatch[]>");
+  expect(docx).toContain("goToHeading(target: string | number): Promise<void>");
+  expect(docx).toContain("goToPage(index: number): Promise<void>");
+  expect(pptx).toContain("export function paintSlide(input: PaintSlideInput)");
   expect(preview).toContain("export async function preview(");
   expect(preview).toContain("export async function detect(");
   expect(preview).toContain("goTo(index: number): Promise<void>");
+  expect(preview).toContain("setAppearance(appearance: Appearance): void");
+  expect(pptx).toContain("setAppearance(");
+  expect(xlsx).toContain("setAppearance(");
+  expect(docx).toContain("setAppearance(");
+  expect(react).toContain("setAppearance");
   expect(react).toContain("export function usePreview(");
   expect(react).toContain("export function usePptx(");
   expect(react).toContain("export function useXlsx(");
@@ -106,5 +119,5 @@ test("API reference callable examples resolve to public implementations", async 
   expect(react).toContain("export interface UsePreviewOptions");
   expect(react).toContain("export interface UsePreviewResult");
   expect(element).toContain("async open(): Promise<void>");
-  expect(element).toContain("goTo(index: number): void");
+  expect(element).toContain("async goTo(index: number): Promise<void>");
 });

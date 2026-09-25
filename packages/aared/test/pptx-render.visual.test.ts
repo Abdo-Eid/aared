@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
 import { indexPptx, parsePptxSlide } from "../src/core/pptx.js";
 import { OpcPackage } from "../src/core/opc.js";
+import { mixResolvedColorsLinear } from "../src/core/color.js";
 import { findCoverageSlide } from "./fixture.js";
 
 const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
-const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/arabic-pptx-rtl-coverage.pptx`;
+const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 
 visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table order", async () => {
   const pkg = await OpcPackage.open(await Bun.file(FIXTURE_PATH).arrayBuffer());
@@ -72,6 +73,13 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
           geometry: controlMarker && controlText ? { marker: rect(controlMarker), text: rect(controlText) } : null,
         } : null,
         titleFallback: document.querySelector('[data-aared-element="shape"]')?.dataset.aaredGeometryFallback,
+        titleBoxPainted: (() => {
+          // A shape with no authored geometry ("missing") is an invisible
+          // container in Office: no fallback marker, no outline.
+          const shape = document.querySelector('[data-aared-element="shape"]');
+          const path = shape?.querySelector("path");
+          return path ? { fill: path.getAttribute("fill"), stroke: path.getAttribute("stroke") } : null;
+        })(),
         titleVertical: document.querySelector('[data-aared-element="shape-text"]')?.dataset.aaredVerticalAlign,
         titleStyle: titleRun ? { fontSize: getComputedStyle(titleRun).fontSize, fontFamily: getComputedStyle(titleRun).fontFamily, fontWeight: getComputedStyle(titleRun).fontWeight } : null,
         titleGeometry: titleRun ? rect(titleRun) : null,
@@ -94,6 +102,7 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
         geometry: { marker: { left: number; right: number; top: number; bottom: number }; text: { left: number; right: number; top: number; bottom: number } } | null;
       } | null;
       titleFallback?: string;
+      titleBoxPainted: { fill?: string | null; stroke?: string | null } | null;
       titleVertical?: string;
       titleStyle: { fontSize: string; fontFamily: string; fontWeight: string } | null;
       titleGeometry: { left: number; right: number; top: number; bottom: number } | null;
@@ -111,7 +120,8 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
     expect(textOutput.control!.geometry!.marker.right - textOutput.control!.geometry!.marker.left).toBeGreaterThan(0);
     expect(textOutput.control!.geometry!.marker.left).toBeGreaterThanOrEqual(textOutput.control!.geometry!.text.right);
     expect(textOutput.control!.geometry!.marker.left - textOutput.control!.geometry!.text.right).toBeLessThanOrEqual(20);
-    expect(textOutput.titleFallback).toBe("missing");
+    expect(textOutput.titleFallback).toBeUndefined();
+    expect(textOutput.titleBoxPainted).toEqual({ fill: "none", stroke: null });
     expect(textOutput.titleVertical).toBe("bottom");
     expect(textOutput.titleStyle).toMatchObject({ fontSize: "80px", fontWeight: "700" });
     expect(textOutput.titleStyle?.fontFamily).toContain("Times New Roman");
@@ -210,8 +220,10 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
          .map((cell) => getComputedStyle(cell).backgroundColor),
        cellLefts: [...document.querySelectorAll('[data-aared-element="table-cell"]')]
          .slice(0, 3).map((cell) => cell.getBoundingClientRect().left),
-       rowTracks: document.querySelector('[data-aared-element="table"]')?.style.gridTemplateRows,
-    })`) as { direction?: string; cells: string[]; cellDirections: string[]; cellAlignments: string[]; cellBackgrounds: string[]; cellLefts: number[]; rowTracks?: string };
+       rowHeights: [...document.querySelectorAll('[data-aared-element="table-cell"]')]
+         .filter((_, index) => index % 3 === 0).map((cell) => cell.getBoundingClientRect().height),
+       sceneScale: document.querySelector('[data-aared-element="slide-scene"]').getBoundingClientRect().width / 1280,
+    })`) as { direction?: string; cells: string[]; cellDirections: string[]; cellAlignments: string[]; cellBackgrounds: string[]; cellLefts: number[]; rowHeights: number[]; sceneScale: number };
     expect(tableOutput.direction).toBe("rtl");
     // DOM order remains logical XML order. CSS direction mirrors display;
     // reordering this array would silently change what each column means.
@@ -226,8 +238,13 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
     ]);
     expect(tableOutput.cellLefts[0]).toBeGreaterThan(tableOutput.cellLefts[1]!);
     expect(tableOutput.cellLefts[1]).toBeGreaterThan(tableOutput.cellLefts[2]!);
-    const rowTracks = tableOutput.rowTracks?.split(" ").map(Number.parseFloat);
-    expect(rowTracks).toEqual([25, 25, 25, 25]);
+    // Each painted row is at least its authored height (a row only ever
+    // grows past it, to hold its text), read back from layout.
+    const table = tableSlide.elements.find((element) => element.kind === "table");
+    if (table?.kind !== "table") throw new Error("fixture structure changed: expected a table");
+    for (const [index, height] of tableOutput.rowHeights.entries()) {
+      expect(height).toBeGreaterThanOrEqual((table.rows[index]!.height ?? 0) * 96 * tableOutput.sceneScale - 1);
+    }
 
     const tableGeometry = await view.evaluate(`(() => {
       const rect = (element) => {
@@ -358,11 +375,41 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
     expect(shapeOutput.titleGeometry!.range.left).toBeGreaterThanOrEqual(shapeOutput.titleGeometry!.container.left);
     expect(shapeOutput.titleGeometry!.range.right).toBeLessThanOrEqual(shapeOutput.titleGeometry!.container.right);
     expect(shapeOutput.fallback).toBe("unsupported");
-    expect(shapeOutput.fallbackFill).toBe("#73A0B4");
+    // Unsupported geometry is an empty dashed outline, never a filled
+    // rectangle that reads as a wrong shape.
+    const fallbackShape = await view.evaluate(`(() => {
+      const shape = [...document.querySelectorAll('[data-aared-shape-id]')]
+        .find((s) => s.dataset.aaredGeometryFallback === "unsupported");
+      const path = shape?.querySelector("path");
+      return { fill: path?.getAttribute("fill"), dashed: path?.getAttribute("stroke-dasharray") !== undefined };
+    })()`) as { fill?: string; dashed: boolean };
+    expect(fallbackShape.fill).toBe("none");
+    expect(fallbackShape.dashed).toBe(true);
+    // Degenerate-axis shapes paint: the ellipse resolves to non-zero area,
+    // the hairline connector gets a real svg viewport (its stroke extends
+    // past it via overflow), and the star renders.
+    const painted = await view.evaluate(`(() => {
+      const byShape = (id) => document.querySelector('[data-aared-shape-id="' + id + '"]');
+      const svgOf = (id) => byShape(id)?.querySelector('svg[data-aared-element="shape-geometry"]');
+      const rectOf = (id) => byShape(id)?.querySelector("path")?.getBoundingClientRect();
+      const ellipse = rectOf("33");
+      const lineSvg = byShape("49")?.querySelector("svg");
+      const star = rectOf("51");
+      return {
+        ellipse: ellipse ? { w: ellipse.width, h: ellipse.height } : null,
+        lineViewport: lineSvg ? { h: lineSvg.clientHeight, stroke: lineSvg.querySelector("path")?.getAttribute("stroke-width") } : null,
+        star: star ? { w: star.width, h: star.height } : null,
+      };
+    })()`) as { ellipse: { w: number; h: number } | null; lineViewport: { h: number; stroke?: string } | null; star: { w: number; h: number } | null };
+    expect(painted.ellipse?.h ?? 0).toBeGreaterThan(10);
+    expect(painted.lineViewport?.h ?? 0).toBeGreaterThanOrEqual(1);
+    expect(Number(painted.lineViewport?.stroke)).toBeGreaterThan(0);
+    expect(painted.star?.h ?? 0).toBeGreaterThan(10);
 
     await view.evaluate(`renderFixture(${JSON.stringify(gradientSlide)})`);
     const gradientOutput = await view.evaluate(`(() => {
       const gradient = document.querySelector('linearGradient');
+      const radial = document.querySelector('radialGradient');
       const titleLine = [...document.querySelectorAll('[data-aared-element="shape-text"] p')]
         .find((line) => line.textContent.includes("تدرجات لونية"));
       const titleText = titleLine?.closest('[data-aared-element="shape-text"]');
@@ -372,20 +419,20 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
         const { left, right, top, bottom } = element.getBoundingClientRect();
         return { left, right, top, bottom };
       };
-      const stops = gradient ? [...gradient.querySelectorAll('stop')].map((stop) => ({
+      const stopsOf = (el) => el ? [...el.querySelectorAll('stop')].map((stop) => ({
         offset: stop.getAttribute('offset'),
         color: stop.getAttribute('stop-color'),
       })) : [];
       const gradientPath = gradient?.closest('svg')?.querySelector('path');
-      const pathFallback = [...document.querySelectorAll('[data-aared-element="shape"]')]
-        .find((shape) => shape.dataset.aaredFillFallback === 'gradient-path');
+      const radialPath = radial?.closest('svg')?.querySelector('path');
       return {
         gradientId: gradient?.id,
-        gradientCoordinates: gradient ? [gradient.getAttribute('x1'), gradient.getAttribute('y1'), gradient.getAttribute('x2'), gradient.getAttribute('y2')] : null,
+        gradientCoordinates: gradient ? [gradient.getAttribute('gradientUnits'), ...['x1', 'y1', 'x2', 'y2'].map((name) => Number(gradient.getAttribute(name)))] : null,
         gradientPathFill: gradientPath?.getAttribute('fill'),
-        stops,
-        pathFallback: pathFallback?.dataset.aaredFillFallback,
-        pathFallbackPaint: pathFallback?.querySelector('path')?.getAttribute('fill'),
+        stops: stopsOf(gradient),
+        radialId: radial?.id,
+        radialPathFill: radialPath?.getAttribute('fill'),
+        radialStops: stopsOf(radial),
         canvasCount: document.querySelectorAll('canvas').length,
         title: [...document.querySelectorAll('[data-aared-element="shape-text"]')]
           .map((element) => element.textContent)
@@ -395,11 +442,12 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
       };
     })()`) as {
       gradientId?: string;
-      gradientCoordinates: string[] | null;
+      gradientCoordinates: [string | null, number, number, number, number] | null;
       gradientPathFill?: string;
       stops: Array<{ offset: string | null; color: string | null }>;
-      pathFallback?: string;
-      pathFallbackPaint?: string;
+      radialId?: string;
+      radialPathFill?: string;
+      radialStops: Array<{ offset: string | null; color: string | null }>;
       canvasCount: number;
       title?: string;
       titleFontFamily?: string;
@@ -407,13 +455,28 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
     };
     expect(gradientOutput.gradientId).toMatch(/^aared-gradient-[a-z0-9]+-\d+-\d+$/);
     expect(gradientOutput.gradientPathFill).toBe(`url(#${gradientOutput.gradientId})`);
-    expect(gradientOutput.gradientCoordinates).toEqual(["0", "0", "1", "1"]);
-    expect(gradientOutput.stops).toEqual([
-      { offset: "0%", color: "#156082" },
-      { offset: "100%", color: "#E8A33D" },
-    ]);
-    expect(gradientOutput.pathFallback).toBe("gradient-path");
-    expect(gradientOutput.pathFallbackPaint).toBe("none");
+    // Unscaled (no `scaled` attribute): a true 45° in the shape's own units,
+    // running top-left to bottom-right through the box's centre.
+    const [units, x1, y1, x2, y2] = gradientOutput.gradientCoordinates!;
+    expect(units).toBe("userSpaceOnUse");
+    expect(x2 - x1).toBeCloseTo(y2 - y1, 0);
+    expect((x1 + x2) / 2).toBeCloseTo(2340000 / 2, 0);
+    expect((y1 + y2) / 2).toBeCloseTo(1368000 / 2, 0);
+    // Each authored segment is expanded into PowerPoint's blend: the authored
+    // colours at the ends, and at the segment's middle an equal mix in linear
+    // light (smoothstep(0.5) = 0.5), not the sRGB average.
+    const blended = (stops: Array<{ offset: string | null; color: string | null }>, from: string, to: string) => {
+      expect(stops).toHaveLength(17);
+      expect(stops[0]).toEqual({ offset: "0%", color: from });
+      expect(stops[8]).toEqual({ offset: "50%", color: mixResolvedColorsLinear(from, to, 0.5) });
+      expect(stops[16]).toEqual({ offset: "100%", color: to });
+    };
+    blended(gradientOutput.stops, "#156082", "#E8A33D");
+    // Centered `path="circle"` gradient (the oval) paints a real SVG
+    // radialGradient instead of vanishing as an unsupported fallback.
+    expect(gradientOutput.radialId).toMatch(/^aared-gradient-[a-z0-9]+-\d+-\d+$/);
+    expect(gradientOutput.radialPathFill).toBe(`url(#${gradientOutput.radialId})`);
+    blended(gradientOutput.radialStops, "#156082", "#73A0B4");
     expect(gradientOutput.canvasCount).toBe(0);
     expect(gradientOutput.title).toContain("تدرجات لونية");
     expect(gradientOutput.titleFontFamily).toContain("Arial");

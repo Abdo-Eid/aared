@@ -3,6 +3,62 @@
  * status line, and stage. One language for all four integration tabs
  * plus the React island (whose classNames mirror it).
  */
+.tab-intro,
+.docs-content p.tab-intro {
+  font-size: 0.95rem;
+  max-width: none;
+}
+.tab-intro strong {
+  color: var(--lt-accent);
+}
+
+/* Playground toolbar: the four ways to use aared, with the shared format /
+   file picker on its own row underneath, spanning the width. */
+.pg-toolbar {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.pg-picker {
+  justify-content: flex-start;
+}
+/* Each demo keeps its own picker for its wiring; the shared one drives it. */
+.pg-demo .demo-picker {
+  display: none;
+}
+
+/* Code on the left (narrower), the live demo it drives on the right —
+   same arrangement as the home page. Stacks on narrow screens. */
+.pg-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+.pg-demo {
+  position: sticky;
+  top: 1rem;
+  min-width: 0;
+}
+.pg-demo .demo-frame {
+  margin: 0;
+}
+.pg-demo .demo-stage {
+  max-height: min(75vh, 40rem);
+}
+.pg-code {
+  min-width: 0;
+}
+@media (max-width: 73.75rem) {
+  .pg-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pg-demo {
+    position: static;
+    order: -1;
+  }
+}
+
 .demo-frame {
   display: grid;
   gap: 0.75rem;
@@ -10,7 +66,7 @@
   padding: 1.25rem;
   background: var(--lt-mount);
   border: 1px solid var(--lt-mount-edge);
-  border-radius: var(--lt-radius);
+  border-radius: 16px;
 }
 
 .demo-picker {
@@ -26,69 +82,189 @@
   font: inherit;
   color: var(--lt-ink);
 }
+.demo-picker input[type="file"] {
+  color: var(--lt-ink-soft);
+}
+.demo-picker input[type="file"]::file-selector-button {
+  font: inherit;
+  color: var(--lt-ink);
+  background: var(--lt-mount);
+  border: 1px solid var(--lt-mount-edge);
+  border-radius: 999px;
+  padding: 0.3rem 0.95rem;
+  margin-inline-end: 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.12s;
+}
+.demo-picker input[type="file"]:hover::file-selector-button {
+  border-color: var(--lt-accent);
+}
+
+/* The element's built-in controls bar, themed through its documented
+   ::part() hooks — same pill language as the rest of the site. */
+/* Bench-style frame: sheets and documents get a fixed-height scrolling
+   stage with the controls pinned in a footer, so paging and zoom are always
+   in view. Slides size to their content instead, so they never scroll. */
+aared-viewer {
+  display: flex;
+}
+aared-viewer[data-aared-format="xlsx"],
+aared-viewer[data-aared-format="docx"] {
+  height: min(72vh, 36rem);
+}
+aared-viewer::part(controls) {
+  gap: 0.4rem;
+  padding: 0.6rem;
+  border-top: 1px solid var(--lt-mount-edge);
+  background: var(--lt-mount);
+  color: var(--lt-ink);
+  font-family: var(--lt-font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+}
+aared-viewer::part(button) {
+  font: inherit;
+  color: var(--lt-ink);
+  background: var(--lt-mount);
+  border: 1px solid var(--lt-mount-edge);
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.12s;
+}
+aared-viewer::part(button):hover {
+  border-color: var(--lt-accent);
+}
+aared-viewer::part(button):focus-visible {
+  outline: 2px solid var(--lt-accent);
+  outline-offset: 2px;
+}
+aared-viewer::part(button):disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+aared-viewer::part(label) {
+  min-width: 3.5rem;
+  text-align: center;
+  color: var(--lt-ink-soft);
+}
+/* The same bar for the demos that drive a handle themselves
+   (lib/demo-controls.ts): joined to the stage above it, like the element's. */
+.demo-stage:has(+ .demo-controls) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.demo-controls {
+  margin-top: -0.75rem; /* the frame's row gap */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.6rem;
+  border: 1px solid var(--lt-mount-edge);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: var(--lt-mount);
+  color: var(--lt-ink);
+  font-family: var(--lt-font-mono, ui-monospace, monospace);
+  font-size: 0.8rem;
+}
+.demo-controls button {
+  font: inherit;
+  color: var(--lt-ink);
+  background: var(--lt-mount);
+  border: 1px solid var(--lt-mount-edge);
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.12s;
+}
+.demo-controls button:hover {
+  border-color: var(--lt-accent);
+}
+.demo-controls button:focus-visible {
+  outline: 2px solid var(--lt-accent);
+  outline-offset: 2px;
+}
+.demo-controls button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.demo-controls-label {
+  min-width: 3.5rem;
+  text-align: center;
+  color: var(--lt-ink-soft);
+}
 .demo-picker select {
   background: var(--lt-ground);
   border: 1px solid var(--lt-mount-edge);
-  border-radius: var(--lt-radius);
-  padding: 0.35rem 0.5rem;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
   max-width: 100%;
 }
 .demo-picker select:focus-visible,
 .demo-picker input[type="file"]:focus-visible,
 .demo-picker button:focus-visible {
-  outline: 2px solid var(--lt-amber);
+  outline: 2px solid var(--lt-accent);
   outline-offset: 2px;
 }
 .demo-picker button {
   font: inherit;
   background: none;
-  color: var(--lt-amber);
+  color: var(--lt-accent);
   border: 1px solid var(--lt-mount-edge);
-  border-radius: var(--lt-radius);
-  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
   cursor: pointer;
 }
 .demo-picker button:hover {
-  border-color: var(--lt-amber);
+  border-color: var(--lt-accent);
 }
 
+/* Segmented pill control — same look as the home page's HTML/React/JS and
+   PPTX/XLSX/DOCX selectors. */
 .demo-pills {
-  display: flex;
+  display: inline-flex;
   flex-wrap: wrap;
-  gap: 0.25rem;
+  gap: 0.35rem;
+  align-self: start;
+  justify-self: start;
+  width: fit-content;
+  padding: 0.25rem;
+  background: color-mix(in srgb, var(--lt-mount-edge) 55%, transparent);
+  border: 1px solid var(--lt-mount-edge);
+  border-radius: 999px;
   font-family: var(--lt-font-mono, ui-monospace, monospace);
   font-size: 0.8rem;
 }
 .demo-pills button {
   font: inherit;
-  background: var(--lt-ground);
+  background: none;
   color: var(--lt-ink-soft);
-  border: 1px solid var(--lt-mount-edge);
-  padding: 0.35rem 0.9rem;
+  border: none;
+  border-radius: 999px;
+  padding: 0.3rem 0.95rem;
   cursor: pointer;
-}
-.demo-pills button:first-child {
-  border-radius: var(--lt-radius) 0 0 var(--lt-radius);
-}
-.demo-pills button:last-child {
-  border-radius: 0 var(--lt-radius) var(--lt-radius) 0;
-}
-.demo-pills button + button {
-  border-inline-start: none;
+  transition: background 0.12s, color 0.12s;
 }
 .demo-pills button:hover {
-  color: var(--lt-amber-glow);
+  color: var(--lt-ink);
+}
+.demo-pills button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .demo-pills button:focus-visible {
-  outline: 2px solid var(--lt-amber);
+  outline: 2px solid var(--lt-accent);
   outline-offset: 2px;
 }
 .demo-pills button[aria-selected="true"],
+.demo-pills button[aria-pressed="true"],
 .demo-pills button[data-active] {
-  background: var(--lt-amber);
-  border-color: var(--lt-amber);
-  color: var(--lt-ground-deep);
+  background: var(--lt-mount);
+  color: var(--lt-ink);
   font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
 }
 
 [data-status],
@@ -106,12 +282,23 @@
 }
 
 .demo-stage {
+  /* The docs typography (medium weight, tall leading) is inherited by
+     everything on the page; the rendered document must not pick it up. */
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: normal;
   position: relative;
-  min-height: 12rem;
   background: #fff;
   border: 1px solid var(--lt-mount-edge);
-  border-radius: 2px;
+  border-radius: 12px;
   overflow: auto;
+}
+/* A placeholder height while nothing is painted. Not once a render has begun to
+   screen: a slide's "fit page" measures the room the stage offers, and a
+   fixed minimum would shrink it to that height (the element's own stage
+   sizes to its content, so every tab now shows the same slide size). */
+.demo-stage:empty {
+  min-height: 12rem;
 }
 .demo-stage[data-state="loading"]::after {
   content: "";
@@ -120,7 +307,7 @@
   background: linear-gradient(
     100deg,
     transparent 30%,
-    color-mix(in srgb, var(--lt-amber) 12%, transparent) 50%,
+    color-mix(in srgb, var(--lt-accent) 12%, transparent) 50%,
     transparent 70%
   );
   background-size: 200% 100%;

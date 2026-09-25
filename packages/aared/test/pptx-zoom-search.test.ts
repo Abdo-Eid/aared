@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { open } from "../src/pptx/index.js";
 
-const ARABIC_FIXTURE = `${import.meta.dir}/../../../fixtures/arabic-pptx-rtl-coverage.pptx`;
+const ARABIC_FIXTURE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 
 test("search truncates long matches to 120 characters", async () => {
   const deck = await open(await Bun.file(ARABIC_FIXTURE).arrayBuffer());
@@ -21,8 +21,10 @@ test("search returns at most one match per slide", async () => {
     const matches = await deck.search("slide");
     const slidesSeen = new Set<number>();
     for (const match of matches) {
-      expect(slidesSeen.has(match.slide)).toBe(false);
-      slidesSeen.add(match.slide);
+      expect(slidesSeen.has(match.slide.index)).toBe(false);
+      slidesSeen.add(match.slide.index);
+      // A match names its slide the way every unit is named: goTo key plus label.
+      expect(match.slide.title).toBe(deck.slides.get(match.slide.index).info.title);
     }
   } finally {
     deck.close();

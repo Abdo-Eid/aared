@@ -13,6 +13,12 @@
  * never need those for preview.
  */
 
+import { throwIfAborted } from "./errors.js";
+
+// Kept here for existing importers; the helpers live in `errors.ts` so the
+// main-thread bundle never needs the ZIP reader to get them.
+export { abortError, throwIfAborted } from "./errors.js";
+
 export type ZipErrorCode = "not-a-zip" | "unsupported" | "corrupt";
 
 export class ZipError extends Error {
@@ -34,17 +40,7 @@ export interface ZipEntry {
   localHeaderOffset: number;
 }
 
-/** Internal cancellation error shared by the headless package reader. */
-export function abortError(): Error {
-  const error = new Error("aared/core: request was cancelled");
-  error.name = "AbortError";
-  return error;
-}
-
-/** Stop between synchronous parsing/decompression stages. */
-export function throwIfAborted(signal?: AbortSignal): void {
-  if (signal?.aborted === true) throw abortError();
-}
+const utf8 = new TextDecoder("utf-8");
 
 const EOCD_SIG = 0x0605_4b50;
 const CENTRAL_SIG = 0x0201_4b50;
@@ -77,7 +73,7 @@ function findEocd(view: DataView): number {
   for (let pos = view.byteLength - 22; pos >= minPos; pos--) {
     if (u32(view, pos) === EOCD_SIG) return pos;
   }
-  throw new ZipError("not-a-zip", "no End Of Central Directory record — not a ZIP archive");
+  throw new ZipError("not-a-zip", "not a ZIP archive (no End Of Central Directory record)");
 }
 
 /** Parse the central directory; returns entries in archive order. */
@@ -85,7 +81,7 @@ export function readEntries(data: Uint8Array, signal?: AbortSignal): ZipEntry[] 
   throwIfAborted(signal);
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   if (data.byteLength < 22) {
-    throw new ZipError("not-a-zip", "too short — not a ZIP archive");
+    throw new ZipError("not-a-zip", "not a ZIP archive (too short)");
   }
   const eocd = findEocd(view);
   const entriesTotal = u16(view, eocd + 10);
@@ -101,7 +97,6 @@ export function readEntries(data: Uint8Array, signal?: AbortSignal): ZipEntry[] 
     throw new ZipError("unsupported", `archive lists ${entriesTotal} entries, above the ${MAX_ZIP_ENTRIES} preview limit`);
   }
 
-  const decoder = new TextDecoder("utf-8");
   const entries: ZipEntry[] = [];
   let pos = centralOffset;
   for (let i = 0; i < entriesTotal; i++) {
@@ -128,7 +123,7 @@ export function readEntries(data: Uint8Array, signal?: AbortSignal): ZipEntry[] 
       throw new ZipError("unsupported", "ZIP64 archives are not supported");
     }
     // Office files always set the UTF-8 flag; decode as UTF-8 regardless.
-    const name = decoder.decode(data.subarray(pos + 46, pos + 46 + nameLen));
+    const name = utf8.decode(data.subarray(pos + 46, pos + 46 + nameLen));
     entries.push({ name, method, compressedSize, size, localHeaderOffset });
     pos += 46 + nameLen + extraLen + commentLen;
   }
@@ -136,7 +131,7 @@ export function readEntries(data: Uint8Array, signal?: AbortSignal): ZipEntry[] 
   return entries;
 }
 
-async function inflateRaw(compressed: Uint8Array, signal?: AbortSignal): Promise<Uint8Array> {
+async function inflateRaw(compressed: Uint8Array, declaredSize: number, signal?: AbortSignal): Promise<Uint8Array> {
   throwIfAborted(signal);
   const source = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -156,37 +151,61 @@ async function inflateRaw(compressed: Uint8Array, signal?: AbortSignal): Promise
   // Count output bytes while streaming so a decompression bomb trips the
   // cap before its full output is ever materialized — `arrayBuffer()` on
   // the whole stream would hold the bomb in memory first.
+  //
+  // The central directory's declared size is almost always right, so write
+  // straight into one buffer of that size: no chunk list, no final concat,
+  // and half the peak memory for a large part. A lying header (larger
+  // output than declared) falls back to collecting chunks.
   const reader = source.pipeThrough(ds).getReader();
-  const chunks: Uint8Array[] = [];
+  // Deflate cannot expand past ~1032:1, so a header claiming more than that
+  // never gets its claim allocated up front.
+  let out = new Uint8Array(Math.min(declaredSize, compressed.byteLength * 1032 + 1024));
+  let chunks: Uint8Array[] | undefined;
   let total = 0;
   for (;;) {
     const chunk = await reader.read();
     if (chunk.done) break;
-    total += chunk.value.byteLength;
-    if (total > MAX_ZIP_ENTRY_BYTES) {
+    const value = chunk.value;
+    const next = total + value.byteLength;
+    if (next > MAX_ZIP_ENTRY_BYTES) {
+      void reader.cancel();
       throw new ZipError(
         "unsupported",
         `entry decompresses past the ${MAX_ZIP_ENTRY_BYTES}-byte preview limit`,
       );
     }
-    chunks.push(chunk.value);
+    if (chunks === undefined && next <= out.byteLength) {
+      out.set(value, total);
+    } else {
+      chunks ??= [out.subarray(0, total)];
+      chunks.push(value);
+    }
+    total = next;
   }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
+  if (chunks !== undefined) {
+    out = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      out.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+  } else if (total !== out.byteLength) {
+    out = out.slice(0, total);
   }
   // DecompressionStream cannot be synchronously interrupted. Stop before
   // handing its completed bytes to XML or any later parser stage.
   throwIfAborted(signal);
-  return bytes;
+  return out;
 }
 
 /**
  * Read one entry's (decompressed) bytes. The local file header is
  * consulted only to locate the data — sizes come from the central
  * directory, so data-descriptor entries work too.
+ *
+ * Stored (method 0) entries come back as a view into `data`, not a copy:
+ * callers that decode immediately pay nothing, and callers that hand the
+ * bytes on (media) copy explicitly — see `OpcPackage.readPart`.
  */
 export async function getEntryData(data: Uint8Array, entry: ZipEntry, signal?: AbortSignal): Promise<Uint8Array> {
   throwIfAborted(signal);
@@ -199,7 +218,7 @@ export async function getEntryData(data: Uint8Array, entry: ZipEntry, signal?: A
   if (entry.method !== 0 && entry.method !== 8) {
     throw new ZipError(
       "unsupported",
-      `entry "${entry.name}" uses compression method ${entry.method} — only stored (0) and deflated (8) are supported`,
+      `entry "${entry.name}" uses compression method ${entry.method}; only stored (0) and deflated (8) are supported`,
     );
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -214,10 +233,6 @@ export async function getEntryData(data: Uint8Array, entry: ZipEntry, signal?: A
     throw new ZipError("corrupt", `entry "${entry.name}" runs past end of file`);
   }
   const compressed = data.subarray(dataStart, dataStart + entry.compressedSize);
-  if (entry.method === 0) {
-    const bytes = compressed.slice();
-    throwIfAborted(signal);
-    return bytes;
-  }
-  return inflateRaw(compressed, signal);
+  if (entry.method === 0) return compressed;
+  return inflateRaw(compressed, entry.size, signal);
 }

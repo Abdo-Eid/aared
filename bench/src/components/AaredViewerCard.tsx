@@ -1,29 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePreview } from "aared/react";
-import type { OutlineEntry } from "../adapters";
 import type { BenchTheme } from "../adapters";
-import type { DocMeta, RunRecord } from "../lib/doc";
+import type { DocMeta } from "../lib/doc";
 import { ViewerFrame, useViewerFrame, type Status } from "./ViewerFrame";
 
-interface DocxExtra {
-  outline: OutlineEntry[];
-  pages: Array<{ width: number; height: number }>;
-  paperWidth: number;
-}
+/** What the pager's "100%" means per format: the zoom each format opens at. */
+const PAGER_DEFAULT_ZOOM = { pptx: "fit-page", docx: "fit-width", xlsx: 1 } as const;
 
 /**
  * The aared column, built the way a consumer app builds it: one
  * `usePreview()` hook owning detection, open timing, navigation guards,
  * and teardown. The bench adds only what its UI needs on top: the
  * open-speed `ms`, an explicit theme (never `"system"`, so the preview
- * follows the bench chrome instead of the OS preference), DOCX layout
- * mode, and the outline/page geometry the rail and pager read.
+ * follows the bench chrome instead of the OS preference), and DOCX layout
+ * mode. Layout pages, the heading outline, and DOCX zoom fit all come
+ * straight from `viewer.docx` (`aared/preview`'s real API) — not scraped
+ * from the painted DOM, which only ever reflected render output, never
+ * the parsed document itself.
  */
-export function AaredViewerCard({ doc, theme, onClose, onDone }: {
+export function AaredViewerCard({ doc, theme, onClose }: {
   doc: DocMeta;
   theme: BenchTheme;
   onClose: () => void;
-  onDone: (record: RunRecord) => void;
 }) {
   // Stable byte identity: a fresh ArrayBuffer per render would remount the
   // preview in a loop, so the copy is memoized (the hook documents this).
@@ -32,45 +30,15 @@ export function AaredViewerCard({ doc, theme, onClose, onDone }: {
   const hook = usePreview({
     source: buffer,
     appearance: { theme },
-    docx: { pagination: { mode: "layout" } },
+    pagination: { mode: "layout" },
   });
 
-  const [docxExtra, setDocxExtra] = useState<DocxExtra | null>(null);
   const [tabError, setTabError] = useState<{ message: string; ms: number } | null>(null);
 
   // Fresh bytes restart per-tab error state alongside the hook's own reset.
   useEffect(() => {
     setTabError(null);
   }, [buffer]);
-
-  // Layout pages and headings are derived render output, so they are scraped
-  // from the painted DOM once ready — the same read the old adapter did.
-  useEffect(() => {
-    if (hook.status !== "ready" || hook.viewer?.format !== "docx") {
-      setDocxExtra(null);
-      return;
-    }
-    const host = hook.ref.current;
-    if (host === null) return;
-    const outline: OutlineEntry[] = [];
-    host.querySelectorAll("h1,h2,h3,h4,h5,h6").forEach((element) => {
-      const level = Number(element.tagName.slice(1));
-      const text = (element.textContent ?? "").trim();
-      if (Number.isInteger(level) && text !== "") outline.push({ level, text, element });
-    });
-    // Layout pages carry their geometry as inline styles, so this reads the
-    // authored page size before any bench zoom scaling applies.
-    const pages = [...host.querySelectorAll<HTMLElement>('section[data-aared-element="page"]')]
-      .map((element) => ({
-        width: Number.parseFloat(element.style.width) || 0,
-        height: Number.parseFloat(element.style.height) || 0,
-      }));
-    setDocxExtra({
-      outline,
-      pages,
-      paperWidth: pages.length > 0 ? Math.max(...pages.map((page) => page.width)) : 0,
-    });
-  }, [hook.status, hook.viewer, hook.ref]);
 
   const status: Status = useMemo(() => {
     if (tabError !== null) return { state: "error", message: tabError.message, ms: tabError.ms };
@@ -111,20 +79,26 @@ export function AaredViewerCard({ doc, theme, onClose, onDone }: {
         },
       };
     }
-    if (docxExtra === null) return { state: "loading" };
+    const docx = viewer.docx;
+    if (docx === null) return { state: "loading" };
+    const pages = docx.pages.map((page) => ({ width: page.width, height: page.height }));
     return {
       state: "ready",
       handle: {
         format: "docx",
-        pageCount: docxExtra.pages.length,
-        pages: docxExtra.pages,
+        pageCount: docx.pageCount,
+        pages,
         ms,
-        outline: docxExtra.outline,
-        paperWidth: docxExtra.paperWidth,
+        outline: docx.headings.map((heading) => ({
+          level: heading.level,
+          text: heading.title,
+          onSelect: () => void docx.goToHeading(heading.index),
+        })),
+        paperWidth: pages.length > 0 ? Math.max(...pages.map((page) => page.width)) : 0,
         destroy: () => viewer.destroy(),
       },
     };
-  }, [hook.status, hook.viewer, hook.info, hook.error, docxExtra, tabError, t0]);
+  }, [hook.status, hook.viewer, hook.info, hook.error, tabError, t0]);
 
   const firedKey = useRef<string | null>(null);
   useEffect(() => {
@@ -139,32 +113,13 @@ export function AaredViewerCard({ doc, theme, onClose, onDone }: {
       console.info(
         `[bench] ${doc.name} via aared: ${status.handle.ms} ms, ${status.handle.pageCount} pages`,
       );
-      onDone({
-        key: `${doc.key}:aared`,
-        name: doc.name,
-        format: doc.format,
-        renderer: "aared",
-        ms: status.handle.ms,
-        sizeBytes: doc.sizeBytes,
-        at: Date.now(),
-      });
     } else {
       const key = `error:${status.ms}:${status.message}`;
       if (firedKey.current === key) return;
       firedKey.current = key;
       console.error(`[bench] ${doc.name} via aared failed:`, status.message);
-      onDone({
-        key: `${doc.key}:aared`,
-        name: doc.name,
-        format: doc.format,
-        renderer: "aared",
-        ms: status.ms,
-        sizeBytes: doc.sizeBytes,
-        error: status.message,
-        at: Date.now(),
-      });
     }
-  }, [status, doc, onDone]);
+  }, [status, doc]);
 
   const reportError = useCallback((message: string, ms: number) => {
     setTabError({ message, ms });
@@ -173,9 +128,38 @@ export function AaredViewerCard({ doc, theme, onClose, onDone }: {
   const controller = useViewerFrame({
     doc,
     theme,
+    frameId: `${doc.key}:aared`,
+    renderer: "aared",
     status,
     hostRef: hook.ref,
     reportError,
   });
+
+  // The pager's zoom buttons drive the product's own zoom for every format
+  // (see ViewerFrame's `drivesOwnZoom`), not a bench-side CSS `zoom`. The
+  // unzoomed pager reading of 100% asks for the format's own default
+  // explicitly — for PPTX and DOCX a numeric `setZoom(1)` would instead pin
+  // the *natural* (unfitted) size, reintroducing the overflow the default
+  // exists to avoid in a host narrower or shorter than the content; XLSX's
+  // default is 100%, like Excel. This must always call `setZoom`, even back
+  // at 100%: once a numeric zoom has been set, the product stays there until
+  // told otherwise.
+  useEffect(() => {
+    const format = hook.viewer?.format;
+    if (format === undefined) return;
+    hook.setZoom(controller.zoom === 1 ? PAGER_DEFAULT_ZOOM[format] : controller.zoom);
+  }, [controller.zoom, hook]);
+
+  // XLSX sheet tabs: `hook.index` already mirrors the real active sheet
+  // (forwarded from `sheetchange`), so it is the source of truth — pushing
+  // it into the bench's own `activeSheet` state (rather than letting a tab
+  // click own that state outright) keeps the two from drifting if the
+  // product's index ever changes some other way.
+  useEffect(() => {
+    if (hook.viewer?.format !== "xlsx") return;
+    controller.setActiveSheet(hook.index);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hook.index, hook.viewer, controller.setActiveSheet]);
+
   return <ViewerFrame doc={doc} renderer="aared" onClose={onClose} controller={controller} />;
 }

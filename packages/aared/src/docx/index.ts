@@ -14,23 +14,27 @@
  * paginates into per-page DOM. The returned `DocxRenderHandle` owns zoom,
  * heading navigation, and hyperlink activation events.
  *
- * Adaptive content (`contentMode` defaults to `"adaptive"`): dark surfaces
- * apply only when the resolved theme is dark (matching XLSX). Light theme
- * renders authored; `source` is available as an explicit fidelity escape
- * hatch.
+ * Source-faithful content (like PPTX): pages always paint as authored —
+ * white surface, black default ink. Automatic text over an authored shading
+ * takes the ink that reads on it. The resolved `theme` affects viewer chrome
+ * only; the document stays light in dark mode, like a slide.
  */
 
 import type {
   DocxHeadingNode,
   DocxImageNode,
+  DocxInlineImage,
   DocxListItemNode,
   DocxPageBreakNode,
+  DocxParagraphBorder,
   DocxParagraphLayout,
   DocxParagraphNode,
+  DocxTableEdge,
   DocxTableNode,
   DocxUnsupportedNode,
   DocumentSection,
   FlowNode,
+  TextDirection,
   TextRunModel,
 } from "../core/model.js";
 import type {
@@ -38,66 +42,104 @@ import type {
   Collection,
   DocumentInfo,
   MediaCollection as MediaCollectionShape,
-  MediaOptions,
   MediaResolver,
   OpenOptions,
+  ReadOptions,
   Source,
-  ViewerTheme,
   ZoomValue,
 } from "../core/index.js";
 import { AaredError } from "../core/index.js";
-import { WorkerSession } from "../core/session.js";
-import { paginate } from "../core/docx/pagination.js";
+import { RETURN_ARROW } from "../core/chars.js";
+import { SessionMedia, WorkerSession } from "../core/session.js";
+import { itemAt, throwIfAborted } from "../core/errors.js";
+import { BASE_FONT_PX, BLOCK_MARGIN_EM, WORD_SINGLE_LINE, dropsTopSpacing, paginate } from "../core/docx/pagination.js";
+import { cssFontFamily, lineFontSizePt } from "../core/typography.js";
 import type { LayoutPage, SoftBreakPolicy } from "../core/docx/pagination.js";
+import { automaticInk, paintTokens, resolveTheme } from "../appearance.js";
+import { MediaUrls } from "../media-url.js";
+import { RenderHandleBase, fitScale, measureFitRoom, safeScale } from "../render-handle.js";
+import { createTableCell, createTableGrid } from "../table-dom.js";
+import { applyParagraphBox, applyRunBase, roundPt } from "../text-style.js";
+import { PX_PER_INCH, inchesToCss, ptToPx, twipsToInches } from "../core/units.js";
+import { fillRunText, lazyPagePaint, markTabs, settlePageTabStops, settleTabStops } from "./tabs.js";
+import { adoptClassSheet, cssClass, type ClassSheetScope } from "../class-sheet.js";
+import { findByTitle, foldQuery } from "../core/search.js";
+import { buildDocxSearchIndex, entryMatch } from "./search.js";
+import type { DocxSearchEntry } from "./search.js";
+import { headingOutline } from "./outline.js";
+import type { HeadingOutline } from "./outline.js";
 
 export type { SoftBreakPolicy } from "../core/docx/pagination.js";
 
-/** PowerPoint's 96-DPI baseline shared for inch geometry, matching `aared/pptx`. */
-const PIXELS_PER_INCH = 96;
-/**
- * Minimum browser line box. DrawingML/Word relative spacing may name a
- * baseline distance smaller than Arabic glyph ink; CSS would crop a single
- * line, so the model keeps the authored multiplier while the renderer uses
- * the smallest safe box (see HANDOFF's title-layout correction).
- */
-const MINIMUM_LINE_HEIGHT = 1.1;
+/** Hanging indent, in inches, for a list item whose numbering level authors none. */
+const DEFAULT_HANGING_IN = 0.25;
 
-function inches(value: number): string {
-  return `${value * PIXELS_PER_INCH}px`;
-}
+// Defaults every paragraph, heading and list marker shares, as class rules in
+// the render root's one adopted sheet (class-sheet.ts); inline style keeps
+// only what a node authors (its margins, indents, alignment, runs).
+/** A paragraph or heading block: authored spacing and indents override the zero margin inline. */
+const BLOCK = cssClass("margin:0;min-width:0;white-space:pre-wrap");
+const MARKER = cssClass("text-indent:0");
+/** A list marker followed by a tab to the text indent: it owns the hanging width (`min-width`, inline). */
+const MARKER_TAB = cssClass("text-indent:0;display:inline-block;text-align:start");
+/** A laid-out page; its size and padding stay inline. */
+const PAGE = cssClass(
+  `flex-shrink:0;box-sizing:border-box;position:relative;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);font-family:system-ui, sans-serif;font-size:${BASE_FONT_PX}px;line-height:${WORD_SINGLE_LINE}`,
+);
+const PAGE_LAZY = cssClass("content-visibility:auto");
 
 /** Document metadata for a Word file; `format` is narrowed to `"docx"`. */
 export interface DocxInfo extends DocumentInfo {
   format: "docx";
 }
 
-/** One outline entry derived from the cached sections, in document order. */
+/**
+ * One outline entry: a body heading, in document order. `index` is its
+ * position in `document.headings.list()` and the key `goToHeading()` takes;
+ * headings inside headers, footers, tables or notes are not in the outline.
+ */
 export interface HeadingInfo {
-  text: string;
+  index: number;
+  title: string;
   level: number;
-  sectionIndex: number;
+  /** Zero-based section holding the heading. */
+  section: number;
+}
+
+/** One laid-out page (layout mode). `index` is zero-based — the key `goToPage()` takes. */
+export interface DocxPageInfo {
+  index: number;
+  /** In CSS pixels at 96 DPI. */
+  width: number;
+  height: number;
+  orientation: "portrait" | "landscape";
 }
 
 /** One document result from `document.search()`. */
 export interface DocxSearchMatch {
-  /** Zero-based section index holding the match. */
+  /** What holds the match: a body block, a table-cell block, or a note body. */
+  kind: "heading" | "paragraph" | "list" | "table" | "footnote" | "endnote";
+  /**
+   * Zero-based section index holding the match. For a note, the section of
+   * the paragraph that first references it.
+   */
   section: number;
-  /** Nearest preceding heading text in the same section, if any. */
-  heading: string | null;
+  /**
+   * Nearest preceding body heading in the same section, if any — its
+   * `index` is the `goToHeading()` key, so duplicate headings stay
+   * unambiguous. For a note, the heading in force where it is first referenced.
+   */
+  heading: { index: number; title: string } | null;
   /** Matching block text, sliced to 120 characters. */
   text: string;
-}
-
-/** What a readonly document preview can and cannot do. */
-export interface DocxCapabilities {
-  textSelection: boolean;
-  media: boolean;
-  document: {
-    flow: boolean;
-    layout: boolean;
-    footnotes: boolean;
-  };
-  editing: false;
+  /**
+   * Table-cell matches only: the table's document-order index within the
+   * section (nested tables count too) and the zero-based row and logical
+   * column of the innermost table.
+   */
+  table?: { index: number; row: number; col: number };
+  /** Note matches only: the note's id (`f`/`e`-prefixed) and display label. */
+  note?: { id: string; label: string };
 }
 
 /**
@@ -114,61 +156,36 @@ export class SectionCollection implements Collection<DocumentSection, number> {
   }
 
   get(index: number): DocumentSection {
-    const section = this.sections[index];
-    if (!Number.isInteger(index) || section === undefined) {
-      throw new AaredError(
-        "not-found",
-        `aared/docx: section index ${String(index)} is outside this ${this.sections.length}-section document`,
-      );
-    }
-    return section;
+    return itemAt(
+      this.sections,
+      index,
+      () => `aared/docx: section index ${String(index)} is outside this ${this.sections.length}-section document`,
+    );
   }
 }
 
-/** `document.headings`: the heading outline in document order. */
-export class HeadingCollection implements Collection<HeadingInfo, number> {
-  private cached: HeadingInfo[] | undefined = undefined;
-
-  constructor(private readonly sections: readonly DocumentSection[]) {}
+/** `document.headings`: the body heading outline in document order. */
+export class HeadingCollection implements Collection<HeadingInfo, number | string> {
+  constructor(private readonly outline: HeadingOutline) {}
 
   list(): readonly HeadingInfo[] {
-    if (this.cached === undefined) {
-      const headings: HeadingInfo[] = [];
-      for (const [sectionIndex, section] of this.sections.entries()) {
-        for (const node of section.root) {
-          if (node.type === "heading") {
-            headings.push({ text: node.text, level: node.level, sectionIndex });
-          }
-        }
-      }
-      this.cached = headings;
-    }
-    return this.cached;
+    return this.outline.list;
   }
 
-  get(index: number): HeadingInfo {
-    const outline = this.list();
-    const heading = outline[index];
-    if (!Number.isInteger(index) || heading === undefined) {
-      throw new AaredError(
-        "not-found",
-        `aared/docx: heading index ${String(index)} is outside this ${outline.length}-heading outline`,
+  /** By index, or by title (exact, then ignoring case — never a substring). */
+  get(key: number | string): HeadingInfo {
+    const list = this.outline.list;
+    if (typeof key === "number") {
+      return itemAt(
+        list,
+        key,
+        () => `aared/docx: heading index ${String(key)} is outside this ${list.length}-heading outline`,
       );
     }
-    return heading;
+    const found = findByTitle(list, key, (heading) => heading.title);
+    if (found !== undefined) return found;
+    throw new AaredError("not-found", `aared/docx: no heading titled ${JSON.stringify(key)} in this ${list.length}-heading outline`);
   }
-}
-
-class DocxMediaCollection implements MediaCollectionShape {
-  constructor(private readonly session: WorkerSession) {}
-
-  get(mediaId: string, options?: MediaOptions): Promise<ArrayBuffer> {
-    return this.session.media(mediaId, options);
-  }
-}
-
-function paragraphText(runs: readonly TextRunModel[]): string {
-  return runs.map((run) => run.text).join("").trim();
 }
 
 /**
@@ -182,58 +199,54 @@ export class DocxDocument {
   readonly sections: SectionCollection;
   readonly headings: HeadingCollection;
   readonly media: MediaCollectionShape;
-  readonly capabilities: DocxCapabilities = {
-    textSelection: true,
-    media: true,
-    document: { flow: true, layout: true, footnotes: true },
-    editing: false,
-  };
+  /** @internal The outline `headings`, `search()` and `render()` share. */
+  readonly outline: HeadingOutline;
+  private searchIndex: DocxSearchEntry[] | undefined = undefined;
+  private closed = false;
 
   constructor(
     private readonly session: WorkerSession,
     sections: readonly DocumentSection[],
   ) {
-    const info = session.info;
-    this.info = { ...info, format: "docx" };
+    this.info = { ...session.info, format: "docx" };
     this.sections = new SectionCollection(sections);
-    this.headings = new HeadingCollection(sections);
-    this.media = new DocxMediaCollection(session);
+    this.outline = headingOutline(sections);
+    this.headings = new HeadingCollection(this.outline);
+    this.media = new SessionMedia(session);
   }
 
   /**
-   * Case-insensitive substring search over cached paragraph, heading, and
-   * list-item text. Synchronous: every section resolved at `open()` time.
-   * One match per matching block in document order; `heading` names the
-   * nearest preceding heading in the same section (null when none precedes
-   * the match — including when the match is itself the first heading).
+   * Case-insensitive substring search over cached heading, paragraph,
+   * list-item, table-cell, and footnote/endnote text. The sections resolved
+   * at `open()` time, so no Worker round-trip is needed — it is async only so
+   * every format's `search()` has the same shape. The searchable blocks are
+   * indexed once on first use. One match per matching block in document
+   * order, notes last; `heading` names the nearest preceding body heading in
+   * the same section (null when none precedes the match — including when the
+   * match is itself the first heading). Headers, footers, and text boxes are
+   * not searched. Rejects `closed` after `close()`.
    */
-  search(query: string): DocxSearchMatch[] {
-    const needle = query.toLowerCase();
-    if (needle === "") return [];
+  async search(query: string, options?: ReadOptions): Promise<DocxSearchMatch[]> {
+    if (this.closed) throw new AaredError("closed", "aared/docx: document is closed");
+    throwIfAborted(options?.signal);
+    const needle = foldQuery(query);
+    if (needle === null) return [];
+    this.searchIndex ??= buildDocxSearchIndex(this.sections.list(), this.outline);
     const matches: DocxSearchMatch[] = [];
-    for (const [sectionIndex, section] of this.sections.list().entries()) {
-      let heading: string | null = null;
-      const consider = (text: string): void => {
-        if (text !== "" && text.toLowerCase().includes(needle)) {
-          matches.push({ section: sectionIndex, heading, text: text.slice(0, 120) });
-        }
-      };
-      for (const node of section.root) {
-        if (node.type === "heading") {
-          consider(node.text);
-          heading = node.text;
-        } else if (node.type === "paragraph") {
-          consider(paragraphText(node.runs));
-        } else if (node.type === "list") {
-          for (const item of node.items) consider(paragraphText(item.paragraph.runs));
-        }
-      }
+    for (const entry of this.searchIndex) {
+      if (entry.lower.includes(needle)) matches.push(entryMatch(entry));
     }
     return matches;
   }
 
-  /** Terminate the Worker session and reject pending reads. */
+  /**
+   * End the Worker session, reject pending reads, and release the search
+   * index. The Worker itself is kept for the next `open()` and stops about
+   * 15 s after the last document closes.
+   */
   close(): void {
+    this.closed = true;
+    this.searchIndex = undefined;
     this.session.close();
   }
 }
@@ -241,95 +254,170 @@ export class DocxDocument {
 /**
  * Open a `.docx` file. Resolves every section eagerly with one Worker
  * `unit(0)` call — font resolution happens inside `unit()` — and caches the
- * result on the document. Fails with an `unsupported-format` `AaredError`
- * when the file is not actually a Word document. Headless-safe: no DOM.
+ * result on the document; the Worker keeps no copy. Fails with an
+ * `unsupported-format` `AaredError` when the file is not actually a Word
+ * document. Headless-safe: no DOM.
  */
 export async function open(source: Source, options?: OpenOptions): Promise<DocxDocument> {
-  const session = await WorkerSession.open("aared/docx", source, options);
-  if (session.info.format !== "docx") {
-    const detected = session.info.format;
-    session.close();
-    throw new AaredError(
-      "unsupported-format",
-      `aared/docx: expected a Word document; detected "${detected}" — open it with aared/${detected} instead`,
-    );
-  }
+  const session = await WorkerSession.openAs("docx", source, options);
   const signal = options?.signal;
-  const sections = await session.unit<DocumentSection[]>(
-    0,
-    signal === undefined ? undefined : { signal },
-  );
+  let sections: DocumentSection[];
+  try {
+    sections = await session.unit<DocumentSection[]>(0, signal === undefined ? undefined : { signal });
+  } catch (error) {
+    // The body is read here, not at open: a document that fails to parse
+    // (no w:body, an abort) must not leave its Worker session behind.
+    session.close();
+    throw error;
+  }
   return new DocxDocument(session, sections);
 }
 
-function applyParagraphLayout(line: HTMLElement, layout: DocxParagraphLayout, direction: "ltr" | "rtl"): void {
-  line.style.direction = direction;
-  line.dataset.aaredDirection = direction;
-  const align = layout.align ?? (direction === "rtl" ? "right" : "left");
-  line.style.textAlign = align;
-  line.dataset.aaredAlign = align;
-  if (layout.fontSizePt !== undefined) line.style.fontSize = `${layout.fontSizePt}pt`;
-  if (layout.lineSpacing !== undefined) {
-    line.style.lineHeight = String(Math.max(layout.lineSpacing, MINIMUM_LINE_HEIGHT));
-    line.dataset.aaredLineSpacing = String(layout.lineSpacing);
+/**
+ * Paint a paragraph or heading node's box, then what only Word adds: the line
+ * follows the runs on it, the family the paragraph is mostly set in, shading and
+ * borders. The authored line-spacing multiple scales Word's single-line box
+ * (about 1.15em), not the font size.
+ */
+function applyParagraphLayout(line: HTMLElement, node: DocxParagraphLayout & { direction: TextDirection; runs: readonly TextRunModel[] }): void {
+  applyParagraphBox(line, node, { singleLine: WORD_SINGLE_LINE });
+  // The line box follows the runs on it, not the paragraph default (see `lineFontSizePt`).
+  const lineFontPt = lineFontSizePt(node.runs, node.fontSizePt);
+  if (lineFontPt !== undefined) line.style.fontSize = `${lineFontPt}pt`;
+  const family = dominantFontFamily(node.runs);
+  if (family !== undefined) line.style.fontFamily = cssFontFamily(family);
+  if (node.shading !== undefined) {
+    line.style.backgroundColor = node.shading;
+    line.dataset.aaredShade = node.shading;
   }
-  if (layout.lineSpacingPt !== undefined) line.style.lineHeight = `${layout.lineSpacingPt}pt`;
-  if (layout.spaceBeforePt !== undefined) line.style.marginTop = `${layout.spaceBeforePt}pt`;
-  if (layout.spaceAfterPt !== undefined) line.style.marginBottom = `${layout.spaceAfterPt}pt`;
-  if (layout.leftIndent !== undefined) line.style.marginLeft = inches(layout.leftIndent);
-  if (layout.rightIndent !== undefined) line.style.marginRight = inches(layout.rightIndent);
-  if (layout.firstLineIndent !== undefined) line.style.textIndent = inches(layout.firstLineIndent);
-  if (layout.shading !== undefined) line.style.backgroundColor = layout.shading;
-  if (layout.borders !== undefined) {
-    const { top, right, bottom, left } = layout.borders;
-    if (top !== undefined) {
-      line.style.borderTop = `${top.widthPt}pt ${top.style} ${top.color}`;
-      if (top.spacePt > 0) line.style.paddingTop = `${top.spacePt}pt`;
+  applyParagraphBorders(line, node);
+}
+
+/**
+ * The family most of a paragraph's text is set in. A paragraph's own font is
+ * the strut of every line in it, and CSS aligns that strut with the runs'
+ * baselines: left as the page's UI font it stretches each line box by the
+ * mismatch (a pixel a line for Arial runs), which Word never does. Matching it
+ * to the runs keeps the line box at exactly the runs' height.
+ */
+function dominantFontFamily(runs: readonly TextRunModel[]): string | undefined {
+  const weight = new Map<string, number>();
+  for (const run of runs) {
+    if (run.fontFamily !== undefined) weight.set(run.fontFamily, (weight.get(run.fontFamily) ?? 0) + run.text.length);
+  }
+  let best: string | undefined;
+  let bestWeight = -1;
+  for (const [family, length] of weight) {
+    if (length > bestWeight) {
+      best = family;
+      bestWeight = length;
     }
-    if (right !== undefined) {
-      line.style.borderRight = `${right.widthPt}pt ${right.style} ${right.color}`;
-      if (right.spacePt > 0) line.style.paddingRight = `${right.spacePt}pt`;
-    }
-    if (bottom !== undefined) {
-      line.style.borderBottom = `${bottom.widthPt}pt ${bottom.style} ${bottom.color}`;
-      if (bottom.spacePt > 0) line.style.paddingBottom = `${bottom.spacePt}pt`;
-    }
-    if (left !== undefined) {
-      line.style.borderLeft = `${left.widthPt}pt ${left.style} ${left.color}`;
-      if (left.spacePt > 0) line.style.paddingLeft = `${left.spacePt}pt`;
+  }
+  return best;
+}
+
+/** A paragraph or table edge as a CSS border; `none` is an authored `nil` that clears an inherited edge. */
+function borderCss(border: DocxTableEdge): string {
+  return border === "none" ? "none" : `${border.widthPt}pt ${border.style} ${border.color}`;
+}
+
+/**
+ * Paint `w:pBdr`. Top and bottom borders wrap the text with their gap as
+ * padding. A side border sits outside the text indent — the text stays on its
+ * indent and the border plus its gap hang out beside it — so the margin gives
+ * up exactly what they take. A side border with nothing beneath it also runs
+ * down through the paragraph's space-after, as Word draws it (a pull quote's
+ * bar is taller than its text line).
+ */
+function applyParagraphBorders(line: HTMLElement, layout: DocxParagraphLayout): void {
+  const borders = layout.borders;
+  if (borders === undefined) return;
+  const { top, bottom } = borders;
+  if (top !== undefined) {
+    line.style.borderTop = borderCss(top);
+    if (top.spacePt > 0) line.style.paddingTop = `${top.spacePt}pt`;
+  }
+  if (bottom !== undefined) {
+    line.style.borderBottom = borderCss(bottom);
+    if (bottom.spacePt > 0) line.style.paddingBottom = `${bottom.spacePt}pt`;
+  }
+  const spaceAfterPt = layout.spaceAfterPt ?? 0;
+  for (const [side, border, indent] of [
+    ["Left", borders.left, layout.leftIndent],
+    ["Right", borders.right, layout.rightIndent],
+  ] as const) {
+    if (border === undefined) continue;
+    line.style[`border${side}`] = borderCss(border);
+    if (border.spacePt > 0) line.style[`padding${side}`] = `${border.spacePt}pt`;
+    line.style[`margin${side}`] = `${(indent ?? 0) * PX_PER_INCH - ptToPx(border.widthPt + border.spacePt)}px`;
+    if (bottom === undefined && spaceAfterPt > 0) {
+      const extension = document.createElement("span");
+      extension.dataset.aaredElement = "border-extension";
+      extension.setAttribute("aria-hidden", "true");
+      extension.style.position = "absolute";
+      extension.style.top = "100%";
+      extension.style.height = `${spaceAfterPt}pt`;
+      // Absolute offsets measure from the padding box, and the border sits just outside it.
+      extension.style[side === "Left" ? "left" : "right"] = `-${border.widthPt}pt`;
+      extension.style[`border${side}`] = borderCss(border);
+      line.style.position = "relative";
+      line.append(extension);
     }
   }
 }
 
-function appendRunText(host: HTMLElement, run: TextRunModel, wiring: ImageWiring): void {
+/** Paint a run's character formatting onto its span; shared by text runs and list markers. */
+function applyRunStyle(span: HTMLElement, run: TextRunModel): void {
+  applyRunBase(span, run);
+  if (run.shading !== undefined && run.highlight === undefined) span.style.backgroundColor = run.shading;
+  // Only text with no colour of its own follows its fill (see `paintAutomaticInk`).
+  const fill = run.highlight ?? run.shading;
+  if (fill !== undefined && run.color === undefined) span.dataset.aaredShade = fill;
+  if (run.verticalAlign === "subscript" || run.verticalAlign === "superscript") {
+    // `superscript`/`subscript` are OOXML `w:vertAlign` names that no browser
+    // recognizes; the shift must be stated as CSS (a length, or `super`/`sub`).
+    applyScript(span, run.verticalAlign, run.fontSizePt);
+  }
+}
+
+/**
+ * Word sets a super- or subscript at two thirds of its run size and raises a
+ * superscript by a third of it (read from a native export's PDF: 6.96pt on a
+ * 10.56pt line, baseline 4.7px up). A run without an authored size shrinks
+ * relative to its paragraph and falls back to the CSS keyword shift.
+ */
+const SCRIPT_SCALE = 2 / 3;
+const SUPERSCRIPT_RAISE = 1 / 3;
+
+function applyScript(element: HTMLElement, kind: "superscript" | "subscript", basePt: number | undefined): void {
+  element.style.fontSize = basePt === undefined ? `${roundPt(SCRIPT_SCALE * 100)}%` : `${roundPt(basePt * SCRIPT_SCALE)}pt`;
+  element.style.verticalAlign = kind === "subscript"
+    ? "sub"
+    : basePt === undefined ? "super" : `${roundPt(basePt * SUPERSCRIPT_RAISE)}pt`;
+}
+
+function appendRunText(host: HTMLElement, run: TextRunModel, wiring: ImageWiring, direction: "ltr" | "rtl"): void {
+  if (run.image !== undefined) {
+    appendInlineImage(host, run.image, run.hyperlink, wiring);
+    return;
+  }
   // Newlines arrive from `w:br`/`w:cr`; `pre-wrap` on the paragraph paints
   // them without splitting runs or losing bidi context. Live page fields
-  // evaluate per layout page; flow rendering keeps the static fiction.
+  // evaluate per layout page; flow rendering shows the field's cached result.
   const text = run.field === "PAGE"
     ? String(wiring.pageNumber ?? run.text)
     : run.field === "NUMPAGES"
       ? String(wiring.pageTotal ?? run.text)
       : run.text;
   const span = document.createElement("span");
-  span.textContent = text;
-  if (run.bold === true) span.style.fontWeight = "700";
-  if (run.italic === true) span.style.fontStyle = "italic";
-  if (run.underline === true) span.style.textDecoration = "underline";
-  if (run.strikethrough === true) {
-    span.style.textDecoration = span.style.textDecoration === "" ? "line-through" : `${span.style.textDecoration} line-through`;
-  }
-  if (run.fontSizePt !== undefined) span.style.fontSize = `${run.fontSizePt}pt`;
-  if (run.color !== undefined) span.style.color = run.color;
-  if (run.fontFamily !== undefined) span.style.fontFamily = run.fontFamily;
-  if (run.highlight !== undefined) span.style.backgroundColor = run.highlight;
-  if (run.shading !== undefined && run.highlight === undefined) span.style.backgroundColor = run.shading;
-  if (run.verticalAlign === "subscript" || run.verticalAlign === "superscript") {
-    span.style.verticalAlign = run.verticalAlign;
-    span.style.fontSize = run.fontSizePt === undefined ? "smaller" : `${run.fontSizePt * 0.75}pt`;
-  }
+  fillRunText(span, text, direction);
+  applyRunStyle(span, run);
   if (run.hyperlink !== undefined) {
     const link = document.createElement("a");
     link.href = run.hyperlink;
+    // Authored run color/underline decide how a link looks, not the browser default.
+    link.style.color = "inherit";
+    link.style.textDecoration = "inherit";
     link.append(span);
     if (run.footnoteRef !== undefined) {
       footnoteMarker(host, run, link, wiring);
@@ -345,85 +433,133 @@ function appendRunText(host: HTMLElement, run: TextRunModel, wiring: ImageWiring
   host.append(span);
 }
 
-function appendParagraph(host: HTMLElement, paragraph: DocxParagraphNode, wiring: ImageWiring): void {
-  const line = document.createElement("p");
-  line.dataset.aaredElement = "paragraph";
-  line.style.margin = "0";
-  line.style.minWidth = "0";
-  line.style.whiteSpace = "pre-wrap";
-  applyParagraphLayout(line, paragraph, paragraph.direction);
-  const text = document.createElement("span");
-  text.dataset.aaredElement = "paragraph-text";
-  for (const run of paragraph.runs) appendRunText(text, run, wiring);
-  line.append(text);
-  host.append(line);
+/** A list marker painted inline at the start of its item's first line. */
+interface ListMarker {
+  text: string;
+  /** Width the marker owns before the text starts, in pixels (the hanging indent). */
+  hangingPx: number;
+  /** The numbering level's own marker formatting; absent follows the paragraph text. */
+  run?: TextRunModel;
+  /** What follows the marker: absent is Word's default tab to the text indent. */
+  suffix?: "space" | "nothing";
 }
 
-function appendHeading(host: HTMLElement, heading: DocxHeadingNode, index: number, wiring: ImageWiring): void {
+function appendParagraph(host: HTMLElement, paragraph: DocxParagraphNode, wiring: ImageWiring, marker?: ListMarker): HTMLElement {
+  const line = document.createElement("p");
+  line.setAttribute("data-aared-element", "paragraph");
+  line.setAttribute("class", BLOCK);
+  applyParagraphLayout(line, paragraph);
+  if (marker !== undefined) {
+    // The marker is the first thing on the line in the paragraph's own
+    // direction, so an RTL item carries it on the right and the line packs
+    // by its alignment exactly as Word paints it.
+    const mark = document.createElement("span");
+    mark.setAttribute("data-aared-element", "list-marker");
+    mark.setAttribute("data-aared-marker", marker.text);
+    mark.textContent = marker.text;
+    mark.setAttribute("aria-hidden", "true");
+    // A tab to the text indent (no suffix): the marker owns the hanging
+    // width, and sits at its start edge so the slack falls between marker and
+    // text. Left to inherit the paragraph's physical `text-align` it would sit
+    // against the text in an RTL item, whose alignment is swapped.
+    mark.setAttribute("class", marker.suffix === undefined ? MARKER_TAB : MARKER);
+    if (marker.run !== undefined) applyRunStyle(mark, marker.run);
+    if (marker.suffix === undefined) mark.style.minWidth = `${marker.hangingPx}px`;
+    line.append(mark);
+    if (marker.suffix === "space") line.append(document.createTextNode(" "));
+  }
+  // Runs go straight into the paragraph: no wrapper, one element fewer per paragraph.
+  for (const run of paragraph.runs) appendRunText(line, run, wiring, paragraph.direction);
+  markTabs(line, paragraph.tabStops);
+  host.append(line);
+  return line;
+}
+
+function appendHeading(host: HTMLElement, heading: DocxHeadingNode, wiring: ImageWiring): void {
   const level = Math.min(Math.max(heading.level, 1), 6);
   const element = document.createElement(`h${level}`);
-  element.dataset.aaredElement = "heading";
-  element.dataset.aaredLevel = String(heading.level);
-  element.id = `aared-heading-${index + 1}`;
-  element.dataset.aaredHeadingIndex = String(index);
-  element.style.margin = "0";
-  element.style.minWidth = "0";
-  element.style.whiteSpace = "pre-wrap";
-  applyParagraphLayout(element, heading, heading.direction);
-  const text = document.createElement("span");
-  text.dataset.aaredElement = "paragraph-text";
-  for (const run of heading.runs) appendRunText(text, run, wiring);
-  element.append(text);
+  element.setAttribute("data-aared-element", "heading");
+  element.setAttribute("data-aared-level", String(heading.level));
+  // Only outline headings are addressable (`goToHeading`, fragment ids); a
+  // heading-styled paragraph in a header, footer, table or note paints the
+  // same but takes no index, so ids stay unique and match `headings.list()`.
+  const index = wiring.outline.get(heading);
+  if (index !== undefined) {
+    element.id = `aared-heading-${index + 1}`;
+    element.setAttribute("data-aared-heading-index", String(index));
+  }
+  element.setAttribute("class", BLOCK);
+  applyParagraphLayout(element, heading);
+  for (const run of heading.runs) appendRunText(element, run, wiring, heading.direction);
+  markTabs(element, heading.tabStops);
   host.append(element);
 }
 
-function cellJustifyContent(verticalAlign: "top" | "middle" | "bottom"): string {
-  switch (verticalAlign) {
-    case "middle":
-      return "center";
-    case "bottom":
-      return "flex-end";
-    default:
-      return "flex-start";
-  }
+/**
+ * How much thicker than authored a table edge is painted. A browser draws a
+ * border of a device pixel or more, so a 0.25pt (0.33px) hairline paints 1px;
+ * Word lets it be that thin. The cell gives the surplus back out of its padding
+ * so rows keep Word's height.
+ */
+function borderSnapSlackPx(edge: DocxTableEdge | undefined): number {
+  if (edge === undefined || edge === "none") return 0;
+  const exact = ptToPx(edge.widthPt);
+  return exact > 0 ? Math.max(1, Math.floor(exact)) - exact : 0;
 }
 
 function appendTable(host: HTMLElement, table: DocxTableNode, wiring: ImageWiring): void {
-  const grid = document.createElement("div");
-  grid.setAttribute("role", "table");
-  grid.dataset.aaredElement = "table";
-  grid.dataset.aaredTableDirection = table.direction;
-  grid.style.display = "grid";
-  grid.style.direction = table.direction;
-  grid.style.width = "100%";
+  const grid = createTableGrid(table.direction, table.columns);
   grid.style.minWidth = "0";
-  grid.style.border = "1px solid currentColor";
-  grid.style.margin = "0.5em 0";
+  grid.style.boxSizing = "border-box";
   const totalColumnWidth = table.columns.reduce((sum, width) => sum + width, 0);
-  if (table.columns.length > 0) {
-    grid.style.gridTemplateColumns = totalColumnWidth > 0
-      ? table.columns.map((width) => `${(width / totalColumnWidth) * 100}%`).join(" ")
-      : table.columns.map(() => "1fr").join(" ");
-  }
-  for (const row of table.rows) {
+  // An authored `w:tblW` wins; else the columns' own sum; else the container.
+  const authoredWidth = table.width ?? (totalColumnWidth > 0 ? totalColumnWidth : undefined);
+  grid.style.width = authoredWidth === undefined ? "100%" : inchesToCss(authoredWidth);
+  grid.style.maxWidth = "100%";
+  const columnCount = table.columns.length > 0
+    ? table.columns.length
+    : Math.max(1, ...table.rows.map((row) => row.cells.reduce((sum, cell) => sum + (cell.columnSpan ?? 1), 0)));
+  const busy: number[] = new Array<number>(columnCount).fill(0);
+  const lastRow = table.rows.length - 1;
+  const borders = table.borders;
+  const margins = table.cellMargins;
+  for (const [rowIndex, row] of table.rows.entries()) {
+    let column = 0;
     for (const cellModel of row.cells) {
-      const cell = document.createElement("div");
-      cell.setAttribute("role", "cell");
-      cell.dataset.aaredElement = "table-cell";
-      cell.style.minWidth = "0";
-      cell.style.padding = "0.2em 0.35em";
-      cell.style.border = "1px solid color-mix(in srgb, currentColor 25%, transparent)";
-      if (cellModel.shading !== undefined) cell.style.backgroundColor = cellModel.shading;
-      if (cellModel.verticalAlign !== undefined) {
-        cell.style.display = "flex";
-        cell.style.flexDirection = "column";
-        cell.style.justifyContent = cellJustifyContent(cellModel.verticalAlign);
+      while ((busy[column] ?? 0) > 0) column += 1;
+      const columnSpan = cellModel.columnSpan ?? 1;
+      const rowSpan = cellModel.rowSpan ?? 1;
+      const firstColumn = column === 0;
+      const lastColumn = column + columnSpan >= columnCount;
+      const firstRow = rowIndex === 0;
+      const touchesBottom = rowIndex + rowSpan - 1 >= lastRow;
+      for (let offset = 0; offset < columnSpan; offset++) busy[column + offset] = rowSpan;
+      column += columnSpan;
+
+      const cell = createTableCell(cellModel);
+      // Each shared edge is drawn once: outer edges on the boundary cells,
+      // inside edges as the later cell's top/start line. A cell's own edge wins.
+      const top = cellModel.borders?.top ?? (firstRow ? borders?.top : borders?.insideH);
+      const bottom = cellModel.borders?.bottom ?? (touchesBottom ? borders?.bottom : undefined);
+      const start = cellModel.borders?.left ?? (firstColumn ? borders?.left : borders?.insideV);
+      const end = cellModel.borders?.right ?? (lastColumn ? borders?.right : undefined);
+      if (top !== undefined) cell.style.borderTop = borderCss(top);
+      if (bottom !== undefined) cell.style.borderBottom = borderCss(bottom);
+      if (start !== undefined) cell.style.borderInlineStart = borderCss(start);
+      if (end !== undefined) cell.style.borderInlineEnd = borderCss(end);
+      const pad = { ...margins, ...cellModel.margins };
+      cell.style.paddingTop = `${Math.max(0, (pad.top ?? 0) * PX_PER_INCH - borderSnapSlackPx(top))}px`;
+      cell.style.paddingBottom = `${Math.max(0, (pad.bottom ?? 0) * PX_PER_INCH - borderSnapSlackPx(bottom))}px`;
+      cell.style.paddingInlineStart = inchesToCss(pad.left ?? 0);
+      cell.style.paddingInlineEnd = inchesToCss(pad.right ?? 0);
+      if (cellModel.shading !== undefined) {
+        cell.style.backgroundColor = cellModel.shading;
+        cell.dataset.aaredShade = cellModel.shading;
       }
-      if (cellModel.columnSpan !== undefined) cell.style.gridColumn = `span ${cellModel.columnSpan}`;
-      if (cellModel.rowSpan !== undefined) cell.style.gridRow = `span ${cellModel.rowSpan}`;
       for (const node of cellModel.nodes) appendFlowNode(cell, node, wiring);
       grid.append(cell);
     }
+    for (let index = 0; index < busy.length; index++) if ((busy[index] ?? 0) > 0) busy[index] = (busy[index] ?? 0) - 1;
   }
   host.append(grid);
 }
@@ -433,31 +569,27 @@ function appendListItem(list: HTMLElement, item: DocxListItemNode, wiring: Image
   entry.dataset.aaredElement = "list-item";
   entry.dataset.aaredLevel = String(item.level);
   entry.dataset.aaredOrdered = String(item.ordered);
-  entry.style.display = "grid";
-  entry.style.gridTemplateColumns = "auto minmax(0, 1fr)";
-  entry.style.gap = "0.5em";
-  // The numbering indent positions the text once: the item starts there and
-  // the inner paragraph paints without its own start indents (the same box
-  // the paginator estimates). The marker hangs before the text, Word-style.
+  // Word's numbering geometry: the text sits at the left indent and the marker
+  // hangs `hanging` before it. Both measure from the paragraph's start edge, so
+  // the same rule places the marker on the right of an RTL item.
   const indent = item.paragraph.leftIndent;
-  entry.style.marginInlineStart = indent === undefined ? `${item.level * 1.5}em` : inches(indent);
-  const marker = document.createElement("span");
-  marker.dataset.aaredElement = "list-marker";
-  marker.dataset.aaredMarker = item.marker;
-  marker.textContent = item.marker;
-  marker.setAttribute("aria-hidden", "true");
-  marker.style.justifySelf = "end";
-  const body = document.createElement("div");
-  body.style.minWidth = "0";
+  const hanging = item.paragraph.firstLineIndent !== undefined && item.paragraph.firstLineIndent < 0
+    ? -item.paragraph.firstLineIndent
+    : DEFAULT_HANGING_IN;
+  const indentPx = indent === undefined ? (item.level + 1) * DEFAULT_HANGING_IN * PX_PER_INCH : indent * PX_PER_INCH;
   // Copy before stripping: the model keeps its numbering indents, only the
-  // painted item drops them (the `<li>` offset already positions the text).
+  // painted paragraph re-expresses them in logical (start-edge) terms.
   const unindented: DocxParagraphNode = { ...item.paragraph };
-  if (indent !== undefined || item.paragraph.firstLineIndent !== undefined) {
-    delete unindented.leftIndent;
-    delete unindented.firstLineIndent;
-  }
-  appendParagraph(body, unindented, wiring);
-  entry.append(marker, body);
+  delete unindented.leftIndent;
+  delete unindented.firstLineIndent;
+  const line = appendParagraph(entry, unindented, wiring, {
+    text: item.marker,
+    hangingPx: hanging * PX_PER_INCH,
+    ...(item.markerRun === undefined ? {} : { run: item.markerRun }),
+    ...(item.markerSuffix === undefined ? {} : { suffix: item.markerSuffix }),
+  });
+  line.style.marginInlineStart = `${indentPx}px`;
+  line.style.textIndent = `${-hanging * PX_PER_INCH}px`;
   list.append(entry);
 }
 
@@ -467,7 +599,7 @@ function appendList(host: HTMLElement, nodes: DocxListItemNode[], wiring: ImageW
   list.dataset.aaredElement = "list";
   list.dataset.aaredOrdered = String(ordered);
   list.style.listStyle = "none";
-  list.style.margin = "0.5em 0";
+  list.style.margin = `${BLOCK_MARGIN_EM}em 0`;
   list.style.padding = "0";
   if (ordered) {
     const start = Number.parseInt(nodes[0]?.marker ?? "", 10);
@@ -478,9 +610,11 @@ function appendList(host: HTMLElement, nodes: DocxListItemNode[], wiring: ImageW
 }
 
 interface ImageWiring {
-  media: MediaResolver | undefined;
-  revoke: Set<string> | undefined;
+  /** This render's picture URLs, one per media part; absent when the embedder gave no media resolver. */
+  urls: MediaUrls | undefined;
   destroyed: boolean;
+  /** Outline index of each body heading node (see `headingOutline`); other headings are absent. */
+  outline: ReadonlyMap<DocxHeadingNode, number>;
   /** First in-text marker id per footnote, so backlinks have a target. */
   refAnchors: Map<string, string>;
   /** Layout page fields; absent in flow mode (runs keep their static text). */
@@ -493,6 +627,10 @@ function footnoteMarker(host: HTMLElement, run: TextRunModel, inner: HTMLElement
   const marker = document.createElement("sup");
   marker.dataset.aaredElement = "footnote-ref";
   marker.dataset.aaredFootnote = footnote;
+  // The wrapper keeps the semantics; the run inside already carries the
+  // superscript size and shift, which the UA `sup` style would stack on top of.
+  marker.style.verticalAlign = "baseline";
+  marker.style.fontSize = "inherit";
   let anchor = wiring.refAnchors.get(footnote);
   if (anchor === undefined) {
     anchor = `aared-footnote-ref-${footnote}`;
@@ -506,11 +644,63 @@ function footnoteMarker(host: HTMLElement, run: TextRunModel, inner: HTMLElement
   host.append(marker);
 }
 
+/**
+ * Point `element` at its media's shared URL (a header logo repeats on every
+ * page, so its images share one fetch and one Blob), or fall back to alt text
+ * when the fetch fails.
+ */
+function wireImageMedia(
+  element: HTMLImageElement,
+  image: { mediaId: string; contentType: string; alt?: string },
+  urls: MediaUrls,
+  wiring: ImageWiring,
+): void {
+  element.dataset.aaredMediaId = image.mediaId;
+  void urls.url(image.mediaId, image.contentType).then(
+    (url) => {
+      if (url !== undefined && !wiring.destroyed) element.src = url;
+    },
+    () => {
+      if (!wiring.destroyed) element.alt = image.alt ?? image.mediaId;
+    },
+  );
+}
+
+/** A picture on the text line: it sits on the baseline like a glyph, not in its own block. */
+function appendInlineImage(host: HTMLElement, image: DocxInlineImage, hyperlink: string | undefined, wiring: ImageWiring): void {
+  const holder = document.createElement("span");
+  holder.dataset.aaredElement = "inline-image";
+  holder.dataset.aaredMediaId = image.mediaId;
+  if (wiring.urls === undefined) {
+    holder.textContent = image.alt ?? "";
+    host.append(holder);
+    return;
+  }
+  const element = document.createElement("img");
+  element.alt = image.alt ?? "";
+  element.style.width = inchesToCss(image.width);
+  element.style.height = inchesToCss(image.height);
+  // State both explicitly: a host reset such as Tailwind's `img { display: block }`
+  // would otherwise lift the picture off its line and stack it above the text.
+  element.style.display = "inline";
+  element.style.verticalAlign = "baseline";
+  holder.append(element);
+  wireImageMedia(element, image, wiring.urls, wiring);
+  if (hyperlink === undefined) {
+    host.append(holder);
+    return;
+  }
+  const link = document.createElement("a");
+  link.href = hyperlink;
+  link.append(holder);
+  host.append(link);
+}
+
 function appendImage(host: HTMLElement, image: DocxImageNode, wiring: ImageWiring): void {
   const figure = document.createElement("figure");
   figure.dataset.aaredElement = "image";
   figure.dataset.aaredMediaId = image.mediaId;
-  figure.style.margin = "0.5em 0";
+  figure.style.margin = `${BLOCK_MARGIN_EM}em 0`;
   figure.style.minWidth = "0";
   figure.style.maxWidth = "100%";
   if (image.float === "left" || image.float === "right") {
@@ -518,13 +708,13 @@ function appendImage(host: HTMLElement, image: DocxImageNode, wiring: ImageWirin
     figure.style.marginInlineEnd = image.float === "left" ? "1em" : "0";
     figure.style.marginInlineStart = image.float === "right" ? "1em" : "0";
   }
-  if (wiring.media !== undefined) {
+  if (wiring.urls !== undefined) {
     const element = document.createElement("img");
     element.alt = image.alt ?? "";
     element.style.display = "block";
     element.style.maxWidth = "100%";
     element.style.height = "auto";
-    element.style.width = inches(image.width);
+    element.style.width = inchesToCss(image.width);
     // Auto margins center a fixed-width block, so they sit on the `<img>`
     // itself: the `<figure>` fills its container, collapsing them to zero.
     if (image.float === undefined && image.align === "center") {
@@ -533,24 +723,8 @@ function appendImage(host: HTMLElement, image: DocxImageNode, wiring: ImageWirin
     } else if (image.float === undefined && image.align === "right") {
       element.style.marginLeft = "auto";
     }
-    element.dataset.aaredMediaId = image.mediaId;
     figure.append(element);
-    void wiring.media(image.mediaId).then(
-      (bytes) => {
-        if (wiring.destroyed || wiring.revoke === undefined) return;
-        const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: image.contentType }));
-        wiring.revoke.add(url);
-        if (wiring.destroyed) {
-          URL.revokeObjectURL(url);
-          wiring.revoke.delete(url);
-          return;
-        }
-        element.src = url;
-      },
-      () => {
-        if (!wiring.destroyed) element.alt = image.alt ?? image.mediaId;
-      },
-    );
+    wireImageMedia(element, image, wiring.urls, wiring);
   } else {
     figure.dataset.aaredImagePending = "true";
     const caption = document.createElement("figcaption");
@@ -567,25 +741,60 @@ function appendUnsupported(host: HTMLElement, node: DocxUnsupportedNode): void {
   fallback.setAttribute("role", "note");
   fallback.style.border = "1px dashed currentColor";
   fallback.style.padding = "0.5em 0.75em";
-  fallback.style.margin = "0.5em 0";
+  fallback.style.margin = `${BLOCK_MARGIN_EM}em 0`;
   fallback.textContent = node.label;
   host.append(fallback);
 }
 
-function appendFootnote(host: HTMLElement, id: string, label: string, direction: "ltr" | "rtl", nodes: FlowNode[], wiring: ImageWiring): void {
-  let section = host.querySelector<HTMLElement>('[data-aared-element="footnotes"]');
-  if (section === null) {
-    section = document.createElement("section");
-    section.dataset.aaredElement = "footnotes";
-    const rule = document.createElement("hr");
-    section.append(rule);
-    const list = document.createElement("ol");
-    list.dataset.aaredElement = "footnote-list";
-    list.style.paddingInlineStart = "1.5em";
-    section.append(list);
-    host.append(section);
+/** The first authored run size in a footnote body, which its label is set against. */
+function firstRunSizePt(nodes: FlowNode[]): number | undefined {
+  for (const node of nodes) {
+    if (node.type !== "paragraph" && node.type !== "heading") continue;
+    const sized = node.runs.find((run) => run.fontSizePt !== undefined);
+    if (sized !== undefined) return sized.fontSizePt;
   }
-  const list = section.querySelector('[data-aared-element="footnote-list"]')!;
+  return undefined;
+}
+
+/** Width of a page's footnote separator, as a share of the text column (Word's is about two inches). */
+const FOOTNOTE_RULE_SHARE = "30%";
+
+/** The footnote section for `host`, created with its separator rule and list on first use. */
+function footnoteList(host: HTMLElement): Element {
+  const existing = host.querySelector('[data-aared-element="footnote-list"]');
+  if (existing !== null) return existing;
+  const section = document.createElement("section");
+  section.dataset.aaredElement = "footnotes";
+  const rule = document.createElement("hr");
+  rule.style.border = "0";
+  rule.style.borderTop = "1px solid currentColor";
+  rule.style.width = FOOTNOTE_RULE_SHARE;
+  rule.style.margin = "0 0 4px";
+  const list = document.createElement("ol");
+  list.dataset.aaredElement = "footnote-list";
+  list.style.listStyle = "none";
+  list.style.margin = "0";
+  list.style.padding = "0";
+  section.append(rule, list);
+  host.append(section);
+  return list;
+}
+
+/**
+ * Paint one footnote. Its label is a superscript at the start of the first
+ * paragraph, as in Word (not a list number). The back-link is a reading aid
+ * for flow output; paged output hides it visually and keeps it for assistive
+ * technology.
+ */
+function appendFootnote(
+  host: HTMLElement,
+  id: string,
+  label: string,
+  direction: "ltr" | "rtl",
+  nodes: FlowNode[],
+  wiring: ImageWiring,
+  backlink: "visible" | "hidden" = "visible",
+): void {
   const item = document.createElement("li");
   item.id = `aared-footnote-${id}`;
   item.dataset.aaredElement = "footnote";
@@ -593,13 +802,21 @@ function appendFootnote(host: HTMLElement, id: string, label: string, direction:
   item.dataset.aaredLabel = label;
   item.style.direction = direction;
   for (const node of nodes) appendFlowNode(item, node, wiring);
-  const backlink = document.createElement("a");
+  const mark = document.createElement("sup");
+  mark.dataset.aaredElement = "footnote-label";
+  mark.textContent = label;
+  applyScript(mark, "superscript", firstRunSizePt(nodes));
+  (item.querySelector('[data-aared-element="paragraph"]') ?? item).prepend(mark);
+  const link = document.createElement("a");
   const anchor = wiring.refAnchors.get(id);
-  backlink.href = anchor === undefined ? `#aared-footnote-${id}` : `#${anchor}`;
-  backlink.textContent = " ↩";
-  backlink.setAttribute("aria-label", "Back to reference");
-  item.append(backlink);
-  list.append(item);
+  link.href = anchor === undefined ? `#aared-footnote-${id}` : `#${anchor}`;
+  link.textContent = ` ${RETURN_ARROW}`;
+  link.setAttribute("aria-label", "Back to reference");
+  if (backlink === "hidden") {
+    link.style.cssText = "position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap";
+  }
+  item.append(link);
+  footnoteList(host).append(item);
 }
 
 function appendPageBreak(host: HTMLElement, node: DocxPageBreakNode): void {
@@ -614,17 +831,14 @@ function appendPageBreak(host: HTMLElement, node: DocxPageBreakNode): void {
   host.append(line);
 }
 
-function appendFlowNode(host: HTMLElement, node: FlowNode, wiring: ImageWiring, headingIndex?: { value: number }): void {
+function appendFlowNode(host: HTMLElement, node: FlowNode, wiring: ImageWiring): void {
   switch (node.type) {
     case "paragraph":
       appendParagraph(host, node, wiring);
       break;
-    case "heading": {
-      const counter = headingIndex ?? { value: 0 };
-      appendHeading(host, node, counter.value, wiring);
-      counter.value++;
+    case "heading":
+      appendHeading(host, node, wiring);
       break;
-    }
     case "table":
       appendTable(host, node, wiring);
       break;
@@ -646,15 +860,16 @@ function appendFlowNode(host: HTMLElement, node: FlowNode, wiring: ImageWiring, 
   }
 }
 
-/** Viewer-only appearance for DOCX. */
-export interface DocxAppearance {
-  theme?: ViewerTheme;
-  /**
-   * `source` (default) paints the file as authored; `adaptive` paints a
-   * dark reading mode that keeps every explicit authored style and only
-   * recolors default surfaces. Never inversion or filters.
-   */
-  contentMode?: "source" | "adaptive";
+/**
+ * How a document is laid out: `flow` (the default) is one continuous column
+ * that reflows to its container, like Word's Web Layout — there are no pages;
+ * `layout` cuts it into physical pages, like Print Layout. Structural: a
+ * change needs a new `render()`, so it is not part of `Appearance`.
+ */
+export interface DocxPagination {
+  mode?: "flow" | "layout";
+  /** How `w:lastRenderedPageBreak` hints place page breaks (layout mode only). Default `"prefer"`. */
+  softBreaks?: SoftBreakPolicy;
 }
 
 export interface DocxRenderInput {
@@ -666,159 +881,141 @@ export interface DocxRenderInput {
    */
   document: DocxDocument | readonly DocumentSection[];
   target: HTMLElement;
+  pagination?: DocxPagination;
+  appearance?: Appearance;
+  /** Starting zoom, applied without a `zoomchange`. Default `"fit-width"`. */
+  zoom?: ZoomValue;
   mediaResolver?: MediaResolver;
-  pagination?: { mode?: "flow" | "layout"; softBreaks?: SoftBreakPolicy };
-  appearance?: DocxAppearance | Appearance;
-}
-
-export interface DocxRenderOptions {
-  mediaResolver?: MediaResolver;
-  pagination?: { mode?: "flow" | "layout"; softBreaks?: SoftBreakPolicy };
-  appearance?: DocxAppearance | Appearance;
 }
 
 export interface DocxRenderHandle extends EventTarget {
-  /** Disconnect media loading and release image object URLs. */
+  /** Disconnect media loading and release image object URLs. Idempotent. */
   destroy(): void;
-  /** Change zoom; emits `zoomchange`. Numbers scale via the CSS `zoom` property. */
-  setZoom(zoom: ZoomValue): void;
-  /** The active zoom. */
-  readonly zoom: ZoomValue;
-  /** Physical pages: 1 in flow mode, laid-out pages in layout mode. */
-  pageCount: number;
-  pages: Array<{ index: number; width: number; height: number; orientation: "portrait" | "landscape" }>;
+  /** `true` once destroyed; every method is then a no-op that fires nothing. */
+  readonly destroyed: boolean;
   /**
-   * Scroll a heading into view: a number selects the nth heading in
-   * document order (zero-based, matching `document.headings`); a string
-   * selects the first heading with exactly that text, else the first
-   * heading containing it (case-insensitive). Throws a `not-found`
-   * `AaredError` when nothing matches.
+   * Change zoom: in layout mode `fit-width` scales the widest page to the
+   * container and `fit-page` also keeps the tallest page in view; in flow mode
+   * both fit modes are 100% (the column already flows to its container). A
+   * number scales in place. Fires `zoomchange` only when the value changes.
    */
-  goToHeading(target: string | number): void;
-}
-
-/** Dark reading-mode surfaces for `adaptive`; `source` keeps authored white/black. */
-const ADAPTIVE_SURFACE = "#1a1a1a";
-const ADAPTIVE_INK = "#e8e8e8";
-const ADAPTIVE_BORDER = "#3a3a3a";
-const ADAPTIVE_MUTED = "#9a9a9a";
-const ADAPTIVE_ACCENT = "#8ab4f8";
-const SOURCE_BORDER = "#d1d5db";
-const SOURCE_MUTED = "#6b7280";
-const SOURCE_ACCENT = "#2563eb";
-const ADAPTIVE_PAGE_EDGE = "#101010";
-
-function resolveAppearance(options?: DocxRenderOptions): { contentMode: "source" | "adaptive"; dark: boolean } {
-  const appearance = options?.appearance;
-  const theme = appearance?.theme ?? "system";
-  let dark = theme === "dark";
-  if (theme === "system" && typeof matchMedia !== "undefined") {
-    dark = matchMedia("(prefers-color-scheme: dark)").matches;
-  }
-  return {
-    contentMode: appearance?.contentMode ?? "adaptive",
-    dark,
-  };
+  setZoom(zoom: ZoomValue): void;
+  /** The requested zoom. */
+  readonly zoom: ZoomValue;
+  /** The scale actually painted — the number, or what the fit mode computed. */
+  readonly scale: number;
+  /**
+   * Replace the viewer appearance in place without re-pagination: refreshes
+   * the theme marker, keeping scroll position and zoom. Content stays
+   * source-faithful; theme never affects layout metrics.
+   */
+  setAppearance(appearance: Appearance): void;
+  /** Laid-out pages: `0` and `[]` in flow mode, which has no pages. */
+  readonly pageCount: number;
+  readonly pages: readonly DocxPageInfo[];
+  /**
+   * Scroll a body heading into view: a number is its `document.headings`
+   * index; a string is its title (exact, then ignoring case — never a
+   * substring). Rejects `not-found` when nothing matches.
+   */
+  goToHeading(target: string | number): Promise<void>;
+  /**
+   * Scroll laid-out page `index` (zero-based) into view. Rejects
+   * `unsupported-feature` in flow mode, which has no pages, and `not-found`
+   * outside `0 <= index < pageCount`.
+   */
+  goToPage(index: number): Promise<void>;
 }
 
 /**
- * Viewer chrome state on the painted root: the theme marker plus the
- * surface/ink variables the adaptive pass reads. Setting variables alone
- * never changes source-mode visuals — every default there stays a literal
- * style, exactly as before. Adaptive surfaces only apply when the resolved
- * theme is dark — matching XLSX's dark-gating behavior.
+ * Resolve the automatic text over every authored fill under `root`. Text
+ * with no colour of its own takes the ink that reads on the fill it sits on
+ * (Word's Automatic colour does the same). The fill is recorded on the
+ * element when it is painted (`data-aared-shade`).
  */
-function paintAppearanceRoot(root: HTMLElement, dark: boolean, contentMode: "source" | "adaptive"): void {
-  root.dataset.aaredTheme = dark ? "dark" : "light";
-  if (contentMode === "adaptive" && dark) {
-    root.style.setProperty("--aared-surface", ADAPTIVE_SURFACE);
-    root.style.setProperty("--aared-ink", ADAPTIVE_INK);
-    root.style.setProperty("--aared-border", ADAPTIVE_BORDER);
-    root.style.setProperty("--aared-muted-text", ADAPTIVE_MUTED);
-    root.style.setProperty("--aared-accent", ADAPTIVE_ACCENT);
-    root.style.setProperty("--aared-focus-ring", ADAPTIVE_ACCENT);
-  } else {
-    root.style.setProperty("--aared-surface", "#ffffff");
-    root.style.setProperty("--aared-ink", "#000000");
-    root.style.setProperty("--aared-border", SOURCE_BORDER);
-    root.style.setProperty("--aared-muted-text", SOURCE_MUTED);
-    root.style.setProperty("--aared-accent", SOURCE_ACCENT);
-    root.style.setProperty("--aared-focus-ring", SOURCE_ACCENT);
+function paintAutomaticInk(root: HTMLElement): void {
+  for (const element of root.querySelectorAll<HTMLElement>("[data-aared-shade]")) {
+    element.style.color = automaticInk(element.dataset.aaredShade!);
   }
 }
 
-class DocxViewer extends EventTarget implements DocxRenderHandle {
-  #zoom: ZoomValue = "fit-width";
-  #destroyed = false;
-  #applyZoom: () => void = () => {};
-  #destroyHook: () => void = () => {};
-  #findHeadings: () => HTMLElement[] = () => [];
+/** A page-like root's default surface and ink, and the automatic text over the fills beneath it. */
+function paintSurface(root: HTMLElement): void {
+  root.style.background = "white";
+  root.style.color = "black";
+  paintAutomaticInk(root);
+}
+
+/** What `render()` hands the flow and layout painters once the input is resolved. */
+interface RenderOptions {
+  mediaResolver: MediaResolver | undefined;
+  pagination: DocxPagination | undefined;
+  appearance: Appearance | undefined;
+  zoom: ZoomValue;
+  outline: ReadonlyMap<DocxHeadingNode, number>;
+}
+
+function isDark(appearance: Appearance | undefined): boolean {
+  return resolveTheme(appearance?.theme) === "dark";
+}
+
+/**
+ * Viewer chrome state on the painted root: the theme marker (like PPTX) plus
+ * light content tokens. The document itself always paints source-faithful.
+ */
+function paintAppearanceRoot(root: HTMLElement, dark: boolean): void {
+  root.dataset.aaredTheme = dark ? "dark" : "light";
+  paintTokens(root, "light");
+}
+
+class DocxViewer extends RenderHandleBase<Appearance> implements DocxRenderHandle {
   readonly pageCount: number;
-  readonly pages: Array<{ index: number; width: number; height: number; orientation: "portrait" | "landscape" }>;
+  readonly pages: readonly DocxPageInfo[];
+  /** Where the painted headings and pages live, once `render()` has painted. */
+  #root: HTMLElement | null = null;
 
   constructor(
-    pageCount: number,
-    pages: Array<{ index: number; width: number; height: number; orientation: "portrait" | "landscape" }>,
+    zoom: ZoomValue,
+    pages: readonly DocxPageInfo[],
+    private readonly outline: readonly HeadingInfo[],
+    private readonly layout: boolean,
   ) {
-    super();
-    this.pageCount = pageCount;
+    super(zoom);
+    this.pageCount = pages.length;
     this.pages = pages;
   }
 
-  get zoom(): ZoomValue {
-    return this.#zoom;
+  setAppearance(appearance: Appearance): void {
+    if (this.destroyed) return;
+    this.applyAppearance(appearance);
   }
 
-  setZoom(zoom: ZoomValue): void {
-    this.#zoom = zoom;
-    this.#applyZoom();
-    this.dispatchEvent(new CustomEvent("zoomchange", { detail: { zoom } }));
-  }
-
-  goToHeading(target: string | number): void {
-    const headings = this.#findHeadings();
-    if (typeof target === "number") {
-      const element = Number.isInteger(target) ? headings[target] : undefined;
-      if (element === undefined) {
-        throw new AaredError(
-          "not-found",
-          `aared/docx: heading index ${String(target)} is outside this ${headings.length}-heading document`,
-        );
-      }
-      element.scrollIntoView();
-      return;
+  async goToHeading(target: string | number): Promise<void> {
+    if (this.destroyed) return;
+    const heading = typeof target === "number"
+      ? itemAt(this.outline, target, () => `aared/docx: heading index ${String(target)} is outside this ${this.outline.length}-heading outline`)
+      : findByTitle(this.outline, target, (entry) => entry.title);
+    if (heading === undefined) {
+      throw new AaredError("not-found", `aared/docx: no heading titled ${JSON.stringify(target)} in this ${this.outline.length}-heading outline`);
     }
-    const exact = headings.find((element) => (element.textContent ?? "") === target);
-    if (exact !== undefined) {
-      exact.scrollIntoView();
-      return;
+    this.#root?.querySelector(`[data-aared-heading-index="${heading.index}"]`)?.scrollIntoView();
+  }
+
+  async goToPage(index: number): Promise<void> {
+    if (this.destroyed) return;
+    if (!this.layout) {
+      throw new AaredError(
+        "unsupported-feature",
+        'aared/docx: this document is rendered in flow mode, which has no pages; render with pagination: { mode: "layout" }',
+      );
     }
-    const needle = target.toLowerCase();
-    const partial = headings.find((element) => (element.textContent ?? "").toLowerCase().includes(needle));
-    if (partial !== undefined) {
-      partial.scrollIntoView();
-      return;
-    }
-    throw new AaredError("not-found", `aared/docx: no heading matching "${target}"`);
+    itemAt(this.pages, index, () => `aared/docx: page index ${String(index)} is outside this ${this.pageCount}-page layout`);
+    this.#root?.querySelectorAll('[data-aared-element="page"]')[index]?.scrollIntoView();
   }
 
-  destroy(): void {
-    this.#destroyHook();
-  }
-
-  /** Wired by `render()`; `setZoom()` before wiring applies on first paint. */
-  attach(applyZoom: () => void, destroy: () => void, findHeadings: () => HTMLElement[]): void {
-    this.#applyZoom = applyZoom;
-    this.#destroyHook = destroy;
-    this.#findHeadings = findHeadings;
-  }
-
-  markDestroyed(): void {
-    this.#destroyed = true;
-  }
-
-  get destroyed(): boolean {
-    return this.#destroyed;
+  /** @internal Wired by the painter beside `attach()`: the painted root navigation searches. */
+  attachRoot(root: HTMLElement): void {
+    this.#root = root;
   }
 }
 
@@ -847,18 +1044,23 @@ function wireHyperlinks(root: HTMLElement, viewer: DocxViewer): () => void {
   };
 }
 
+function createWiring(options: RenderOptions): ImageWiring {
+  return {
+    urls: options.mediaResolver === undefined ? undefined : new MediaUrls(options.mediaResolver),
+    destroyed: false,
+    outline: options.outline,
+    refAnchors: new Map<string, string>(),
+  };
+}
+
 function destroyWiring(wiring: ImageWiring): () => void {
   let destroyed = false;
   return () => {
     if (destroyed) return;
     destroyed = true;
     wiring.destroyed = true;
-    if (wiring.revoke !== undefined) {
-      for (const url of wiring.revoke) URL.revokeObjectURL(url);
-      wiring.revoke.clear();
-    }
-    wiring.revoke = undefined;
-    wiring.media = undefined;
+    wiring.urls?.close();
+    wiring.urls = undefined;
   };
 }
 
@@ -879,54 +1081,42 @@ function destroyWiring(wiring: ImageWiring): () => void {
  */
 export async function render(input: DocxRenderInput): Promise<DocxRenderHandle> {
   const source = input.document;
-  const sections = source instanceof DocxDocument ? [...source.sections.list()] : [...source];
   const owner = source instanceof DocxDocument ? source : undefined;
-  const mediaResolver = input.mediaResolver
-    ?? (owner !== undefined ? (mediaId: string) => owner.media.get(mediaId) : undefined);
-  const options: DocxRenderOptions | undefined = mediaResolver === undefined
-    && input.pagination === undefined
-    && input.appearance === undefined
-    ? undefined
-    : {
-      ...(mediaResolver === undefined ? {} : { mediaResolver }),
-      ...(input.pagination === undefined ? {} : { pagination: input.pagination }),
-      ...(input.appearance === undefined ? {} : { appearance: input.appearance }),
-    };
-  if (options?.pagination?.mode === "layout") {
-    return renderLayout(sections, input.target, options);
+  const sections = owner !== undefined ? [...owner.sections.list()] : [...(source as readonly DocumentSection[])];
+  const outline = owner?.outline ?? headingOutline(sections);
+  const options: RenderOptions = {
+    mediaResolver: input.mediaResolver
+      ?? (owner !== undefined ? (mediaId: string) => owner.media.get(mediaId) : undefined),
+    pagination: input.pagination,
+    appearance: input.appearance,
+    zoom: input.zoom ?? "fit-width",
+    outline: outline.indexOf,
+  };
+  if (options.pagination?.mode === "layout") {
+    return renderLayout(sections, input.target, options, outline.list);
   }
-  return renderFlow(sections, input.target, options);
+  return renderFlow(sections, input.target, options, outline.list);
 }
 
 function renderFlow(
   sections: DocumentSection[],
   container: HTMLElement,
-  options?: DocxRenderOptions,
+  options: RenderOptions,
+  outline: readonly HeadingInfo[],
 ): DocxRenderHandle {
-  const wiring: ImageWiring = {
-    media: options?.mediaResolver,
-    revoke: new Set<string>(),
-    destroyed: false,
-    refAnchors: new Map<string, string>(),
-  };
+  const wiring = createWiring(options);
+  // The shared defaults must be in the container's root before anything is attached or measured.
+  const classSheet = adoptClassSheet(container);
   const article = document.createElement("article");
   article.dataset.aaredElement = "document";
   article.style.width = "100%";
   article.style.minWidth = "0";
-  // Default surfaces only: authored white/black in source mode, dark reading
-  // surfaces in adaptive. Explicit run/paragraph/table styles always win —
-  // they paint as more-specific inline styles on descendants.
-  const { contentMode, dark } = resolveAppearance(options);
-  const adaptive = contentMode === "adaptive" && dark;
-  article.style.background = adaptive ? ADAPTIVE_SURFACE : "white";
-  article.style.color = adaptive ? ADAPTIVE_INK : "black";
   article.style.padding = "2em clamp(1em, 5%, 4em)";
   article.style.boxSizing = "border-box";
   article.style.fontFamily = "system-ui, sans-serif";
   article.style.lineHeight = "1.5";
-  paintAppearanceRoot(article, dark, contentMode);
+  paintAppearanceRoot(article, isDark(options.appearance));
 
-  const headings = { value: 0 };
   // Flow mode keeps the pre-pagination contract: one article, the last
   // section's header/footer (the final `sectPr` references, as before), every
   // section's root concatenated in document order.
@@ -936,14 +1126,14 @@ function renderFlow(
     header.dataset.aaredElement = "doc-header";
     header.style.borderBottom = "1px solid currentColor";
     header.style.marginBottom = "1em";
-    for (const node of last.header) appendFlowNode(header, node, wiring, headings);
+    for (const node of last.header) appendFlowNode(header, node, wiring);
     article.append(header);
   }
   const body = document.createElement("div");
   body.dataset.aaredElement = "doc-body";
   body.style.minWidth = "0";
   for (const section of sections) {
-    for (const node of section.root) appendFlowNode(body, node, wiring, headings);
+    for (const node of section.root) appendFlowNode(body, node, wiring);
   }
   article.append(body);
   if (last?.footer !== undefined && last.footer.length > 0) {
@@ -951,47 +1141,115 @@ function renderFlow(
     footer.dataset.aaredElement = "doc-footer";
     footer.style.borderTop = "1px solid currentColor";
     footer.style.marginTop = "1em";
-    for (const node of last.footer) appendFlowNode(footer, node, wiring, headings);
+    for (const node of last.footer) appendFlowNode(footer, node, wiring);
     article.append(footer);
   }
+  // Source-faithful defaults: authored white/black. Explicit
+  // run/paragraph/table styles always win — they paint as more-specific
+  // inline styles on descendants.
+  paintSurface(article);
   container.replaceChildren(article);
+  settleTabStops(article, () => !wiring.destroyed);
 
-  // Fit modes are the natural flow: only a numeric zoom pins the CSS `zoom`
-  // property on the article. Hyperlink clicks never navigate (view-only).
-  const viewer = new DocxViewer(1, []);
-  const applyZoom = (): void => {
-    if (wiring.destroyed) return;
-    const zoom = viewer.zoom;
-    if (typeof zoom === "number") article.style.setProperty("zoom", String(zoom));
-    else article.style.removeProperty("zoom");
+  // Flow has no pages: the column flows to its container like a web page.
+  const viewer = new DocxViewer(options.zoom, [], outline, false);
+  wireViewer(viewer, article, container, wiring, classSheet, (appearance) => {
+    paintAppearanceRoot(article, isDark(appearance));
+  });
+  return viewer;
+}
+
+/**
+ * Connect a painted root to its handle, the same way for flow and layout.
+ * A numeric zoom always pins the CSS `zoom` property on the root — it scales
+ * the box in place, correctly growing what a scroll container sees as
+ * overflow (unlike `transform`, which paints a scaled box without changing
+ * its contribution to layout). `fit-width`/`fit-page` fit the widest (and,
+ * for fit-page, tallest) laid-out page into the room `container` offers
+ * (`measureFitRoom` — measured with the pages set aside, so a container that
+ * only grows to fit them offers no height and fit-page falls back to width).
+ * Flow mode has no fixed-width page to fit (the article already flows to the
+ * container's width like ordinary content), so both fit modes are 100% there.
+ * A `ResizeObserver` keeps a fit mode current as the host resizes — the same
+ * reason `aared/pptx` observes its own container. Hyperlink clicks never
+ * navigate (view-only). Destroy tears down the observer, the links, the media
+ * URLs and the handle together. Only the appearance update differs between
+ * flow and layout, so it is passed in.
+ */
+function wireViewer(
+  viewer: DocxViewer,
+  root: HTMLElement,
+  container: HTMLElement,
+  wiring: ImageWiring,
+  classSheet: ClassSheetScope,
+  applyAppearance: (appearance: Appearance | undefined) => void,
+): void {
+  const natural = {
+    width: Math.max(0, ...viewer.pages.map((page) => page.width)),
+    height: Math.max(0, ...viewer.pages.map((page) => page.height)),
   };
-  const unwireLinks = wireHyperlinks(article, viewer);
+  let lastScale = 1;
+  const applyZoom = (): number => {
+    if (wiring.destroyed) return lastScale;
+    // The container may have been attached (or moved into a shadow root) since render().
+    classSheet.follow();
+    const zoom = viewer.zoom;
+    if (typeof zoom === "number") {
+      root.style.width = "100%";
+      lastScale = safeScale(zoom);
+      root.style.setProperty("zoom", String(lastScale));
+      return lastScale;
+    }
+    if (viewer.pages.length === 0) {
+      root.style.width = "100%";
+      root.style.removeProperty("zoom");
+      lastScale = 1;
+      return lastScale;
+    }
+    // A percentage width resolves against the containing block regardless of
+    // `zoom`, so it never actually shrinks or grows under it — pin the
+    // natural, unscaled width in pixels instead, the same way the pages
+    // inside already carry their own fixed pixel size, and let `zoom` scale
+    // that concrete box like it already correctly scales them.
+    root.style.width = `${natural.width}px`;
+    const scale = fitScale(zoom, measureFitRoom(container, root, zoom === "fit-page"), natural);
+    // Not laid out yet: keep the last scale; the resize observer fits it later.
+    lastScale = safeScale(scale ?? lastScale);
+    root.style.setProperty("zoom", String(lastScale));
+    return lastScale;
+  };
+  const resizeObserver = new ResizeObserver(() => viewer.refit());
+  resizeObserver.observe(container);
+  const unwireLinks = wireHyperlinks(root, viewer);
   const baseDestroy = destroyWiring(wiring);
-  viewer.attach(
+  viewer.attach({
     applyZoom,
-    () => {
+    destroy: () => {
+      resizeObserver.disconnect();
       unwireLinks();
       baseDestroy();
+      classSheet.release();
       viewer.markDestroyed();
     },
-    () => [...container.querySelectorAll<HTMLElement>("[data-aared-heading-index]")],
-  );
-  applyZoom();
-  return viewer;
+    applyAppearance: (appearance) => {
+      if (wiring.destroyed) return;
+      classSheet.follow();
+      applyAppearance(appearance);
+    },
+  });
+  viewer.attachRoot(root);
+  viewer.refit();
 }
 
 function renderLayout(
   sections: DocumentSection[],
   container: HTMLElement,
-  options?: DocxRenderOptions,
+  options: RenderOptions,
+  outline: readonly HeadingInfo[],
 ): DocxRenderHandle {
-  const wiring: ImageWiring = {
-    media: options?.mediaResolver,
-    revoke: new Set<string>(),
-    destroyed: false,
-    refAnchors: new Map<string, string>(),
-  };
-  const layout = paginate(sections, { softBreaks: options?.pagination?.softBreaks ?? "prefer" });
+  const wiring = createWiring(options);
+  const classSheet = adoptClassSheet(container);
+  const layout = paginate(sections, { softBreaks: options.pagination?.softBreaks ?? "prefer" });
   wiring.pageTotal = layout.pages.length;
 
   const stack = document.createElement("div");
@@ -1002,42 +1260,30 @@ function renderLayout(
   stack.style.gap = "1.5rem";
   stack.style.width = "100%";
   stack.style.minWidth = "0";
-  const { contentMode, dark } = resolveAppearance(options);
-  const adaptive = contentMode === "adaptive" && dark;
-  if (adaptive) stack.style.background = ADAPTIVE_PAGE_EDGE;
-  paintAppearanceRoot(stack, dark, contentMode);
+  paintAppearanceRoot(stack, isDark(options.appearance));
 
-  const headings = { value: 0 };
-  for (const page of layout.pages) {
-    stack.append(renderLayoutPage(page, layout.pages.length, wiring, headings, adaptive));
-  }
+  // Every page stays in the DOM (find-in-page, selection, fragment links), but
+  // where the browser supports it a page off screen skips style and layout
+  // until it is scrolled near: most of a long document's memory is layout.
+  const lazy = lazyPagePaint();
+  const sheets = layout.pages.map((page) => renderLayoutPage(page, layout.pages.length, wiring, lazy));
+  stack.append(...sheets);
   container.replaceChildren(stack);
+  if (lazy) settlePageTabStops(sheets, () => !wiring.destroyed);
+  else settleTabStops(stack, () => !wiring.destroyed);
 
-  const pageInfos = layout.pages.map((page) => ({
-    index: page.index,
+  // Public page indexes are zero-based like every other index (the internal
+  // layout numbers pages from 1 for PAGE fields and the `data-page` marker).
+  const pageInfos: DocxPageInfo[] = layout.pages.map((page, index) => ({
+    index,
     width: page.widthPx,
     height: page.heightPx,
     orientation: page.orientation,
   }));
-  const viewer = new DocxViewer(layout.pages.length, pageInfos);
-  const applyZoom = (): void => {
-    if (wiring.destroyed) return;
-    const zoom = viewer.zoom;
-    if (typeof zoom === "number") stack.style.setProperty("zoom", String(zoom));
-    else stack.style.removeProperty("zoom");
-  };
-  const unwireLinks = wireHyperlinks(stack, viewer);
-  const baseDestroy = destroyWiring(wiring);
-  viewer.attach(
-    applyZoom,
-    () => {
-      unwireLinks();
-      baseDestroy();
-      viewer.markDestroyed();
-    },
-    () => [...container.querySelectorAll<HTMLElement>("[data-aared-heading-index]")],
-  );
-  applyZoom();
+  const viewer = new DocxViewer(options.zoom, pageInfos, outline, true);
+  wireViewer(viewer, stack, container, wiring, classSheet, (appearance) => {
+    paintAppearanceRoot(stack, isDark(appearance));
+  });
   return viewer;
 }
 
@@ -1045,76 +1291,77 @@ function renderLayoutPage(
   page: LayoutPage,
   pageTotal: number,
   wiring: ImageWiring,
-  headings: { value: number },
-  adaptive: boolean,
+  lazy: boolean,
 ): HTMLElement {
   wiring.pageNumber = page.index;
   wiring.pageTotal = pageTotal;
   const sheet = document.createElement("section");
-  sheet.dataset.aaredElement = "page";
-  sheet.dataset.page = String(page.index);
-  sheet.dataset.aaredOrientation = page.orientation;
+  sheet.setAttribute("data-aared-element", "page");
+  sheet.setAttribute("data-page", String(page.index));
+  sheet.setAttribute("data-aared-orientation", page.orientation);
+  // Page defaults follow the article contract (`paintSurface`, once the page
+  // is populated): authored white/black. Explicit authored fills on
+  // descendants are untouched. Layout pages paint with the estimator's
+  // Word-like metrics (`PAGE`), not the flow article's roomier rhythm, so
+  // estimates stay self-consistent with output. A lazy page (`PAGE_LAZY`) is
+  // `content-visibility: auto`: its fixed box already sizes it while skipped,
+  // and the containment that implies is what the page already is (its own
+  // containing block, clipped, no counters).
+  sheet.setAttribute("class", lazy ? `${PAGE} ${PAGE_LAZY}` : PAGE);
   sheet.style.width = `${page.widthPx}px`;
   sheet.style.height = `${page.heightPx}px`;
-  sheet.style.flexShrink = "0";
-  // Page defaults follow the article contract: authored white/black in
-  // source mode, dark reading surfaces in adaptive. Explicit authored fills
-  // on descendants are untouched.
-  sheet.style.background = adaptive ? ADAPTIVE_SURFACE : "white";
-  sheet.style.color = adaptive ? ADAPTIVE_INK : "black";
-  sheet.style.boxSizing = "border-box";
-  sheet.style.position = "relative";
-  sheet.style.paddingTop = `${page.marginsPx.top}px`;
+  sheet.style.paddingTop = `${page.bodyInsetsPx.top}px`;
   sheet.style.paddingRight = `${page.marginsPx.right}px`;
-  sheet.style.paddingBottom = `${page.marginsPx.bottom}px`;
+  sheet.style.paddingBottom = `${page.bodyInsetsPx.bottom}px`;
   sheet.style.paddingLeft = `${page.marginsPx.left}px`;
-  sheet.style.overflow = "hidden";
-  sheet.style.boxShadow = "0 2px 8px rgba(0,0,0,0.1)";
-  // Layout pages paint with the estimator's Word-like metrics (not the flow
-  // article's roomier rhythm) so estimates stay self-consistent with output.
-  sheet.style.fontFamily = "system-ui, sans-serif";
-  sheet.style.fontSize = "16px";
-  sheet.style.lineHeight = "1.15";
 
-  // Word's box model: headers/footers live in the margin zones, and the body
-  // owns the full page-minus-margins box the paginator filled. Absolutely
-  // positioning them there (rather than stacking them into the body) is what
-  // keeps estimates and paint consistent. A header taller than its zone
-  // clips instead of overlapping body text — the safe side of Word's
-  // overlap behavior.
+  // Word's box model: a header hangs from its distance at the top of the page
+  // and grows downward; the body starts below it (`bodyInsetsPx`). Headers are
+  // never clipped, and carry no rule of their own — a header's line is its
+  // paragraph's authored border.
   if (page.header !== undefined && page.header.length > 0) {
     const header = document.createElement("header");
     header.dataset.aaredElement = "page-header";
     header.style.position = "absolute";
-    header.style.top = "0";
+    header.style.top = `${page.marginsPx.header}px`;
     header.style.left = `${page.marginsPx.left}px`;
     header.style.right = `${page.marginsPx.right}px`;
-    header.style.height = `${page.marginsPx.top}px`;
-    header.style.overflow = "hidden";
-    header.style.borderBottom = "1px solid currentColor";
-    for (const node of page.header) appendFlowNode(header, node, wiring, headings);
+    for (const node of page.header) appendFlowNode(header, node, wiring);
     sheet.append(header);
   }
   const body = document.createElement("div");
   body.dataset.aaredElement = "page-body";
   body.style.minWidth = "0";
-  for (const node of page.body) appendFlowNode(body, node, wiring, headings);
-  for (const note of page.footnotes) {
-    appendFootnote(body, note.id, note.label, note.direction, note.nodes, wiring);
+  for (const node of page.body) appendFlowNode(body, node, wiring);
+  // Pages that continue the flow open flush against the header band.
+  if (dropsTopSpacing(page.startReason) && body.firstElementChild instanceof HTMLElement) {
+    body.firstElementChild.style.marginTop = "0";
   }
   sheet.append(body);
+  if (page.footnotes.length > 0) {
+    // Word anchors a page's footnotes to the bottom of the body area, above the
+    // footer; the paginator already reserved their height in the body box.
+    const notes = document.createElement("div");
+    notes.dataset.aaredElement = "page-footnotes";
+    notes.style.position = "absolute";
+    notes.style.left = `${page.marginsPx.left}px`;
+    notes.style.right = `${page.marginsPx.right}px`;
+    notes.style.bottom = `${page.bodyInsetsPx.bottom}px`;
+    for (const note of page.footnotes) {
+      appendFootnote(notes, note.id, note.label, note.direction, note.nodes, wiring, "hidden");
+    }
+    sheet.append(notes);
+  }
   if (page.footer !== undefined && page.footer.length > 0) {
     const footer = document.createElement("footer");
     footer.dataset.aaredElement = "page-footer";
     footer.style.position = "absolute";
-    footer.style.bottom = "0";
+    footer.style.bottom = `${page.marginsPx.footer}px`;
     footer.style.left = `${page.marginsPx.left}px`;
     footer.style.right = `${page.marginsPx.right}px`;
-    footer.style.height = `${page.marginsPx.bottom}px`;
-    footer.style.overflow = "hidden";
-    footer.style.borderTop = "1px solid currentColor";
-    for (const node of page.footer) appendFlowNode(footer, node, wiring, headings);
+    for (const node of page.footer) appendFlowNode(footer, node, wiring);
     sheet.append(footer);
   }
+  paintSurface(sheet);
   return sheet;
 }

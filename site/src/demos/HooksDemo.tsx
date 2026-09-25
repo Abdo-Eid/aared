@@ -1,10 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePreview } from "aared/react";
+import { mountDemoControls } from "../lib/demo-controls.js";
+import { describeUnits } from "../lib/demo-frame.js";
 
 export interface HooksFixture {
   label: string;
   url: string;
+  format: string;
 }
+
+// Kept outside the component so it is referentially stable across renders.
+const APPEARANCE = { spreadsheet: { sheetTabs: true } };
 
 /**
  * React embedding: the hook owns the mount lifecycle — abort handling,
@@ -15,28 +21,35 @@ export function HooksDemo({ fixtures }: { fixtures: HooksFixture[] }) {
   const [choice, setChoice] = useState(0);
   const [file, setFile] = useState<File | null>(null);
   const source: string | File = file ?? fixtures[choice]?.url ?? "";
-  const { ref, status, viewer, error } = usePreview({ source });
+  const { ref, status, viewer, error } = usePreview({ source, appearance: APPEARANCE });
+  // The same paging and zoom bar as `<aared-viewer controls>`, for each document the hook opens.
+  useEffect(() => {
+    if (viewer === null || ref.current === null) return;
+    return mountDemoControls(ref.current, viewer, viewer.info.count);
+  }, [viewer, ref]);
 
   return (
     <div
+      className="demo-frame"
       data-hooks-frame
       data-state={status}
       data-format={viewer?.format ?? ""}
       data-units={viewer ? String(viewer.info.count) : ""}
     >
       <div className="demo-picker">
-        <select
-          aria-label="Fixture"
-          value={choice}
-          disabled={file !== null}
-          onChange={(event) => setChoice(Number(event.target.value))}
-        >
+        <div className="demo-pills" role="group" aria-label="File format">
           {fixtures.map((fixture, index) => (
-            <option key={fixture.label} value={index}>
-              {fixture.label}
-            </option>
+            <button
+              key={fixture.label}
+              type="button"
+              aria-pressed={file === null && index === choice}
+              disabled={file !== null}
+              onClick={() => setChoice(index)}
+            >
+              {fixture.format.toUpperCase()}
+            </button>
           ))}
-        </select>
+        </div>
         <input
           type="file"
           accept=".pptx,.xlsx,.docx"
@@ -52,7 +65,7 @@ export function HooksDemo({ fixtures }: { fixtures: HooksFixture[] }) {
       <p data-hooks-status>
         {status === "loading" && "Loading…"}
         {status === "error" && (error instanceof Error ? error.message : String(error))}
-        {status === "ready" && viewer !== null && `${viewer.format} · ${viewer.info.count} units`}
+        {status === "ready" && viewer !== null && `${viewer.format} · ${describeUnits(viewer.format, viewer.info.count)}`}
       </p>
       <div ref={ref} data-stage data-state={status} className="demo-stage" />
     </div>

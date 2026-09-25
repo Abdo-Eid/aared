@@ -12,6 +12,7 @@ test-results/
 tools/reference-render/out/
 tools/powerpoint-render/out/
 tools/excel-render/out/
+tools/word-render/out/
 
 # ground-truth probe sandbox (nested git; never the main repo's concern)
 tools/probe/
@@ -23,3 +24,9 @@ Thumbs.db
 # fixtures are real Office files and mostly small/curated — keep them
 # committed. If a future large fixture needs to stay out of git, add a
 # specific exception here rather than blanket-ignoring the directory.
+
+# generated search-benchmark fixtures
+tools/bench-search/out/
+
+# deterministic benchmark JSON runs (docs tables regenerate from the latest)
+tools/bench-results/

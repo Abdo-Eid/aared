@@ -1,0 +1,5672 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`DOCX sections do not depend on how document.xml is read docx-coverage.docx 1`] = `
+"[
+ {
+  "properties": {
+   "breakType": "nextPage",
+   "page": {
+    "widthTwips": 11906,
+    "heightTwips": 16838,
+    "orientation": "portrait",
+    "margins": {
+     "top": 720,
+     "right": 720,
+     "bottom": 720,
+     "left": 1134,
+     "header": 708,
+     "footer": 708,
+     "gutter": 0
+    }
+   },
+   "headerRefs": [
+    "word/header2.xml",
+    "word/header3.xml",
+    "word/header1.xml"
+   ],
+   "footerRefs": [
+    "word/footer1.xml"
+   ]
+  },
+  "root": [
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "PRODUCTION BRIEF",
+      "bold": true,
+      "fontSizePt": 9,
+      "language": "ar-SA",
+      "color": "#B87F1E",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "letterSpacingPt": 6
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceBeforePt": 10
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Sawt al-Nahr — Documentary Series",
+      "bold": true,
+      "fontSizePt": 23,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceBeforePt": 2
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "صوت النهر — سلسلة وثائقية",
+      "fontSizePt": 17,
+      "language": "ar-SA",
+      "color": "#2E7D74",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 3
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Season ",
+      "fontSizePt": 9.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "2  ·",
+      "fontSizePt": 9.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "  Episodes 04–",
+      "fontSizePt": 9.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "06  ·",
+      "fontSizePt": 9.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "  Draft ",
+      "fontSizePt": 9.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "3.1  ·",
+      "fontSizePt": 9.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "  Revised 12 May 2026",
+      "fontSizePt": 9.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 15,
+    "borders": {
+     "bottom": {
+      "color": "#B87F1E",
+      "widthPt": 1.5,
+      "spacePt": 8,
+      "style": "solid"
+     }
+    }
+   },
+   {
+    "type": "table",
+    "direction": "ltr",
+    "columns": [
+     1.8055555555555556,
+     4.527777777777778
+    ],
+    "rows": [
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Client",
+            "bold": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#12171F",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         },
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "العميل",
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#5B6470",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#F4F1EC",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.8055555555555556
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Nile Heritage Foundation / ",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "مؤسسة",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": " ",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "تراث",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": " ",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "النيل",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 4.527777777777778
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Director",
+            "bold": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#12171F",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         },
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "المخرج",
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#5B6470",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#F4F1EC",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.8055555555555556
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "ليلى عبد الرحمن",
+            "fontSizePt": 11,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 4.527777777777778
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Editor",
+            "bold": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#12171F",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         },
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "المونتير",
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#5B6470",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#F4F1EC",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.8055555555555556
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Karim ",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "Fahmy  —",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "  Premiere Pro 2026 / DaVinci Resolve 20",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 4.527777777777778
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Delivery",
+            "bold": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#12171F",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         },
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "التسليم",
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#5B6470",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#F4F1EC",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.8055555555555556
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "3 × 26 ",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "min  ·",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "  UHD 3840×",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "2160  ·",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "  25 ",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "fps  ·",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "  Rec.709",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 4.527777777777778
+       }
+      ]
+     }
+    ],
+    "width": 6.333333333333333,
+    "borders": {
+     "top": {
+      "color": "#D8D3C9",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "left": {
+      "color": "#D8D3C9",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "bottom": {
+      "color": "#D8D3C9",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "right": {
+      "color": "#D8D3C9",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "insideH": {
+      "color": "#D8D3C9",
+      "widthPt": 0.25,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "insideV": {
+      "color": "#D8D3C9",
+      "widthPt": 0.25,
+      "spacePt": 0,
+      "style": "solid"
+     }
+    },
+    "cellMargins": {
+     "top": 0,
+     "bottom": 0,
+     "left": 0.006944444444444444,
+     "right": 0.006944444444444444
+    }
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Contents / ",
+      "bold": true,
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria"
+     },
+     {
+      "text": "المحتويات",
+      "bold": true,
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceBeforePt": 16,
+    "spaceAfterPt": 4
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "1. Project Overview",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908018"
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908018"
+     },
+     {
+      "text": "2",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908018"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 5,
+    "tabStops": [
+     {
+      "pos": 6.65,
+      "align": "right",
+      "leader": "dot"
+     }
+    ],
+    "styleId": "TOC1"
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "1.1 Objectives   ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908019"
+     },
+     {
+      "text": "الأهداف",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908019"
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908019"
+     },
+     {
+      "text": "2",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908019"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 5,
+    "leftIndent": 0.14583333333333334,
+    "tabStops": [
+     {
+      "pos": 6.65,
+      "align": "right",
+      "leader": "dot"
+     }
+    ],
+    "styleId": "TOC2"
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "1.2 Deliverables   ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908020"
+     },
+     {
+      "text": "المخرجات",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908020"
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908020"
+     },
+     {
+      "text": "2",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908020"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 5,
+    "leftIndent": 0.14583333333333334,
+    "tabStops": [
+     {
+      "pos": 6.65,
+      "align": "right",
+      "leader": "dot"
+     }
+    ],
+    "styleId": "TOC2"
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "2. Technical Specifications",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908021"
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908021"
+     },
+     {
+      "text": "2",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908021"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 5,
+    "tabStops": [
+     {
+      "pos": 6.65,
+      "align": "right",
+      "leader": "dot"
+     }
+    ],
+    "styleId": "TOC1"
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "3. Schedule",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908022"
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908022"
+     },
+     {
+      "text": "3",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908022"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 5,
+    "tabStops": [
+     {
+      "pos": 6.65,
+      "align": "right",
+      "leader": "dot"
+     }
+    ],
+    "styleId": "TOC1"
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "4. Contacts",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908023"
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908023"
+     },
+     {
+      "text": "3",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908023"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 5,
+    "tabStops": [
+     {
+      "pos": 6.65,
+      "align": "right",
+      "leader": "dot"
+     }
+    ],
+    "styleId": "TOC1"
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Appendix A — Shot List, Episode 04",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908024"
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908024"
+     },
+     {
+      "text": "4",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "hyperlink": "#_Toc240908024"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 5,
+    "tabStops": [
+     {
+      "pos": 6.65,
+      "align": "right",
+      "leader": "dot"
+     }
+    ],
+    "styleId": "TOC1"
+   },
+   {
+    "type": "pageBreak",
+    "strength": "mandatory"
+   },
+   {
+    "type": "heading",
+    "level": 1,
+    "text": "1. Project Overview",
+    "direction": "ltr",
+    "runs": [
+     {
+      "text": "1. Project Overview",
+      "bold": true,
+      "fontSizePt": 15,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria"
+     }
+    ],
+    "fontSizePt": 15,
+    "spaceBeforePt": 18,
+    "spaceAfterPt": 3
+   },
+   {
+    "type": "pageBreak",
+    "strength": "preferred"
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "١. نظرة عامة على المشروع",
+      "bold": true,
+      "fontSizePt": 13,
+      "language": "ar-SA",
+      "color": "#B87F1E",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "left",
+    "spaceAfterPt": 10,
+    "borders": {
+     "bottom": {
+      "color": "#D8D3C9",
+      "widthPt": 0.75,
+      "spacePt": 6,
+      "style": "solid"
+     }
+    }
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Sawt al-Nahr follows three families whose livelihoods depend on the Nile between Aswan and Rosetta. Episodes 04–06 move the series from portraiture into argument: each cut should carry one clear question and answer it with images before anyone speaks. The offline edit is built in Premiere Pro; the conform, grade and deliverables happen in DaVinci Resolve.",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "align": "justify",
+    "lineSpacing": 1.25,
+    "spaceAfterPt": 6
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "تتابع سلسلة «صوت النهر» ثلاث عائلات ترتبط معيشتها بالنيل بين أسوان ورشيد. تنتقل الحلقات من الرابعة إلى السادسة من التصوير الشخصي إلى الطرح والتحليل، بحيث تحمل كل حلقة سؤالًا واضحًا وتجيب عنه بالصورة قبل الكلام. يجري المونتاج الأولي على برنامج ",
+      "fontSizePt": 11,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "بريمير",
+      "fontSizePt": 11,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": " ",
+      "fontSizePt": 11,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "برو",
+      "fontSizePt": 11,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "، بينما تتم عمليات التجميع النهائي وتصحيح الألوان والتسليم على دافينشي ",
+      "fontSizePt": 11,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "ريزولف",
+      "fontSizePt": 11,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": ".",
+      "fontSizePt": 11,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "left",
+    "lineSpacing": 1.3333333333333333,
+    "spaceAfterPt": 10
+   },
+   {
+    "type": "heading",
+    "level": 2,
+    "text": "1.1 Objectives   الأهداف",
+    "direction": "ltr",
+    "runs": [
+     {
+      "text": "1.1 Objectives",
+      "bold": true,
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria"
+     },
+     {
+      "text": "   ",
+      "bold": true,
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "الأهداف",
+      "bold": true,
+      "fontSizePt": 11,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "fontSizePt": 12,
+    "spaceBeforePt": 13,
+    "spaceAfterPt": 5
+   },
+   {
+    "type": "list",
+    "items": [
+     {
+      "level": 0,
+      "ordered": false,
+      "marker": "—",
+      "markerRun": {
+       "text": "—",
+       "fontSizePt": 10.5,
+       "language": "ar-SA",
+       "color": "#B87F1E",
+       "latinTypeface": "Arial",
+       "complexScriptTypeface": "Arial",
+       "fontFamily": "Arial"
+      },
+      "paragraph": {
+       "type": "paragraph",
+       "runs": [
+        {
+         "text": "Hold the audience through a six-minute cold open with no narration.",
+         "fontSizePt": 10.5,
+         "language": "ar-SA",
+         "color": "#1B2029",
+         "latinTypeface": "Arial",
+         "complexScriptTypeface": "Arial",
+         "fontFamily": "Arial"
+        }
+       ],
+       "direction": "ltr",
+       "fontSizePt": 10.5,
+       "spaceAfterPt": 3,
+       "styleId": "ListParagraph",
+       "leftIndent": 0.3194444444444444,
+       "firstLineIndent": -0.16666666666666666
+      }
+     },
+     {
+      "level": 0,
+      "ordered": false,
+      "marker": "—",
+      "markerRun": {
+       "text": "—",
+       "fontSizePt": 10.5,
+       "language": "ar-SA",
+       "color": "#B87F1E",
+       "latinTypeface": "Arial",
+       "complexScriptTypeface": "Arial",
+       "fontFamily": "Arial"
+      },
+      "paragraph": {
+       "type": "paragraph",
+       "runs": [
+        {
+         "text": "Keep archive material under 20% of running time.",
+         "fontSizePt": 10.5,
+         "language": "ar-SA",
+         "color": "#1B2029",
+         "latinTypeface": "Arial",
+         "complexScriptTypeface": "Arial",
+         "fontFamily": "Arial"
+        }
+       ],
+       "direction": "ltr",
+       "fontSizePt": 10.5,
+       "spaceAfterPt": 3,
+       "styleId": "ListParagraph",
+       "leftIndent": 0.3194444444444444,
+       "firstLineIndent": -0.16666666666666666
+      }
+     },
+     {
+      "level": 1,
+      "ordered": false,
+      "marker": "◦",
+      "paragraph": {
+       "type": "paragraph",
+       "runs": [
+        {
+         "text": "Prefer 1970s 16 mm over broadcast news where both exist.",
+         "fontSizePt": 10.5,
+         "language": "ar-SA",
+         "color": "#1B2029",
+         "latinTypeface": "Arial",
+         "complexScriptTypeface": "Arial",
+         "fontFamily": "Arial"
+        }
+       ],
+       "direction": "ltr",
+       "fontSizePt": 10.5,
+       "spaceAfterPt": 3,
+       "styleId": "ListParagraph",
+       "leftIndent": 0.625,
+       "firstLineIndent": -0.16666666666666666
+      }
+     },
+     {
+      "level": 0,
+      "ordered": false,
+      "marker": "—",
+      "markerRun": {
+       "text": "—",
+       "fontSizePt": 10.5,
+       "language": "ar-SA",
+       "color": "#B87F1E",
+       "latinTypeface": "Arial",
+       "complexScriptTypeface": "Arial",
+       "fontFamily": "Arial"
+      },
+      "paragraph": {
+       "type": "paragraph",
+       "runs": [
+        {
+         "text": "Deliver a clean textless master alongside every subtitled version.",
+         "fontSizePt": 10.5,
+         "language": "ar-SA",
+         "color": "#1B2029",
+         "latinTypeface": "Arial",
+         "complexScriptTypeface": "Arial",
+         "fontFamily": "Arial"
+        }
+       ],
+       "direction": "ltr",
+       "fontSizePt": 10.5,
+       "spaceAfterPt": 10,
+       "styleId": "ListParagraph",
+       "leftIndent": 0.3194444444444444,
+       "firstLineIndent": -0.16666666666666666
+      }
+     },
+     {
+      "level": 0,
+      "ordered": false,
+      "marker": "—",
+      "markerRun": {
+       "text": "—",
+       "fontSizePt": 10.5,
+       "language": "ar-SA",
+       "color": "#B87F1E",
+       "latinTypeface": "Arial",
+       "complexScriptTypeface": "Arial",
+       "fontFamily": "Arial"
+      },
+      "paragraph": {
+       "type": "paragraph",
+       "runs": [
+        {
+         "text": "الحفاظ على انتباه المشاهد خلال افتتاحية مدتها ست دقائق بلا تعليق صوتي.",
+         "fontSizePt": 11,
+         "language": "ar-SA",
+         "color": "#1B2029",
+         "latinTypeface": "Arial",
+         "complexScriptTypeface": "Arial",
+         "fontFamily": "Arial"
+        }
+       ],
+       "direction": "rtl",
+       "fontSizePt": 10.5,
+       "align": "left",
+       "spaceAfterPt": 3,
+       "styleId": "ListParagraph",
+       "leftIndent": 0.3194444444444444,
+       "firstLineIndent": -0.16666666666666666
+      }
+     },
+     {
+      "level": 0,
+      "ordered": false,
+      "marker": "—",
+      "markerRun": {
+       "text": "—",
+       "fontSizePt": 10.5,
+       "language": "ar-SA",
+       "color": "#B87F1E",
+       "latinTypeface": "Arial",
+       "complexScriptTypeface": "Arial",
+       "fontFamily": "Arial"
+      },
+      "paragraph": {
+       "type": "paragraph",
+       "runs": [
+        {
+         "text": "ألا تتجاوز مواد الأرشيف عشرين بالمئة من زمن الحلقة.",
+         "fontSizePt": 11,
+         "language": "ar-SA",
+         "color": "#1B2029",
+         "latinTypeface": "Arial",
+         "complexScriptTypeface": "Arial",
+         "fontFamily": "Arial"
+        }
+       ],
+       "direction": "rtl",
+       "fontSizePt": 10.5,
+       "align": "left",
+       "spaceAfterPt": 3,
+       "styleId": "ListParagraph",
+       "leftIndent": 0.3194444444444444,
+       "firstLineIndent": -0.16666666666666666
+      }
+     },
+     {
+      "level": 0,
+      "ordered": false,
+      "marker": "—",
+      "markerRun": {
+       "text": "—",
+       "fontSizePt": 10.5,
+       "language": "ar-SA",
+       "color": "#B87F1E",
+       "latinTypeface": "Arial",
+       "complexScriptTypeface": "Arial",
+       "fontFamily": "Arial"
+      },
+      "paragraph": {
+       "type": "paragraph",
+       "runs": [
+        {
+         "text": "تسليم نسخة نظيفة بلا نصوص مع كل نسخة مترجمة.",
+         "fontSizePt": 11,
+         "language": "ar-SA",
+         "color": "#1B2029",
+         "latinTypeface": "Arial",
+         "complexScriptTypeface": "Arial",
+         "fontFamily": "Arial"
+        }
+       ],
+       "direction": "rtl",
+       "fontSizePt": 10.5,
+       "align": "left",
+       "spaceAfterPt": 10,
+       "styleId": "ListParagraph",
+       "leftIndent": 0.3194444444444444,
+       "firstLineIndent": -0.16666666666666666
+      }
+     }
+    ]
+   },
+   {
+    "type": "heading",
+    "level": 2,
+    "text": "1.2 Deliverables   المخرجات",
+    "direction": "ltr",
+    "runs": [
+     {
+      "text": "1.2 Deliverables",
+      "bold": true,
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria"
+     },
+     {
+      "text": "   ",
+      "bold": true,
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "المخرجات",
+      "bold": true,
+      "fontSizePt": 11,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "fontSizePt": 12,
+    "spaceBeforePt": 13,
+    "spaceAfterPt": 5
+   },
+   {
+    "type": "list",
+    "items": [
+     {
+      "level": 0,
+      "ordered": true,
+      "marker": "1.",
+      "markerRun": {
+       "text": "1.",
+       "bold": true,
+       "fontSizePt": 10.5,
+       "language": "ar-SA",
+       "color": "#2E7D74",
+       "latinTypeface": "Arial",
+       "complexScriptTypeface": "Arial",
+       "fontFamily": "Arial"
+      },
+      "paragraph": {
+       "type": "paragraph",
+       "runs": [
+        {
+         "text": "Broadcast master, per the specification in ",
+         "fontSizePt": 10.5,
+         "language": "ar-SA",
+         "color": "#1B2029",
+         "latinTypeface": "Arial",
+         "complexScriptTypeface": "Arial",
+         "fontFamily": "Arial"
+        },
+        {
+         "text": "Section 2",
+         "fontSizePt": 10.5,
+         "language": "ar-SA",
+         "color": "#1155CC",
+         "latinTypeface": "Arial",
+         "complexScriptTypeface": "Arial",
+         "fontFamily": "Arial",
+         "underline": true,
+         "hyperlink": "#specs"
+        },
+        {
+         "text": ".",
+         "fontSizePt": 10.5,
+         "language": "ar-SA",
+         "color": "#1B2029",
+         "latinTypeface": "Arial",
+         "complexScriptTypeface": "Arial",
+         "fontFamily": "Arial"
+        }
+       ],
+       "direction": "ltr",
+       "fontSizePt": 10.5,
+       "spaceAfterPt": 3,
+       "styleId": "ListParagraph",
+       "leftIndent": 0.3472222222222222,
+       "firstLineIndent": -0.19444444444444445
+      }
+     },
+     {
+      "level": 0,
+      "ordered": true,
+      "marker": "2.",
+      "markerRun": {
+       "text": "2.",
+       "bold": true,
+       "fontSizePt": 10.5,
+       "language": "ar-SA",
+       "color": "#2E7D74",
+       "latinTypeface": "Arial",
+       "complexScriptTypeface": "Arial",
+       "fontFamily": "Arial"
+      },
+      "paragraph": {
+       "type": "paragraph",
+       "runs": [
+        {
+         "text": "Web cut with burned-in Arabic subtitles.",
+         "fontSizePt": 10.5,
+         "language": "ar-SA",
+         "color": "#1B2029",
+         "latinTypeface": "Arial",
+         "complexScriptTypeface": "Arial",
+         "fontFamily": "Arial"
+        }
+       ],
+       "direction": "ltr",
+       "fontSizePt": 10.5,
+       "spaceAfterPt": 3,
+       "styleId": "ListParagraph",
+       "leftIndent": 0.3472222222222222,
+       "firstLineIndent": -0.19444444444444445
+      }
+     },
+     {
+      "level": 1,
+      "ordered": true,
+      "marker": "a)",
+      "paragraph": {
+       "type": "paragraph",
+       "runs": [
+        {
+         "text": "Vertical 9:16 trailer, 45 seconds, for social.",
+         "fontSizePt": 10.5,
+         "language": "ar-SA",
+         "color": "#1B2029",
+         "latinTypeface": "Arial",
+         "complexScriptTypeface": "Arial",
+         "fontFamily": "Arial"
+        }
+       ],
+       "direction": "ltr",
+       "fontSizePt": 10.5,
+       "spaceAfterPt": 3,
+       "styleId": "ListParagraph",
+       "leftIndent": 0.6527777777777778,
+       "firstLineIndent": -0.19444444444444445
+      }
+     },
+     {
+      "level": 1,
+      "ordered": true,
+      "marker": "b)",
+      "paragraph": {
+       "type": "paragraph",
+       "runs": [
+        {
+         "text": "Six still frames at full resolution for press.",
+         "fontSizePt": 10.5,
+         "language": "ar-SA",
+         "color": "#1B2029",
+         "latinTypeface": "Arial",
+         "complexScriptTypeface": "Arial",
+         "fontFamily": "Arial"
+        }
+       ],
+       "direction": "ltr",
+       "fontSizePt": 10.5,
+       "spaceAfterPt": 3,
+       "styleId": "ListParagraph",
+       "leftIndent": 0.6527777777777778,
+       "firstLineIndent": -0.19444444444444445
+      }
+     },
+     {
+      "level": 0,
+      "ordered": true,
+      "marker": "3.",
+      "markerRun": {
+       "text": "3.",
+       "bold": true,
+       "fontSizePt": 10.5,
+       "language": "ar-SA",
+       "color": "#2E7D74",
+       "latinTypeface": "Arial",
+       "complexScriptTypeface": "Arial",
+       "fontFamily": "Arial"
+      },
+      "paragraph": {
+       "type": "paragraph",
+       "runs": [
+        {
+         "text": "Archive package: project files, LUTs, and a bin-by-bin media report.",
+         "fontSizePt": 10.5,
+         "language": "ar-SA",
+         "color": "#1B2029",
+         "latinTypeface": "Arial",
+         "complexScriptTypeface": "Arial",
+         "fontFamily": "Arial"
+        }
+       ],
+       "direction": "ltr",
+       "fontSizePt": 10.5,
+       "spaceAfterPt": 12,
+       "styleId": "ListParagraph",
+       "leftIndent": 0.3472222222222222,
+       "firstLineIndent": -0.19444444444444445
+      }
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "“Cut on the movement, not on the word.”",
+      "italic": true,
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria"
+     },
+     {
+      "text": "  —  ",
+      "fontSizePt": 10,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "«اقطع على الحركة، لا على ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "الكلمة.»",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceBeforePt": 3,
+    "spaceAfterPt": 12,
+    "leftIndent": 0.25,
+    "borders": {
+     "left": {
+      "color": "#B87F1E",
+      "widthPt": 2.25,
+      "spacePt": 14,
+      "style": "solid"
+     }
+    }
+   },
+   {
+    "type": "heading",
+    "level": 1,
+    "text": "2. Technical Specifications",
+    "direction": "ltr",
+    "runs": [
+     {
+      "text": "2. Technical Specifications",
+      "bold": true,
+      "fontSizePt": 15,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria"
+     }
+    ],
+    "fontSizePt": 15,
+    "spaceBeforePt": 18,
+    "spaceAfterPt": 3
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "٢. المواصفات الفنية",
+      "bold": true,
+      "fontSizePt": 13,
+      "language": "ar-SA",
+      "color": "#B87F1E",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "left",
+    "spaceAfterPt": 10,
+    "borders": {
+     "bottom": {
+      "color": "#D8D3C9",
+      "widthPt": 0.75,
+      "spacePt": 6,
+      "style": "solid"
+     }
+    }
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "All versions are graded from the same Rec.709 timeline. Anything ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "bold",
+      "bold": true,
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": ", ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "italic",
+      "italic": true,
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": ", ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "underlined",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "underline": true
+     },
+     {
+      "text": ", ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "struck through",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "strikethrough": true
+     },
+     {
+      "text": ", or ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "highlighted",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "highlight": "#FFFF00"
+     },
+     {
+      "text": " below marks a change since draft 2.9. Frame rate is 25p",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "PAL",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "verticalAlign": "superscript"
+     },
+     {
+      "text": "; timecode starts at 10:00:00:00.",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 8
+   },
+   {
+    "type": "table",
+    "direction": "ltr",
+    "columns": [
+     1.5277777777777777,
+     1.5277777777777777,
+     1.6388888888888888,
+     1.6388888888888888
+    ],
+    "rows": [
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Parameter / ",
+            "bold": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#FFFFFF",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "المعيار",
+            "bold": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#FFFFFF",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#12171F",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.5277777777777777
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Picture — ",
+            "bold": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#FFFFFF",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "الصورة",
+            "bold": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#FFFFFF",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#12171F",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "columnSpan": 2,
+        "width": 3.1666666666666665
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Sound — ",
+            "bold": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#FFFFFF",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "الصوت",
+            "bold": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#FFFFFF",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#12171F",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.6388888888888888
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [],
+        "verticalAlign": "middle",
+        "shading": "#F4F1EC",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.5277777777777777
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Master",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#F4F1EC",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.5277777777777777
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Web cut",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#F4F1EC",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.6388888888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "All versions",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#F4F1EC",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.6388888888888888
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Codec / ",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "الترميز",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.5277777777777777
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "ProRes",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": " 422 HQ",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.5277777777777777
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "H.264, 24 Mb/s",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.6388888888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "WAV 48 kHz / 24-bit",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#FBF7F0",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.6388888888888888,
+        "rowSpan": 2
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Resolution / ",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "الدقة",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.5277777777777777
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "3840 × 2160",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.5277777777777777
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "1920 × 1080",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.6388888888888888
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Loudness / ",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "الجهارة",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.5277777777777777
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "−23 LUFS ",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "1",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial",
+            "verticalAlign": "superscript",
+            "footnoteRef": "f1"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.5277777777777777
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "−16 LUFS",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.6388888888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "True peak ≤ −1 ",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "dBTP",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.6388888888888888
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Subtitles / ",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "الترجمة",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.5277777777777777
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "عربي + إنجليزي",
+            "fontSizePt": 11,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.5277777777777777
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "عربي فقط",
+            "fontSizePt": 11,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.6388888888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "SRT + burned-in",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.6388888888888888
+       }
+      ]
+     }
+    ],
+    "width": 6.333333333333333,
+    "borders": {
+     "top": {
+      "color": "#D8D3C9",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "left": {
+      "color": "#D8D3C9",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "bottom": {
+      "color": "#D8D3C9",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "right": {
+      "color": "#D8D3C9",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "insideH": {
+      "color": "#D8D3C9",
+      "widthPt": 0.25,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "insideV": {
+      "color": "#D8D3C9",
+      "widthPt": 0.25,
+      "spacePt": 0,
+      "style": "solid"
+     }
+    },
+    "cellMargins": {
+     "top": 0,
+     "bottom": 0,
+     "left": 0.006944444444444444,
+     "right": 0.006944444444444444
+    }
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Table 1 — Delivery specification by ",
+      "italic": true,
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "version",
+      "italic": true,
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "  •",
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "  ",
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "الجدول ١ — مواصفات التسليم لكل نسخة",
+      "fontSizePt": 9,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "align": "center",
+    "spaceBeforePt": 4,
+    "spaceAfterPt": 12
+   },
+   {
+    "type": "image",
+    "mediaId": "word/media/image1.png",
+    "contentType": "image/png",
+    "width": 4.791666666666667,
+    "height": 1.09375,
+    "align": "center"
+   },
+   {
+    "type": "pageBreak",
+    "strength": "preferred"
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Figure 1 — Calibration strip shipped at the head of every ",
+      "italic": true,
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "master",
+      "italic": true,
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "  •",
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "  ",
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "الشكل ١ — شريط المعايرة في بداية كل نسخة رئيسية",
+      "fontSizePt": 9,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "align": "center",
+    "spaceBeforePt": 4,
+    "spaceAfterPt": 12
+   },
+   {
+    "type": "heading",
+    "level": 1,
+    "text": "3. Schedule",
+    "direction": "ltr",
+    "runs": [
+     {
+      "text": "3. Schedule",
+      "bold": true,
+      "fontSizePt": 15,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria"
+     }
+    ],
+    "fontSizePt": 15,
+    "spaceBeforePt": 18,
+    "spaceAfterPt": 3
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "٣. الجدول الزمني",
+      "bold": true,
+      "fontSizePt": 13,
+      "language": "ar-SA",
+      "color": "#B87F1E",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "left",
+    "spaceAfterPt": 10,
+    "borders": {
+     "bottom": {
+      "color": "#D8D3C9",
+      "widthPt": 0.75,
+      "spacePt": 6,
+      "style": "solid"
+     }
+    }
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Dates below are hard for the picture lock and soft for everything upstream of it. If an interview slips, the assembly absorbs it; the lock does not move.",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "align": "justify",
+    "lineSpacing": 1.25,
+    "spaceAfterPt": 6
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Assembly cut delivered to director",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "18 May 2026",
+      "bold": true,
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 3,
+    "tabStops": [
+     {
+      "pos": 6.268055555555556,
+      "align": "right",
+      "leader": "dot"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Rough cut review — round 1",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "26 May 2026",
+      "bold": true,
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 3,
+    "tabStops": [
+     {
+      "pos": 6.268055555555556,
+      "align": "right",
+      "leader": "dot"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Fine cut approved by client",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "09 Jun 2026",
+      "bold": true,
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 3,
+    "tabStops": [
+     {
+      "pos": 6.268055555555556,
+      "align": "right",
+      "leader": "dot"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Picture lock",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "2",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "verticalAlign": "superscript",
+      "footnoteRef": "f2"
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "16 Jun 2026",
+      "bold": true,
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#B24830",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 3,
+    "tabStops": [
+     {
+      "pos": 6.268055555555556,
+      "align": "right",
+      "leader": "dot"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Grade, mix and delivery",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "30 Jun 2026",
+      "bold": true,
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 3,
+    "tabStops": [
+     {
+      "pos": 6.268055555555556,
+      "align": "right",
+      "leader": "dot"
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "مواعيد ما قبل التثبيت النهائي للصورة قابلة للتعديل، أما موعد التثبيت نفسه فغير قابل للتأجيل.",
+      "fontSizePt": 11,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "left",
+    "spaceBeforePt": 10,
+    "spaceAfterPt": 6
+   },
+   {
+    "type": "heading",
+    "level": 1,
+    "text": "4. Contacts",
+    "direction": "ltr",
+    "runs": [
+     {
+      "text": "4. Contacts",
+      "bold": true,
+      "fontSizePt": 15,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria"
+     }
+    ],
+    "fontSizePt": 15,
+    "spaceBeforePt": 18,
+    "spaceAfterPt": 3
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "٤. جهات الاتصال",
+      "bold": true,
+      "fontSizePt": 13,
+      "language": "ar-SA",
+      "color": "#B87F1E",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "left",
+    "spaceAfterPt": 10,
+    "borders": {
+     "bottom": {
+      "color": "#D8D3C9",
+      "widthPt": 0.75,
+      "spacePt": 6,
+      "style": "solid"
+     }
+    }
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Post-production questions go to the edit desk first: ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "post@nileframe.example",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1155CC",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "underline": true,
+      "hyperlink": "mailto:post@nileframe.example"
+     },
+     {
+      "text": ". Style rules and the LUT pack live on the ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "studio handbook",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1155CC",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "underline": true,
+      "hyperlink": "https://example.com/nileframe/handbook"
+     },
+     {
+      "text": ".",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "spaceAfterPt": 4
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "توجَّه استفسارات ما بعد الإنتاج إلى قسم المونتاج أولًا، ثم إلى منسق الإنتاج عند الحاجة.",
+      "fontSizePt": 11,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "left",
+    "lineSpacing": 1.3333333333333333,
+    "spaceAfterPt": 10
+   }
+  ],
+  "header": [
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "",
+      "image": {
+       "mediaId": "word/media/image2.png",
+       "contentType": "image/png",
+       "width": 0.22916666666666666,
+       "height": 0.22916666666666666
+      }
+     },
+     {
+      "text": "  NILE FRAME STUDIO",
+      "bold": true,
+      "fontSizePt": 9,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria",
+      "letterSpacingPt": 1.5
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "استوديو نايل فريم",
+      "fontSizePt": 9.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "borders": {
+     "bottom": {
+      "color": "#D8D3C9",
+      "widthPt": 0.75,
+      "spacePt": 8,
+      "style": "solid"
+     }
+    },
+    "tabStops": [
+     {
+      "pos": 6.268055555555556,
+      "align": "right"
+     }
+    ]
+   }
+  ],
+  "footer": [
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Internal — Confidential / ",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "داخلي",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": " — ",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "سري",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "Page ",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "1",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "field": "PAGE"
+     },
+     {
+      "text": " of ",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "2",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "field": "NUMPAGES"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "tabStops": [
+     {
+      "pos": 6.268055555555556,
+      "align": "right"
+     }
+    ]
+   }
+  ],
+  "title": "1. Project Overview"
+ },
+ {
+  "properties": {
+   "breakType": "nextPage",
+   "page": {
+    "widthTwips": 16838,
+    "heightTwips": 11906,
+    "orientation": "landscape",
+    "margins": {
+     "top": 900,
+     "right": 1000,
+     "bottom": 900,
+     "left": 1000,
+     "header": 708,
+     "footer": 708,
+     "gutter": 0
+    }
+   },
+   "headerRefs": [
+    "word/header4.xml"
+   ],
+   "footerRefs": [
+    "word/footer2.xml"
+   ]
+  },
+  "root": [
+   {
+    "type": "heading",
+    "level": 1,
+    "text": "Appendix A — Shot List, Episode 04",
+    "direction": "ltr",
+    "runs": [
+     {
+      "text": "Appendix A — Shot List, Episode 04",
+      "bold": true,
+      "fontSizePt": 15,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria"
+     }
+    ],
+    "fontSizePt": 15,
+    "spaceBeforePt": 18,
+    "spaceAfterPt": 3
+   },
+   {
+    "type": "pageBreak",
+    "strength": "preferred"
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "الملحق أ — قائمة اللقطات، الحلقة الرابعة",
+      "bold": true,
+      "fontSizePt": 13,
+      "language": "ar-SA",
+      "color": "#B87F1E",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "left",
+    "spaceAfterPt": 10,
+    "borders": {
+     "bottom": {
+      "color": "#D8D3C9",
+      "widthPt": 0.75,
+      "spacePt": 6,
+      "style": "solid"
+     }
+    }
+   },
+   {
+    "type": "table",
+    "direction": "ltr",
+    "columns": [
+     0.625,
+     2.361111111111111,
+     2.361111111111111,
+     0.9722222222222222,
+     1.0416666666666667,
+     1.9444444444444444
+    ],
+    "rows": [
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "#",
+            "bold": true,
+            "fontSizePt": 8.5,
+            "language": "ar-SA",
+            "color": "#FFFFFF",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#2E7D74",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 0.625
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Scene",
+            "bold": true,
+            "fontSizePt": 8.5,
+            "language": "ar-SA",
+            "color": "#FFFFFF",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#2E7D74",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 2.361111111111111
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "المشهد",
+            "bold": true,
+            "fontSizePt": 8.5,
+            "language": "ar-SA",
+            "color": "#FFFFFF",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#2E7D74",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 2.361111111111111
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Duration",
+            "bold": true,
+            "fontSizePt": 8.5,
+            "language": "ar-SA",
+            "color": "#FFFFFF",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#2E7D74",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 0.9722222222222222
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Lens",
+            "bold": true,
+            "fontSizePt": 8.5,
+            "language": "ar-SA",
+            "color": "#FFFFFF",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#2E7D74",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.0416666666666667
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Notes / ",
+            "bold": true,
+            "fontSizePt": 8.5,
+            "language": "ar-SA",
+            "color": "#FFFFFF",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "ملاحظات",
+            "bold": true,
+            "fontSizePt": 8.5,
+            "language": "ar-SA",
+            "color": "#FFFFFF",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "shading": "#2E7D74",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.9444444444444444
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "01",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#B87F1E",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 0.625
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Dawn over the barrage, wide",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 2.361111111111111
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "الفجر فوق القناطر، لقطة واسعة",
+            "fontSizePt": 11,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 2.361111111111111
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "00:42",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 0.9722222222222222
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "24 mm",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.0416666666666667
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Handheld, no ",
+            "italic": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#5B6470",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "stabiliser",
+            "italic": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#5B6470",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.9444444444444444
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "02",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#B87F1E",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 0.625
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Hands mending a net",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 2.361111111111111
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "أيادٍ تصلح شبكة صيد",
+            "fontSizePt": 11,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 2.361111111111111
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "01:15",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 0.9722222222222222
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "85 mm",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.0416666666666667
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Sync sound only",
+            "italic": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#5B6470",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.9444444444444444
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "03",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#B87F1E",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 0.625
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Interview — Umm Sayed, kitchen",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 2.361111111111111
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "مقابلة — أم سيد، المطبخ",
+            "fontSizePt": 11,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 2.361111111111111
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "06:30",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 0.9722222222222222
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "35 mm",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.0416666666666667
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Two-camera, 25p",
+            "italic": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#5B6470",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.9444444444444444
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "04",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#B87F1E",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 0.625
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Archive: 1974 irrigation reel",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 2.361111111111111
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "أرشيف: شريط الري ١٩٧٤",
+            "fontSizePt": 11,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 2.361111111111111
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "00:55",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 0.9722222222222222
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "—",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.0416666666666667
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "16 mm scan, 4K",
+            "italic": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#5B6470",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.9444444444444444
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "05",
+            "bold": true,
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#B87F1E",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 0.625
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Ferry crossing at dusk",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 2.361111111111111
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "معدية عند الغروب",
+            "fontSizePt": 11,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 2.361111111111111
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "01:08",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 0.9722222222222222
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "50 mm",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5,
+          "align": "center"
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.0416666666666667
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Golden hour, one take",
+            "italic": true,
+            "fontSizePt": 9,
+            "language": "ar-SA",
+            "color": "#5B6470",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 10.5
+         }
+        ],
+        "verticalAlign": "middle",
+        "margins": {
+         "top": 0.05555555555555555,
+         "left": 0.08333333333333333,
+         "bottom": 0.05555555555555555,
+         "right": 0.08333333333333333
+        },
+        "width": 1.9444444444444444
+       }
+      ]
+     }
+    ],
+    "width": 9.305555555555555,
+    "borders": {
+     "top": {
+      "color": "#D8D3C9",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "left": {
+      "color": "#D8D3C9",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "bottom": {
+      "color": "#D8D3C9",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "right": {
+      "color": "#D8D3C9",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "insideH": {
+      "color": "#D8D3C9",
+      "widthPt": 0.25,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "insideV": {
+      "color": "#D8D3C9",
+      "widthPt": 0.25,
+      "spacePt": 0,
+      "style": "solid"
+     }
+    },
+    "cellMargins": {
+     "top": 0,
+     "bottom": 0,
+     "left": 0.006944444444444444,
+     "right": 0.006944444444444444
+    }
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Table 2 — Shot list extract (landscape ",
+      "italic": true,
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "section)",
+      "italic": true,
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "  •",
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "  ",
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "الجدول ٢ — مقتطف من قائمة اللقطات",
+      "fontSizePt": 9,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "align": "center",
+    "spaceBeforePt": 4,
+    "spaceAfterPt": 12
+   },
+   {
+    "type": "image",
+    "mediaId": "word/media/image3.jpg",
+    "contentType": "image/jpeg",
+    "width": 5.416666666666667,
+    "height": 3.0416666666666665,
+    "align": "center"
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Figure 2 — Reference frame for shot 05, ",
+      "italic": true,
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "graded",
+      "italic": true,
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "  •",
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "  ",
+      "fontSizePt": 8.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "الشكل ٢ — لقطة مرجعية للمشهد ٠٥ بعد تصحيح الألوان",
+      "fontSizePt": 9,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "align": "center",
+    "spaceBeforePt": 4,
+    "spaceAfterPt": 12
+   },
+   {
+    "type": "footnote",
+    "id": "f1",
+    "label": "1",
+    "nodes": [
+     {
+      "type": "paragraph",
+      "runs": [
+       {
+        "text": "Measured per EBU R 128 over the full ",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": "programme",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": ", ",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": "dialogue-gated",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": ". ",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": "يُقاس وفق المعيار الأوروبي على كامل الحلقة.",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       }
+      ],
+      "direction": "ltr",
+      "fontSizePt": 10.5
+     }
+    ],
+    "direction": "ltr"
+   },
+   {
+    "type": "footnote",
+    "id": "f2",
+    "label": "2",
+    "nodes": [
+     {
+      "type": "paragraph",
+      "runs": [
+       {
+        "text": "Lock date assumes archive clearance closes on time / ",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": "يفترض",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": " ",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": "انتهاء",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": " ",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": "تصاريح",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": " ",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": "الأرشيف",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": " ",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": "في",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": " ",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": "موعدها",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       },
+       {
+        "text": ".",
+        "fontSizePt": 8.5,
+        "language": "ar-SA",
+        "color": "#1B2029",
+        "latinTypeface": "Arial",
+        "complexScriptTypeface": "Arial",
+        "fontFamily": "Arial"
+       }
+      ],
+      "direction": "ltr",
+      "fontSizePt": 10.5
+     }
+    ],
+    "direction": "ltr"
+   }
+  ],
+  "header": [
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "",
+      "image": {
+       "mediaId": "word/media/image2.png",
+       "contentType": "image/png",
+       "width": 0.22916666666666666,
+       "height": 0.22916666666666666
+      }
+     },
+     {
+      "text": "  NILE FRAME STUDIO",
+      "bold": true,
+      "fontSizePt": 9,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria",
+      "letterSpacingPt": 1.5
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "استوديو نايل فريم",
+      "fontSizePt": 9.5,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "borders": {
+     "bottom": {
+      "color": "#D8D3C9",
+      "widthPt": 0.75,
+      "spacePt": 8,
+      "style": "solid"
+     }
+    },
+    "tabStops": [
+     {
+      "pos": 6.268055555555556,
+      "align": "right"
+     }
+    ]
+   }
+  ],
+  "footer": [
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Internal — Confidential / ",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "داخلي",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": " — ",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "سري",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "\\t",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "Page ",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "4",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "field": "PAGE"
+     },
+     {
+      "text": " of ",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "4",
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#5B6470",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "field": "NUMPAGES"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 10.5,
+    "tabStops": [
+     {
+      "pos": 6.268055555555556,
+      "align": "right"
+     }
+    ]
+   }
+  ],
+  "title": "Appendix A — Shot List, Episode 04"
+ }
+]"
+`;
+
+exports[`DOCX sections do not depend on how document.xml is read docx-outline.docx 1`] = `
+"[
+ {
+  "properties": {
+   "breakType": "nextPage",
+   "page": {
+    "widthTwips": 12240,
+    "heightTwips": 15840,
+    "orientation": "portrait",
+    "margins": {
+     "top": 1440,
+     "right": 1440,
+     "bottom": 1440,
+     "left": 1440,
+     "header": 708,
+     "footer": 708,
+     "gutter": 0
+    }
+   },
+   "headerRefs": [
+    "word/header2.xml",
+    "word/header3.xml",
+    "word/header1.xml"
+   ],
+   "footerRefs": [
+    "word/footer2.xml",
+    "word/footer3.xml",
+    "word/footer1.xml"
+   ]
+  },
+  "root": [
+   {
+    "type": "heading",
+    "level": 1,
+    "text": "Introduction / مقدمة",
+    "direction": "ltr",
+    "runs": [
+     {
+      "text": "Introduction / ",
+      "fontSizePt": 20,
+      "language": "ar-SA",
+      "color": "#156082",
+      "latinTypeface": "Aptos Display",
+      "fontFamily": "Aptos Display"
+     },
+     {
+      "text": "مقدمة",
+      "fontSizePt": 20,
+      "language": "ar-SA",
+      "color": "#156082",
+      "latinTypeface": "Aptos Display",
+      "complexScriptTypeface": "Times New Roman",
+      "fontFamily": "Times New Roman"
+     }
+    ],
+    "fontSizePt": 20,
+    "lineSpacing": 1.1583333333333334,
+    "spaceBeforePt": 18,
+    "spaceAfterPt": 4
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Body text before the details. ",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "fontFamily": "Aptos"
+     },
+     {
+      "text": "نص",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": " ",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "قبل",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": " ",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "التفاصيل",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": ".",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "fontFamily": "Aptos"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 12,
+    "lineSpacing": 1.1583333333333334,
+    "spaceAfterPt": 8
+   },
+   {
+    "type": "heading",
+    "level": 2,
+    "text": "Details / التفاصيل",
+    "direction": "ltr",
+    "runs": [
+     {
+      "text": "Details / ",
+      "fontSizePt": 16,
+      "language": "ar-SA",
+      "color": "#156082",
+      "latinTypeface": "Aptos Display",
+      "fontFamily": "Aptos Display"
+     },
+     {
+      "text": "التفاصيل",
+      "fontSizePt": 16,
+      "language": "ar-SA",
+      "color": "#156082",
+      "latinTypeface": "Aptos Display",
+      "complexScriptTypeface": "Times New Roman",
+      "fontFamily": "Times New Roman"
+     }
+    ],
+    "fontSizePt": 16,
+    "lineSpacing": 1.1583333333333334,
+    "spaceBeforePt": 8,
+    "spaceAfterPt": 4
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "The table below holds a heading-styled cell.",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "fontFamily": "Aptos"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 12,
+    "lineSpacing": 1.1583333333333334,
+    "spaceAfterPt": 8
+   },
+   {
+    "type": "table",
+    "direction": "ltr",
+    "columns": [
+     3.25,
+     3.25
+    ],
+    "rows": [
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "heading",
+          "level": 2,
+          "text": "In a table / في جدول",
+          "direction": "ltr",
+          "runs": [
+           {
+            "text": "In a table / ",
+            "fontSizePt": 16,
+            "language": "ar-SA",
+            "color": "#156082",
+            "latinTypeface": "Aptos Display",
+            "fontFamily": "Aptos Display"
+           },
+           {
+            "text": "في",
+            "fontSizePt": 16,
+            "language": "ar-SA",
+            "color": "#156082",
+            "latinTypeface": "Aptos Display",
+            "complexScriptTypeface": "Times New Roman",
+            "fontFamily": "Times New Roman"
+           },
+           {
+            "text": " ",
+            "fontSizePt": 16,
+            "language": "ar-SA",
+            "color": "#156082",
+            "latinTypeface": "Aptos Display",
+            "complexScriptTypeface": "Times New Roman",
+            "fontFamily": "Times New Roman"
+           },
+           {
+            "text": "جدول",
+            "fontSizePt": 16,
+            "language": "ar-SA",
+            "color": "#156082",
+            "latinTypeface": "Aptos Display",
+            "complexScriptTypeface": "Times New Roman",
+            "fontFamily": "Times New Roman"
+           }
+          ],
+          "fontSizePt": 16,
+          "lineSpacing": 1.1583333333333334,
+          "spaceBeforePt": 8,
+          "spaceAfterPt": 4
+         }
+        ],
+        "width": 3.25
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "Plain cell / ",
+            "fontSizePt": 12,
+            "language": "ar-SA",
+            "latinTypeface": "Aptos",
+            "fontFamily": "Aptos"
+           },
+           {
+            "text": "خلية",
+            "fontSizePt": 12,
+            "language": "ar-SA",
+            "latinTypeface": "Aptos",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": " ",
+            "fontSizePt": 12,
+            "language": "ar-SA",
+            "latinTypeface": "Aptos",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           },
+           {
+            "text": "عادية",
+            "fontSizePt": 12,
+            "language": "ar-SA",
+            "latinTypeface": "Aptos",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "ltr",
+          "fontSizePt": 12,
+          "lineSpacing": 1.1583333333333334,
+          "spaceAfterPt": 8
+         }
+        ],
+        "width": 3.25
+       }
+      ]
+     }
+    ],
+    "borders": {
+     "top": {
+      "color": "currentColor",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "left": {
+      "color": "currentColor",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "bottom": {
+      "color": "currentColor",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "right": {
+      "color": "currentColor",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "insideH": {
+      "color": "currentColor",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "insideV": {
+      "color": "currentColor",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     }
+    },
+    "cellMargins": {
+     "top": 0,
+     "bottom": 0,
+     "left": 0.075,
+     "right": 0.075
+    }
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "Text after the table. ",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "fontFamily": "Aptos"
+     },
+     {
+      "text": "نص",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": " ",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "بعد",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": " ",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "الجدول",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": ".",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "fontFamily": "Aptos"
+     }
+    ],
+    "direction": "ltr",
+    "fontSizePt": 12,
+    "lineSpacing": 1.1583333333333334,
+    "spaceAfterPt": 8
+   },
+   {
+    "type": "pageBreak",
+    "strength": "mandatory"
+   },
+   {
+    "type": "heading",
+    "level": 1,
+    "text": "Closing / الخاتمة",
+    "direction": "ltr",
+    "runs": [
+     {
+      "text": "Closing / ",
+      "fontSizePt": 20,
+      "language": "ar-SA",
+      "color": "#156082",
+      "latinTypeface": "Aptos Display",
+      "fontFamily": "Aptos Display"
+     },
+     {
+      "text": "الخاتمة",
+      "fontSizePt": 20,
+      "language": "ar-SA",
+      "color": "#156082",
+      "latinTypeface": "Aptos Display",
+      "complexScriptTypeface": "Times New Roman",
+      "fontFamily": "Times New Roman"
+     }
+    ],
+    "fontSizePt": 20,
+    "lineSpacing": 1.1583333333333334,
+    "spaceBeforePt": 18,
+    "spaceAfterPt": 4
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "The last body paragraph. ",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "fontFamily": "Aptos"
+     },
+     {
+      "text": "الفقرة",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": " ",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "الأخيرة",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": ".",
+      "fontSizePt": 12,
+      "language": "ar-SA",
+      "latinTypeface": "Aptos",
+      "fontFamily": "Aptos"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 12,
+    "lineSpacing": 1.1583333333333334,
+    "spaceAfterPt": 8
+   }
+  ],
+  "header": [
+   {
+    "type": "heading",
+    "level": 1,
+    "text": "Header heading / عنوان الترويسة",
+    "direction": "ltr",
+    "runs": [
+     {
+      "text": "Header heading / ",
+      "fontSizePt": 20,
+      "language": "ar-SA",
+      "color": "#156082",
+      "latinTypeface": "Aptos Display",
+      "fontFamily": "Aptos Display"
+     },
+     {
+      "text": "عنوان",
+      "fontSizePt": 20,
+      "language": "ar-SA",
+      "color": "#156082",
+      "latinTypeface": "Aptos Display",
+      "complexScriptTypeface": "Times New Roman",
+      "fontFamily": "Times New Roman"
+     },
+     {
+      "text": " ",
+      "fontSizePt": 20,
+      "language": "ar-SA",
+      "color": "#156082",
+      "latinTypeface": "Aptos Display",
+      "complexScriptTypeface": "Times New Roman",
+      "fontFamily": "Times New Roman"
+     },
+     {
+      "text": "الترويسة",
+      "fontSizePt": 20,
+      "language": "ar-SA",
+      "color": "#156082",
+      "latinTypeface": "Aptos Display",
+      "complexScriptTypeface": "Times New Roman",
+      "fontFamily": "Times New Roman"
+     }
+    ],
+    "fontSizePt": 20,
+    "lineSpacing": 1.1583333333333334,
+    "spaceBeforePt": 18,
+    "spaceAfterPt": 4
+   }
+  ],
+  "title": "Introduction / مقدمة"
+ }
+]"
+`;

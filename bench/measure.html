@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>aared bench — measurement page</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+      }
+      /* One fixed stage for every renderer: the viewport the method states. */
+      #host {
+        position: relative;
+        width: 1280px;
+        height: 720px;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="host"></div>
+    <script type="module" src="/src/measure.ts"></script>
+  </body>
+</html>

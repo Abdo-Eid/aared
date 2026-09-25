@@ -1,8 +1,11 @@
+import { readZipEntryText } from "../lib/zip-entry";
 import { abortError, type OpenedDoc } from "./types";
 
 const MAX_ROWS = 200;
 const MAX_COLS = 52;
 
+// Local on purpose: this is the SheetJS baseline, which must not depend on
+// the code being measured (aared has its own `columnName` in core/xlsx/range).
 function columnName(index: number): string {
   let name = "";
   let i = index;
@@ -28,50 +31,37 @@ function columnName(index: number): string {
  * — the grid reads plainer than Excel here.
  */
 
-interface SheetDirCache {
-  partForId: Map<string, string>;
-  zip: import("jszip");
-}
-
-/** Resolve `xl/_rels/workbook.xml.rels` once so sheets map rId → part path. */
-async function sheetParts(bytes: Uint8Array): Promise<SheetDirCache | null> {
-  try {
-    const { default: JSZip } = await import("jszip");
-    const zip = await JSZip.loadAsync(bytes);
-    const relsFile = zip.file("xl/_rels/workbook.xml.rels");
-    if (!relsFile) return null;
-    const rels = await relsFile.async("string");
-    const partForId = new Map<string, string>();
-    for (const match of rels.matchAll(/<Relationship[^>]*>/g)) {
-      const tag = match[0];
-      const id = tag.match(/\bId="([^"]+)"/)?.[1];
-      const target = tag.match(/\bTarget="([^"]+)"/)?.[1];
-      if (id !== undefined && target !== undefined && target.includes("worksheets/")) {
-        partForId.set(id, `xl/${target.replace(/^\//, "")}`);
-      }
-    }
-    return { partForId, zip };
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Per-sheet RTL from the sheet's own `<sheetView rightToLeft>`. Never throws:
- * on any probe failure the sheet stays LTR rather than breaking the baseline.
+ * Per-sheet RTL flags from each sheet's own `<sheetView rightToLeft>`, keyed
+ * by relationship id. Harness work, not SheetJS's: it is read once per file
+ * (the measurement page primes it before measuring) and never borrows a
+ * library, so the SheetJS column carries only SheetJS. Never throws: on any
+ * probe failure the sheets stay LTR rather than breaking the baseline.
  */
-async function sheetIsRtl(cache: SheetDirCache | null, relId: string | undefined): Promise<boolean> {
-  try {
-    if (cache === null || relId === undefined) return false;
-    const part = cache.partForId.get(relId);
-    if (part === undefined) return false;
-    const file = cache.zip.file(part);
-    if (!file) return false;
-    const xml = await file.async("string");
-    return /<sheetView\b[^>]*\brightToLeft=(["']?)1\1/.test(xml);
-  } catch {
-    return false;
+const sheetRtl = new WeakMap<Uint8Array, Promise<Map<string, boolean>>>();
+
+export function sheetRtlFlags(bytes: Uint8Array): Promise<Map<string, boolean>> {
+  let flags = sheetRtl.get(bytes);
+  if (flags === undefined) {
+    flags = readSheetRtlFlags(bytes);
+    sheetRtl.set(bytes, flags);
   }
+  return flags;
+}
+
+async function readSheetRtlFlags(bytes: Uint8Array): Promise<Map<string, boolean>> {
+  const flags = new Map<string, boolean>();
+  const rels = await readZipEntryText(bytes, "xl/_rels/workbook.xml.rels");
+  if (rels === null) return flags;
+  for (const match of rels.matchAll(/<Relationship[^>]*>/g)) {
+    const tag = match[0];
+    const id = tag.match(/\bId="([^"]+)"/)?.[1];
+    const target = tag.match(/\bTarget="([^"]+)"/)?.[1];
+    if (id === undefined || target === undefined || !target.includes("worksheets/")) continue;
+    const xml = await readZipEntryText(bytes, `xl/${target.replace(/^\//, "")}`);
+    flags.set(id, xml !== null && /<sheetView\b[^>]*\brightToLeft=(["']?)1\1/.test(xml));
+  }
+  return flags;
 }
 export async function openXlsx(
   bytes: Uint8Array,
@@ -89,21 +79,16 @@ export async function openXlsx(
   }
   // SheetJS CE parses column widths/hidden flags with `cellStyles: true` but
   // not per-sheet RTL — probe the sheet XML for that one flag instead.
-  const parts = await sheetParts(bytes);
+  const rtlFlags = await sheetRtlFlags(bytes);
   if (signal.aborted) throw abortError();
   const relIds = ((workbook.Workbook?.Sheets ?? []) as Array<{ id?: string }>).map((entry) => entry.id);
-  const rtlCache = new Map<number, boolean>();
 
   const renderSheet = async (index: number): Promise<void> => {
     const name = names[index];
     if (name === undefined) return;
     const sheet = workbook.Sheets[name];
-    let rtl = rtlCache.get(index);
-    if (rtl === undefined) {
-      rtl = await sheetIsRtl(parts, relIds[index]);
-      rtlCache.set(index, rtl);
-    }
-    if (signal.aborted) throw abortError();
+    const relId = relIds[index];
+    const rtl = relId !== undefined && rtlFlags.get(relId) === true;
     host.replaceChildren();
 
     const table = document.createElement("table");

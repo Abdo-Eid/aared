@@ -1,9 +1,0 @@
-{
-  "id": "arabic-pptx-rtl-coverage",
-  "slides": {
-    "rtl-text": { "hasText": "تقرير الإنتاج الأسبوعي" },
-    "rtl-table": { "hasText": "الاسم" },
-    "shapes": { "hasText": "أشكال ورسومات" },
-    "gradients": { "hasText": "تدرجات لونية" }
-  }
-}

@@ -7,6 +7,8 @@
  * rather than a wrong guess.
  */
 
+import { ownString } from "../xml.js";
+
 const BUILTIN_FORMATS: Record<number, string> = {
   0: "General",
   1: "0",
@@ -53,6 +55,42 @@ interface Section {
   color?: string;
 }
 
+/**
+ * Format codes are few per workbook but applied per cell, so their parsed
+ * forms are memoized. The caches are bounded: a pathological workbook with
+ * endless distinct codes just starts over instead of growing without limit.
+ * They live as long as the Worker, which outlives a workbook (it is reused
+ * between opens), so they key and build from an owned copy of the code: a
+ * code sliced from `styles.xml` would otherwise keep that part alive.
+ */
+const CACHE_LIMIT = 512;
+
+function memo<T>(cache: Map<string, T>, key: string, build: (key: string) => T): T {
+  let value = cache.get(key);
+  if (value === undefined) {
+    if (cache.size >= CACHE_LIMIT) cache.clear();
+    const owned = ownString(key);
+    value = build(owned);
+    cache.set(owned, value);
+  }
+  return value;
+}
+
+interface ParsedCode {
+  sections: Section[];
+  /** `isDateFormatCode` of each section's code. */
+  dates: boolean[];
+}
+
+const parsedCodes = new Map<string, ParsedCode>();
+
+function parseCode(code: string): ParsedCode {
+  return memo(parsedCodes, code, () => {
+    const parts = sections(code);
+    return { sections: parts, dates: parts.map((part) => isDateFormatCode(part.code)) };
+  });
+}
+
 /** Split a format code on unquoted `;` into positive/negative/zero/text sections. */
 function sections(code: string): Section[] {
   const parts: string[] = [];
@@ -89,8 +127,19 @@ function sections(code: string): Section[] {
   });
 }
 
-/** Remove quoted literals into placeholders so token scans ignore them. */
-function maskLiterals(code: string): { masked: string; literals: string[] } {
+interface Masked {
+  masked: string;
+  literals: string[];
+}
+
+const maskedCodes = new Map<string, Masked>();
+
+/** Remove quoted literals into placeholders so token scans ignore them (memoized; read-only result). */
+function maskLiterals(code: string): Masked {
+  return memo(maskedCodes, code, maskLiteralsUncached);
+}
+
+function maskLiteralsUncached(code: string): Masked {
   // Placeholders use control characters on purpose: a numeric index would
   // itself scan as a `0` digit slot in number sections.
   const literals: string[] = [];
@@ -256,54 +305,87 @@ function bestFraction(value: number, maxDenominator: number): { whole: number; n
 /** Matches a masked-literal token; its index digits are literals, not number slots. */
 const TOKEN_PATTERN = /\u0001\d+\u0002/g;
 
-/** Format a finite number with one number-section code (no `;` branches). */
-export function formatNumberSection(value: number, code: string): string {
-  const { masked, literals } = maskLiterals(code);
-  return formatMaskedSection(value, masked, literals);
-}
+/**
+ * A number section analysed once: every regex scan of the code happens
+ * here, so formatting a cell is only arithmetic and string assembly.
+ */
+type SectionPlan =
+  | { kind: "literal"; text: string }
+  | { kind: "percent"; inner: SectionPlan }
+  | { kind: "scientific"; decimals: number }
+  | { kind: "fraction"; maxDenominator: number; integerPart: boolean; spacer: string }
+  | { kind: "fixed"; decimals: number; grouping: boolean; integerSlots: number; prefix: string; suffix: string };
 
-function formatMaskedSection(value: number, masked: string, literals: string[]): string {
+const sectionPlans = new Map<string, SectionPlan>();
+
+function planSection(masked: string, literals: string[]): SectionPlan {
   const clean = masked.replace(/\[[^\]]*\]/g, "");
   // Skeleton analysis runs on the token-stripped section so literal digits
   // (token indexes, quoted text) never scan as number slots.
   const skeleton = clean.replace(TOKEN_PATTERN, "");
-  if (!/[0#?]/.test(skeleton)) return unmask(clean, literals);
-  if (/%/.test(skeleton)) {
-    const scaled = formatMaskedSection(value * 100, clean.replace(/%/g, ""), literals);
-    return `${scaled}%`;
-  }
-  if (/E\+0+/i.test(skeleton)) {
-    const decimals = /E\+(0+)/i.exec(skeleton)?.[1]?.length ?? 0;
-    const [mantissa, exponent] = value.toExponential(decimals).split("e");
-    const sign = exponent!.startsWith("-") ? "-" : "+";
-    return `${mantissa}E${sign}${exponent!.replace(/^[+-]/, "").padStart(2, "0")}`;
-  }
+  if (!/[0#?]/.test(skeleton)) return { kind: "literal", text: unmask(clean, literals) };
+  if (/%/.test(skeleton)) return { kind: "percent", inner: planSection(clean.replace(/%/g, ""), literals) };
+  if (/E\+0+/i.test(skeleton)) return { kind: "scientific", decimals: /E\+(0+)/i.exec(skeleton)?.[1]?.length ?? 0 };
   if (skeleton.includes("/")) {
-    const whole = Math.floor(Math.abs(value));
-    const maxDenominator = /\?\?/.test(skeleton) ? 99 : 9;
-    const fraction = bestFraction(Math.abs(value), maxDenominator);
-    const sign = value < 0 ? "-" : "";
-    const integerPart = /#/.test(skeleton.split("/")[0] ?? "") || /0/.test(skeleton.split("/")[0] ?? "");
-    if (fraction.numerator === 0) return integerPart ? `${sign}${fraction.whole}` : `${sign}${fraction.whole}`;
-    const spacer = skeleton.includes("  ") ? "  " : " ";
-    return integerPart && fraction.whole !== 0
-      ? `${sign}${fraction.whole}${spacer}${fraction.numerator}/${fraction.denominator}`
-      : `${sign}${fraction.numerator}/${fraction.denominator}`;
+    const head = skeleton.split("/")[0] ?? "";
+    return {
+      kind: "fraction",
+      maxDenominator: /\?\?/.test(skeleton) ? 99 : 9,
+      integerPart: /#/.test(head) || /0/.test(head),
+      spacer: skeleton.includes("  ") ? "  " : " ",
+    };
   }
   const dot = skeleton.indexOf(".");
-  const decimals = dot === -1 ? 0 : (skeleton.slice(dot + 1).match(/[0#?]/g) ?? []).length;
-  const grouping = skeleton.includes(",");
-  const negative = value < 0;
-  const rounded = Math.abs(value).toFixed(decimals);
-  let [integer, fraction = ""] = rounded.split(".");
-  if (grouping) integer = integer!.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  // `?` reserves digit slots; browsers render plain digits, so pad to the
-  // requested integer width only when the code asks for leading slots.
-  const integerSlots = (dot === -1 ? skeleton : skeleton.slice(0, dot)).match(/[0?]/g)?.length ?? 0;
-  if (integer!.length < integerSlots) integer = integer!.padStart(integerSlots, " ");
-  const digits = decimals === 0 ? integer! : `${integer}.${fraction}`;
   const { prefix, suffix } = affixes(clean, literals);
-  return `${negative ? "-" : ""}${prefix}${digits}${suffix}`;
+  return {
+    kind: "fixed",
+    decimals: dot === -1 ? 0 : (skeleton.slice(dot + 1).match(/[0#?]/g) ?? []).length,
+    grouping: skeleton.includes(","),
+    // `?` reserves digit slots; browsers render plain digits, so pad to the
+    // requested integer width only when the code asks for leading slots.
+    integerSlots: (dot === -1 ? skeleton : skeleton.slice(0, dot)).match(/[0?]/g)?.length ?? 0,
+    prefix,
+    suffix,
+  };
+}
+
+function applySection(value: number, plan: SectionPlan): string {
+  switch (plan.kind) {
+    case "literal":
+      return plan.text;
+    case "percent":
+      return `${applySection(value * 100, plan.inner)}%`;
+    case "scientific": {
+      const [mantissa, exponent] = value.toExponential(plan.decimals).split("e");
+      const sign = exponent!.startsWith("-") ? "-" : "+";
+      return `${mantissa}E${sign}${exponent!.replace(/^[+-]/, "").padStart(2, "0")}`;
+    }
+    case "fraction": {
+      const fraction = bestFraction(Math.abs(value), plan.maxDenominator);
+      const sign = value < 0 ? "-" : "";
+      if (fraction.numerator === 0) return `${sign}${fraction.whole}`;
+      return plan.integerPart && fraction.whole !== 0
+        ? `${sign}${fraction.whole}${plan.spacer}${fraction.numerator}/${fraction.denominator}`
+        : `${sign}${fraction.numerator}/${fraction.denominator}`;
+    }
+    case "fixed": {
+      const rounded = Math.abs(value).toFixed(plan.decimals);
+      let [integer, fraction = ""] = rounded.split(".");
+      if (plan.grouping) integer = integer!.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+      if (integer!.length < plan.integerSlots) integer = integer!.padStart(plan.integerSlots, " ");
+      const digits = plan.decimals === 0 ? integer! : `${integer}.${fraction}`;
+      return `${value < 0 ? "-" : ""}${plan.prefix}${digits}${plan.suffix}`;
+    }
+  }
+}
+
+/** Format a finite number with one number-section code (no `;` branches). */
+export function formatNumberSection(value: number, code: string): string {
+  const plan = memo(sectionPlans, code, () => {
+    const { masked, literals } = maskLiterals(code);
+    return planSection(masked, literals);
+  });
+  return applySection(value, plan);
 }
 
 /**
@@ -343,9 +425,10 @@ function affixes(clean: string, literals: string[]): { prefix: string; suffix: s
 export function formatNumberValue(value: number, code: string, date1904 = false): string {
   if (!Number.isFinite(value)) return String(value);
   if (code === "General" || code === "@") return generalNumber(value);
-  const parts = sections(code);
-  const branch = value > 0 ? parts[0]! : value < 0 ? (parts[1] ?? parts[0]!) : (parts[2] ?? parts[0]!);
-  if (isDateFormatCode(branch.code)) {
+  const { sections: parts, dates } = parseCode(code);
+  const at = value > 0 ? 0 : value < 0 ? (parts[1] === undefined ? 0 : 1) : (parts[2] === undefined ? 0 : 2);
+  const branch = parts[at]!;
+  if (dates[at]!) {
     const magnitude = Math.abs(value);
     if (magnitude > 2958465) return generalNumber(value);
     return formatSerialDate(value, branch.code, date1904);
@@ -362,6 +445,16 @@ function generalNumber(value: number): string {
   if (Number.isInteger(value) && Math.abs(value) < 1e11) return String(value);
   // Excel General shows up to 10-11 significant digits; beyond that it uses
   // scientific notation. Match that boundary instead of JS's longer default.
-  const text = String(Number(value.toPrecision(10)));
-  return text;
+  // Fast path: a plain decimal with at most 10 digits already round-trips
+  // through `toPrecision(10)` unchanged, so skip that (slow) call.
+  const plain = String(value);
+  if (plain.length <= 12 && plain.indexOf("e") === -1) {
+    let digits = 0;
+    for (let i = 0; i < plain.length; i++) {
+      const code = plain.charCodeAt(i);
+      if (code >= 48 && code <= 57) digits++;
+    }
+    if (digits <= 10) return plain;
+  }
+  return String(Number(value.toPrecision(10)));
 }

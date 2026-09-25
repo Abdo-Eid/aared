@@ -5,7 +5,12 @@ export type BenchTheme = "light" | "dark";
 export interface OutlineEntry {
   level: number;
   text: string;
-  element: Element;
+  /** Baseline libraries expose no navigation API, so their outline scrolls
+   * to the painted DOM node directly. */
+  element?: Element;
+  /** aared exposes real heading navigation (`goToHeading`); preferred over
+   * `element` when present. */
+  onSelect?: () => void;
 }
 
 interface BaseOpened {
@@ -55,8 +60,11 @@ export function abortError(): Error {
   return new DOMException("Aborted", "AbortError");
 }
 
+/**
+ * Cancellation from either side: a DOM `AbortError` (the baselines) or aared's
+ * typed abort, which carries the same name. Same rule as aared's `isAbort`,
+ * kept local so baseline adapters never import the code under measurement.
+ */
 export function isAbort(error: unknown): boolean {
-  return (
-    error instanceof DOMException && error.name === "AbortError"
-  );
+  return error instanceof Error && error.name === "AbortError";
 }

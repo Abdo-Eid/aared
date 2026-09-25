@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { AaredError } from "../src/core/index.js";
-import { cellAddress, columnName, parseA1Range } from "../src/core/xlsx/range.js";
+import { MAX_COLUMNS, MAX_ROWS, isInsideGrid } from "../src/core/xlsx/limits.js";
+import { cellAddress, columnName, parseA1Range, parseCell, spanRange } from "../src/core/xlsx/range.js";
+import { parseCellRange, parseCellReference } from "../src/core/xlsx/sheet.js";
 
 function invalidRange(reference: string): AaredError {
   try {
@@ -35,6 +37,32 @@ test("rejects whole-column, whole-row, and malformed references", () => {
     const error = invalidRange(reference);
     expect(error.message).toContain("aared/xlsx:");
   }
+});
+
+test("the worksheet grid is XFD1048576, and its edges are the only cells that fit", () => {
+  expect(MAX_ROWS).toBe(1048576);
+  expect(MAX_COLUMNS).toBe(16384);
+  expect(isInsideGrid(0, 0)).toBe(true);
+  expect(isInsideGrid(MAX_ROWS - 1, MAX_COLUMNS - 1)).toBe(true);
+  for (const [row, col] of [[-1, 0], [0, -1], [MAX_ROWS, 0], [0, MAX_COLUMNS], [1.5, 0], [0, Number.NaN]] as const) {
+    expect(isInsideGrid(row, col)).toBe(false);
+  }
+  expect(parseCell("XFD1048576")).toEqual({ row: MAX_ROWS - 1, col: MAX_COLUMNS - 1 });
+});
+
+test("the cell scanner is the one grammar behind both readers", () => {
+  // Case-insensitive; 1-3 letters then 1-7 digits; `$` is the range parser's business, not the scanner's.
+  expect(parseCell("aa10")).toEqual({ row: 9, col: 26 });
+  for (const token of ["", "A", "1", "ABCD1", "A12345678", "A0", "XFE1", "A1048577", "A1B", "$A$1", "A1 "]) {
+    expect(parseCell(token)).toBeUndefined();
+  }
+});
+
+test("the XML-side readers reject what the API-side one rejects, and normalize corners the same way", () => {
+  expect(parseCellReference("H34")).toEqual({ row: 33, col: 7 });
+  expect(() => parseCellReference("XFE1")).toThrow(/invalid cell reference "XFE1"/);
+  expect(parseCellRange("H34:A1")).toEqual(parseA1Range("A1:H34"));
+  expect(spanRange({ row: 5, col: 1 }, { row: 2, col: 4 })).toEqual({ start: { row: 2, col: 1 }, end: { row: 5, col: 4 } });
 });
 
 test("column letters and cell addresses round-trip", () => {

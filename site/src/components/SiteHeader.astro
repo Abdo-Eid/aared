@@ -29,9 +29,8 @@ const { current } = Astro.props;
 </header>
 
 <script>
-  const header = document.currentScript?.closest(".site-header");
-  const button = header?.querySelector<HTMLButtonElement>(".theme-toggle");
-  const icon = header?.querySelector("[data-theme-icon]");
+  const button = document.querySelector<HTMLButtonElement>(".theme-toggle");
+  const icon = document.querySelector("[data-theme-icon]");
   const paint = (): void => {
     if (!icon) return;
     icon.innerHTML =
@@ -55,7 +54,7 @@ const { current } = Astro.props;
 <style>
   .site-header {
     border-bottom: 1px solid var(--lt-mount-edge);
-    background: var(--lt-mount);
+    background: var(--lt-bar);
   }
   .site-header-inner {
     display: flex;
@@ -88,10 +87,10 @@ const { current } = Astro.props;
   }
   .site-nav a:hover,
   .site-nav a:focus-visible {
-    color: var(--lt-amber-glow);
+    color: var(--lt-accent-glow);
   }
   .site-nav a.active {
-    color: var(--lt-amber);
+    color: var(--lt-accent);
     font-weight: 600;
   }
   .theme-toggle {
@@ -107,7 +106,7 @@ const { current } = Astro.props;
   }
   .theme-toggle:hover,
   .theme-toggle:focus-visible {
-    border-color: var(--lt-amber);
+    border-color: var(--lt-accent);
     outline: none;
   }
 </style>

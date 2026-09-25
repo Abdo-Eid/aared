@@ -5,7 +5,7 @@ import { parseXml } from "../src/core/xml.js";
 import { readDrawingTheme } from "../src/core/theme.js";
 import type { TableModel } from "../src/core/model.js";
 
-const COVERAGE = `${import.meta.dir}/../../../fixtures/arabic-pptx-rtl-coverage.pptx`;
+const COVERAGE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 const PRODUCTION = `${import.meta.dir}/../../../fixtures/post-production-review.pptx`;
 
 describe("PPTX text fidelity", () => {
@@ -23,7 +23,9 @@ describe("PPTX text fidelity", () => {
       ),
       deck.theme,
     );
-    expect(body.paragraphs.map((paragraph) => paragraph.bullet?.char)).toEqual(["1.", "2.", "c.", "III."]);
+    // Counters restart per numbering type (a new type starts a new list),
+    // so the trailing roman list opens at I, not III.
+    expect(body.paragraphs.map((paragraph) => paragraph.bullet?.char)).toEqual(["1.", "2.", "c.", "I."]);
     expect(body.paragraphs[0]?.level).toBe(0);
     expect(body.paragraphs[2]?.level).toBe(1);
   });
@@ -69,7 +71,7 @@ describe("PPTX table fidelity", () => {
     if (table === undefined) throw new Error("fixture structure changed: expected a production table");
     expect(table.columns).toHaveLength(4);
     expect(table.rows).toHaveLength(6);
-    expect(table.cellFills[0]).toEqual(["#12171F", "#12171F", "#12171F", "#12171F"]);
+    expect(table.cellFills[0]).toEqual([1, 2, 3, 4].map(() => ({ kind: "solid" as const, color: "#12171F" })));
     expect(table.rows[0]?.cells[0]?.margins).toEqual({ left: 0.1, right: 0.1, top: 0.05, bottom: 0.05 });
     expect(table.rows[0]?.cells[0]?.borders).toMatchObject({
       left: { color: "#D8D3C9" },
@@ -80,14 +82,28 @@ describe("PPTX table fidelity", () => {
     expect(table.rows[0]?.cells[0]?.borders?.left?.width).toBeCloseTo(12700 / 914400, 6);
   });
 
-  test("leaves gate-fixture cells without margins or borders so the renderer falls back", async () => {
+  test("resolves gate-fixture style borders and text so cells never inherit chrome", async () => {
     const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
     const deck = await indexPptx(pkg);
     const slides = await Promise.all(deck.slideParts.map((_, index) => parsePptxSlide(pkg, deck, index)));
     const table = slides.flatMap((slide) => slide.elements).find((element): element is TableModel => element.kind === "table");
     if (table === undefined) throw new Error("fixture structure changed: expected a gate table");
-    expect(table.rows[0]?.cells[0]?.margins).toBeUndefined();
-    expect(table.rows[0]?.cells[0]?.borders).toBeUndefined();
+    // A cell stating no insets gets DrawingML's defaults, as PowerPoint paints it.
+    expect(table.rows[0]?.cells[0]?.margins).toEqual({ left: 0.1, right: 0.1, top: 0.05, bottom: 0.05 });
+    // Medium Style 2 Accent 1: white style edges and header/body text colors.
+    expect(table.rows[0]?.cells[0]?.borders).toMatchObject({
+      left: { color: "#FFFFFF" },
+      top: { color: "#FFFFFF" },
+    });
+    for (const row of table.rows) {
+      for (const cell of row.cells) {
+        for (const paragraph of cell.text.paragraphs) {
+          for (const run of paragraph.runs) {
+            if (run.text !== "") expect(run.color).toBeDefined();
+          }
+        }
+      }
+    }
     expect(table.rows[0]?.cells[0]?.columnSpan).toBeUndefined();
   });
 

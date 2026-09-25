@@ -1,8 +1,10 @@
 ---
 /**
- * Presentational picker shared by the vanilla demo islands: a fixture
- * select plus a local-file input. Wiring lives in demo-frame.ts; this
- * file is markup only.
+ * Presentational picker shared by the vanilla demo islands: PPTX / XLSX /
+ * DOCX pills (one file per format, same options as the home page) plus a
+ * local-file input. The pills drive a hidden select that demo-frame.ts's
+ * attachDemo() listens to, so painting, teardown, and stale-run handling
+ * stay in one place.
  */
 import type { DemoFixture } from "../lib/demo-frame.js";
 
@@ -11,13 +13,45 @@ interface Props {
 }
 
 const { fixtures } = Astro.props;
+const formatLabels: Record<string, string> = { pptx: "PPTX", xlsx: "XLSX", docx: "DOCX" };
 ---
 
 <div class="demo-picker">
-  <select data-pick aria-label="Fixture">
+  <div class="demo-pills" role="group" aria-label="File format">
+    {fixtures.map((fixture, index) => (
+      <button
+        type="button"
+        aria-pressed={index === 0 ? "true" : "false"}
+        data-fixture-pill
+        data-format={fixture.format}
+        data-src={fixture.url}
+      >
+        {formatLabels[fixture.format] ?? fixture.format}
+      </button>
+    ))}
+  </div>
+  <select data-pick hidden aria-hidden="true" tabindex="-1">
     {fixtures.map((fixture) => (
       <option value={fixture.url}>{fixture.label}</option>
     ))}
   </select>
   <input type="file" data-file accept=".pptx,.xlsx,.docx" aria-label="Local file" />
 </div>
+
+<script>
+  for (const picker of document.querySelectorAll<HTMLElement>(".demo-picker")) {
+    const select = picker.querySelector<HTMLSelectElement>("select[data-pick]");
+    const pills = picker.querySelectorAll<HTMLButtonElement>("[data-fixture-pill]");
+    for (const pill of pills) {
+      pill.addEventListener("click", () => {
+        for (const other of pills) other.setAttribute("aria-pressed", other === pill ? "true" : "false");
+        const frame = picker.closest<HTMLElement>(".demo-frame");
+        if (frame) frame.dataset.format = pill.dataset.format ?? "";
+        if (select && pill.dataset.src) {
+          select.value = pill.dataset.src;
+          select.dispatchEvent(new Event("change"));
+        }
+      });
+    }
+  }
+</script>

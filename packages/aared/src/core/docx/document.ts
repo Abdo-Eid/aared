@@ -18,12 +18,17 @@
  * No copies of OPC/XML/theme/DrawingML/chart code live under `core/docx/`.
  */
 
-import { attr, childElements, firstChild, parseXml } from "../xml.js";
+import { BULLET, NON_BREAKING_HYPHEN } from "../chars.js";
+import { attr, childElements, firstChild, numberAttr, ownString } from "../xml.js";
 import type { XmlElement } from "../xml.js";
 import type { OpcPackage } from "../opc.js";
-import { readDrawingTheme, usesArabic } from "../theme.js";
+import { parseHexDigits, toHexColor } from "../color.js";
+import { runsText } from "../search.js";
+import { readDrawingTheme, themeFontFamily } from "../theme.js";
+import { usesArabic } from "../typography.js";
 import type { DrawingTheme } from "../theme.js";
-import { throwIfAborted } from "../zip.js";
+import { throwIfAborted } from "../errors.js";
+import { TWIPS_PER_PT, emuToInches, ptToInches, twipsToInches } from "../units.js";
 import type {
   DocxHeadingNode,
   DocxImageNode,
@@ -33,11 +38,15 @@ import type {
   DocxParagraphBorders,
   DocxParagraphLayout,
   DocxParagraphNode,
+  InsetsModel,
+  DocxTabStop,
+  DocxTableBorders,
   DocxTableCellNode,
+  DocxTableEdge,
   DocxTableRowNode,
   DocxUnsupportedNode,
   DocumentSection,
-  DocxTextAlign,
+  TextAlign,
   FlowNode,
   SectionBreakType,
   SectionProperties,
@@ -50,26 +59,8 @@ import { isOrderedFormat, markerFor, parseNumbering, startFor } from "./numberin
 import type { NumberingData, NumberingLevel } from "./numbering.js";
 import { parseNotes } from "./footnotes.js";
 
-const DXA_PER_INCH = 1440;
-const EMU_PER_INCH = 914400;
-const TWENTIETHS_PER_POINT = 20;
+/** `w:spacing/@w:line` value of a single line (240 twentieths of a line). */
 const SINGLE_LINE = 240;
-
-function dxaToInches(value: number): number {
-  return value / DXA_PER_INCH;
-}
-
-function emuToInches(value: number): number {
-  return value / EMU_PER_INCH;
-}
-
-function numberAttr(element: XmlElement, name: string, context: string): number | undefined {
-  const value = attr(element, name);
-  if (value === undefined) return undefined;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) throw new Error(`aared/core: invalid ${name}="${value}" on ${context}`);
-  return parsed;
-}
 
 /**
  * Word on/off: a bare element (`<w:b/>`) means true; only an explicit false
@@ -85,10 +76,10 @@ function onOffElement(element: XmlElement | undefined): boolean | undefined {
   return onOffValue(attr(element, "val"));
 }
 
+/** A Word `w:color`/`w:fill` value as `#RRGGBB`; `auto` and anything else that is not six hex digits resolve to nothing. */
 function hexColor(value: string | undefined): string | undefined {
-  if (value === undefined || value === "auto") return undefined;
-  if (!/^[0-9a-fA-F]{6}$/.test(value)) return undefined;
-  return `#${value.toUpperCase()}`;
+  const channels = value === undefined ? undefined : parseHexDigits(value);
+  return channels === undefined ? undefined : toHexColor(channels);
 }
 
 /** Resolve one `w:pBdr` edge to CSS terms; `nil`/`none` (or missing) draws nothing. */
@@ -148,6 +139,8 @@ interface ResolvedRunProps {
   language?: string;
   languageBidi?: string;
   rtl?: boolean;
+  letterSpacingPt?: number;
+  caps?: "all" | "small";
 }
 
 function readRunProps(rPr: XmlElement | undefined, out: ResolvedRunProps, theme: DrawingTheme): void {
@@ -241,37 +234,48 @@ function readRunProps(rPr: XmlElement | undefined, out: ResolvedRunProps, theme:
       case "rtl":
         out.rtl = onOffValue(attr(child, "val"));
         break;
+      case "spacing": {
+        const value = numberAttr(child, "val", "w:spacing");
+        if (value !== undefined) out.letterSpacingPt = value / TWIPS_PER_PT;
+        break;
+      }
+      case "caps":
+      case "smallCaps": {
+        // All caps outranks small caps when both are on, as in Word; an explicit
+        // off (`w:val="0"`) clears what a style inherited.
+        const on = onOffValue(attr(child, "val")) !== false;
+        const kind = child.local === "caps" ? "all" : "small";
+        if (on && (kind === "all" || out.caps !== "all")) out.caps = kind;
+        else if (!on && out.caps === kind) delete out.caps;
+        break;
+      }
       default:
         break;
     }
   }
 }
 
-/** Resolve a `majorHAnsi`-style theme token through the shared DrawingML theme. */
-function themeTokenFamily(token: string | undefined, theme: DrawingTheme): string | undefined {
+/** Resolve a `majorHAnsi`-style theme token through the shared DrawingML theme (see `themeFontFamily`). */
+function themeTokenFamily(token: string | undefined, theme: DrawingTheme, arabic: boolean): string | undefined {
   if (token === undefined) return undefined;
   const lower = token.toLowerCase();
-  const major = lower.startsWith("major");
-  const slot = lower.endsWith("bidi") ? "cs" : "latin";
-  const family = major ? theme.fonts.major : theme.fonts.minor;
-  if (slot === "cs") return family.complexScript === "" ? undefined : family.complexScript;
-  return family.latin === "" ? undefined : family.latin;
+  return themeFontFamily(lower.startsWith("major") ? theme.fonts.major : theme.fonts.minor, lower.endsWith("bidi") ? "cs" : "latin", arabic);
 }
 
 function resolveRunFamily(props: ResolvedRunProps, text: string, theme: DrawingTheme): Pick<TextRunModel, "fontFamily" | "latinTypeface" | "complexScriptTypeface"> {
-  const ascii = themeTokenFamily(props.asciiTheme, theme) ?? props.ascii ?? themeTokenFamily(props.hAnsiTheme, theme) ?? props.hAnsi;
-  const cs = themeTokenFamily(props.csTheme, theme) ?? props.cs;
-  const out: Pick<TextRunModel, "fontFamily" | "latinTypeface" | "complexScriptTypeface"> = {};
-  if (ascii !== undefined) out.latinTypeface = ascii;
-  if (cs !== undefined) out.complexScriptTypeface = cs;
   // Whitespace follows its paragraph's script slot (same rule as the PPTX
   // parser): an inherited run must not lose its family merely because its
   // own text has no script characters. Callers pass paragraph text for
   // blank runs; see `parseRun`.
   const arabic = usesArabic(text) || props.rtl === true || props.hintCs === true;
+  const ascii = themeTokenFamily(props.asciiTheme, theme, arabic) ?? props.ascii ?? themeTokenFamily(props.hAnsiTheme, theme, arabic) ?? props.hAnsi;
+  const cs = themeTokenFamily(props.csTheme, theme, arabic) ?? props.cs;
+  const out: Pick<TextRunModel, "fontFamily" | "latinTypeface" | "complexScriptTypeface"> = {};
+  if (ascii !== undefined) out.latinTypeface = ascii;
+  if (cs !== undefined) out.complexScriptTypeface = cs;
   const preferred = arabic
-    ? cs ?? ascii ?? theme.fonts.minor.complexScript
-    : ascii ?? cs ?? theme.fonts.minor.latin;
+    ? cs ?? ascii ?? themeFontFamily(theme.fonts.minor, "cs", true)
+    : ascii ?? cs ?? themeFontFamily(theme.fonts.minor, "latin", false);
   if (preferred !== undefined && preferred !== "") out.fontFamily = preferred;
   return out;
 }
@@ -295,6 +299,37 @@ interface ResolvedParaProps {
   shading?: string;
   pageBreakBefore?: boolean;
   borders?: DocxParagraphBorders;
+  /** Tab stops merged through docDefaults → style chain → direct formatting. */
+  tabs?: DocxTabStop[];
+}
+
+const TAB_LEADERS: Record<string, DocxTabStop["leader"]> = {
+  dot: "dot",
+  hyphen: "hyphen",
+  underscore: "underscore",
+  heavy: "underscore",
+  middleDot: "middleDot",
+};
+
+function readTabStops(tabs: XmlElement, out: ResolvedParaProps): void {
+  for (const tab of tabs.children) {
+    if (tab.local !== "tab") continue;
+    const pos = numberAttr(tab, "pos", "w:tab");
+    const val = attr(tab, "val");
+    if (pos === undefined) continue;
+    const inches = twipsToInches(pos);
+    const kept = (out.tabs ?? []).filter((stop) => Math.abs(stop.pos - inches) > 1e-6);
+    // `clear` removes an inherited stop at the same position.
+    if (val !== "clear" && val !== "bar" && val !== "num") {
+      const leader = TAB_LEADERS[attr(tab, "leader") ?? ""];
+      kept.push({
+        pos: inches,
+        align: val === "center" ? "center" : val === "right" || val === "end" ? "right" : val === "decimal" ? "decimal" : "left",
+        ...(leader === undefined ? {} : { leader }),
+      });
+    }
+    out.tabs = kept.sort((a, b) => a.pos - b.pos);
+  }
 }
 
 function readParaProps(pPr: XmlElement | undefined, out: ResolvedParaProps): void {
@@ -318,15 +353,15 @@ function readParaProps(pPr: XmlElement | undefined, out: ResolvedParaProps): voi
         const before = numberAttr(child, "before", "w:spacing");
         const after = numberAttr(child, "after", "w:spacing");
         const line = numberAttr(child, "line", "w:spacing");
-        if (before !== undefined) out.spaceBeforePt = before / TWENTIETHS_PER_POINT;
-        if (after !== undefined) out.spaceAfterPt = after / TWENTIETHS_PER_POINT;
+        if (before !== undefined) out.spaceBeforePt = before / TWIPS_PER_PT;
+        if (after !== undefined) out.spaceAfterPt = after / TWIPS_PER_PT;
         if (line !== undefined) {
           // `w:lineRule="auto"` (or absent) is a 240ths multiplier;
           // `exact`/`atLeast` are twips. The authored value is preserved in
           // the model; the renderer clamps its CSS box (see HANDOFF).
           const rule = attr(child, "lineRule") ?? "auto";
           if (rule === "auto") out.lineSpacing = line / SINGLE_LINE;
-          else out.lineSpacingPt = line / TWENTIETHS_PER_POINT;
+          else out.lineSpacingPt = line / TWIPS_PER_PT;
         }
         break;
       }
@@ -335,14 +370,14 @@ function readParaProps(pPr: XmlElement | undefined, out: ResolvedParaProps): voi
         const right = numberAttr(child, "right", "w:ind");
         const firstLine = numberAttr(child, "firstLine", "w:ind");
         const hanging = numberAttr(child, "hanging", "w:ind");
-        if (left !== undefined) out.leftIndent = dxaToInches(left);
-        if (right !== undefined) out.rightIndent = dxaToInches(right);
-        if (firstLine !== undefined) out.firstLineIndent = dxaToInches(firstLine);
-        else if (hanging !== undefined) out.firstLineIndent = -dxaToInches(hanging);
+        if (left !== undefined) out.leftIndent = twipsToInches(left);
+        if (right !== undefined) out.rightIndent = twipsToInches(right);
+        if (firstLine !== undefined) out.firstLineIndent = twipsToInches(firstLine);
+        else if (hanging !== undefined) out.firstLineIndent = -twipsToInches(hanging);
         break;
       }
       case "outlineLvl": {
-        const value = numberAttr(child, "outlineLvl", "w:outlineLvl");
+        const value = numberAttr(child, "val", "w:outlineLvl");
         if (value !== undefined) out.outlineLvl = value;
         break;
       }
@@ -377,45 +412,65 @@ function readParaProps(pPr: XmlElement | undefined, out: ResolvedParaProps): voi
       case "pageBreakBefore":
         out.pageBreakBefore = onOffValue(attr(child, "val"));
         break;
+      case "tabs":
+        readTabStops(child, out);
+        break;
       default:
         break;
     }
   }
 }
 
+/**
+ * Resolve `w:jc` to a physical alignment. Word reads `left`/`right` as
+ * start/end in a bidi paragraph (`<w:bidi/><w:jc w:val="right"/>` paints on
+ * the left), so the two swap when the paragraph is RTL — verified against a
+ * native Word export of the bidi-coverage fixture.
+ */
 function alignFor(jc: string | undefined, direction: TextDirection): DocxParagraphLayout["align"] {
+  const rtl = direction === "rtl";
   switch (jc) {
-    case "left":
     case undefined:
       return undefined;
+    case "left":
+    case "start":
+      return rtl ? "right" : undefined;
     case "right":
-      return "right";
+    case "end":
+      return rtl ? "left" : "right";
     case "center":
       return "center";
     case "both":
     case "distribute":
       return "justify";
-    case "start":
-      return direction === "rtl" ? "right" : undefined;
-    case "end":
-      return direction === "rtl" ? undefined : "right";
     default:
       return undefined;
   }
 }
 
+/**
+ * What a DOCX session keeps for its lifetime: small, and holding no part
+ * trees and no string that still points into a part's text (a string sliced
+ * from a part keeps the whole part alive — see `ownString`). The body and
+ * the notes are read, streamed and dropped inside `parseDocxSections`.
+ */
 export interface DocxIndex {
   documentPart: string;
-  body: XmlElement;
+  /** Footnote and endnote part paths, read by `parseDocxSections`. */
+  notesParts: { footnotes: string | undefined; endnotes: string | undefined };
   styles: StyleData;
   numbering: NumberingData;
-  /** Footnote/endnote entries by `f`/`e`-prefixed id; separators excluded. */
-  notes: Map<string, XmlElement>;
   theme: DrawingTheme;
   /** Document-part relationships: `r:id` → resolved internal part path. */
   relTargets: Map<string, string>;
   /** External hyperlink targets: `r:id` → URL. */
   hyperlinks: Map<string, string>;
+  /**
+   * The document title from its core properties, if it sets one — the label
+   * of DOCX's single unit. The heading outline is not an index concern: it
+   * comes from the parsed sections (`document.headings`).
+   */
+  title: string | undefined;
 }
 
 interface ParseContext {
@@ -425,8 +480,8 @@ interface ParseContext {
   theme: DrawingTheme;
   relTargets: Map<string, string>;
   hyperlinks: Map<string, string>;
-  /** MIME lookup for image parts; the worker media route serves the bytes. */
-  contentTypeOf: (part: string) => string | undefined;
+  /** MIME lookup for image parts (`OpcPackage.mediaContentType`); the worker media route serves the bytes. */
+  mediaContentType: (part: string) => string;
   footnoteLabels: Map<string, string>;
   footnoteOrder: string[];
   counters: Map<string, number[]>;
@@ -435,18 +490,19 @@ interface ParseContext {
 
 function partContext(
   index: DocxIndex,
+  notes: Map<string, XmlElement>,
   relTargets: Map<string, string>,
-  contentTypeOf: (part: string) => string | undefined,
+  mediaContentType: (part: string) => string,
   signal?: AbortSignal,
 ): ParseContext {
   return {
     styles: index.styles,
     numbering: index.numbering,
-    notes: index.notes,
+    notes,
     theme: index.theme,
     relTargets,
     hyperlinks: index.hyperlinks,
-    contentTypeOf,
+    mediaContentType,
     footnoteLabels: new Map(),
     footnoteOrder: [],
     counters: new Map(),
@@ -469,38 +525,15 @@ function headerFooterParts(
     .map((ref) => ref.target);
 }
 
-async function rootForPart(pkg: OpcPackage, part: string, signal?: AbortSignal): Promise<XmlElement | undefined> {
-  throwIfAborted(signal);
-  if (!pkg.hasPart(part)) return undefined;
-  const root = parseXml(await pkg.readText(part, signal));
-  throwIfAborted(signal);
-  return root;
-}
-
 /**
- * Index a DOCX without inflating drawing media: document/styles/numbering/
- * notes/theme plus the header/footer part order. Media bytes stay in the
- * package until a renderer asks for them through the media route.
+ * Index a DOCX without reading its body or inflating drawing media:
+ * styles, numbering, theme, relationships and title. `document.xml` and the
+ * notes are read by `parseDocxSections`; media bytes stay in the package
+ * until a renderer asks for them through the media route.
  */
 export async function indexDocx(pkg: OpcPackage, signal?: AbortSignal): Promise<DocxIndex> {
   throwIfAborted(signal);
-  const packageRelationships = await pkg.packageRelationships(signal);
-  throwIfAborted(signal);
-  const office = packageRelationships.find((relationship) => relationship.type.endsWith("/officeDocument"));
-  if (office === undefined || office.targetMode === "External") {
-    throw new Error("aared/core: DOCX has no internal officeDocument relationship");
-  }
-  const contentType = pkg.contentTypeOf(office.target);
-  if (
-    contentType !== "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
-    && contentType !== "application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml"
-  ) {
-    throw new Error("aared/core: package is not a Word document");
-  }
-  const documentPart = office.target;
-  const documentRoot = await rootForPart(pkg, documentPart, signal);
-  const body = documentRoot === undefined ? undefined : firstChild(documentRoot, "body");
-  if (body === undefined) throw new Error(`aared/core: document "${documentPart}" is missing w:body`);
+  const documentPart = await pkg.officeDocument("docx", signal);
   throwIfAborted(signal);
 
   const relationships = await pkg.relationships(documentPart, signal);
@@ -525,34 +558,41 @@ export async function indexDocx(pkg: OpcPackage, signal?: AbortSignal): Promise<
   }
 
   const styles = parseStyles(
-    stylesPart === undefined ? undefined : await rootForPart(pkg, stylesPart, signal),
+    stylesPart === undefined ? undefined : await pkg.readXmlIfPresent(stylesPart, signal),
     signal,
   );
   const numbering = parseNumbering(
-    numberingPart === undefined ? undefined : await rootForPart(pkg, numberingPart, signal),
+    numberingPart === undefined ? undefined : await pkg.readXmlIfPresent(numberingPart, signal),
     signal,
   );
-  const notes = new Map<string, XmlElement>();
-  for (const [part, prefix, local] of [
-    [footnotesPart, "f", "footnote"],
-    [endnotesPart, "e", "endnote"],
-  ] as const) {
-    const parsed = part === undefined ? undefined : await rootForPart(pkg, part, signal);
-    throwIfAborted(signal);
-    for (const [id, note] of parseNotes(parsed, prefix, local, signal)) notes.set(id, note);
-  }
   const theme = await readDrawingTheme(pkg, signal);
+  throwIfAborted(signal);
+  const title = await pkg.coreTitle(signal);
   throwIfAborted(signal);
   return {
     documentPart,
-    body,
+    notesParts: { footnotes: footnotesPart, endnotes: endnotesPart },
     styles,
     numbering,
-    notes,
     theme,
     relTargets,
     hyperlinks,
+    title: title === undefined ? undefined : ownString(title),
   };
+}
+
+/** Footnote and endnote entries by `f`/`e`-prefixed id (separators excluded), for one section parse. */
+async function readNotes(pkg: OpcPackage, index: DocxIndex, signal?: AbortSignal): Promise<Map<string, XmlElement>> {
+  const notes = new Map<string, XmlElement>();
+  for (const [part, prefix, local] of [
+    [index.notesParts.footnotes, "f", "footnote"],
+    [index.notesParts.endnotes, "e", "endnote"],
+  ] as const) {
+    const parsed = part === undefined ? undefined : await pkg.readXmlIfPresent(part, signal);
+    throwIfAborted(signal);
+    for (const [id, note] of parseNotes(parsed, prefix, local, signal)) notes.set(id, note);
+  }
+  return notes;
 }
 
 type BlockDraft = { node: FlowNode } | { listItem: { numId: string; ilvl: number; paragraph: DocxParagraphNode } };
@@ -567,6 +607,19 @@ interface RunDraft {
    */
   pageBreak: boolean;
   softBreak: boolean;
+}
+
+/**
+ * One open complex field (`fldChar` begin → separate → end). The frames span
+ * the sibling runs of a paragraph, since Word splits a field across runs.
+ */
+interface FieldFrame {
+  /** The live PAGE/NUMPAGES run, once its instruction has been read. */
+  live?: TextRunModel;
+  /** True between `separate` and `end`: the runs there are the cached result. */
+  inResult: boolean;
+  /** Text of the cached result runs, diverted off the flow while `live` is set. */
+  cached: string;
 }
 
 function pageBreakNode(strength: DocxPageBreakNode["strength"]): DocxPageBreakNode {
@@ -615,6 +668,8 @@ function finalizeRun(
   if (props.verticalAlign !== undefined) run.verticalAlign = props.verticalAlign;
   if (props.highlight !== undefined) run.highlight = props.highlight;
   if (props.shading !== undefined) run.shading = props.shading;
+  if (props.letterSpacingPt !== undefined && props.letterSpacingPt !== 0) run.letterSpacingPt = props.letterSpacingPt;
+  if (props.caps !== undefined) run.caps = props.caps;
   if (extra !== undefined) Object.assign(run, extra);
   return run;
 }
@@ -667,7 +722,7 @@ function parseDrawing(drawing: XmlElement, ctx: ParseContext): DocxImageNode | D
   return {
     type: "image",
     mediaId: target,
-    contentType: ctx.contentTypeOf(target) ?? "application/octet-stream",
+    contentType: ctx.mediaContentType(target),
     width: emuToInches(widthEmu),
     height: emuToInches(heightEmu),
     ...(alt === undefined ? {} : { alt }),
@@ -698,9 +753,9 @@ function parseVmlPicture(pict: XmlElement, ctx: ParseContext): DocxImageNode | D
   return {
     type: "image",
     mediaId: target,
-    contentType: ctx.contentTypeOf(target) ?? "application/octet-stream",
-    width: Number(width[1]) / 72,
-    height: Number(height[1]) / 72,
+    contentType: ctx.mediaContentType(target),
+    width: ptToInches(Number(width[1])),
+    height: ptToInches(Number(height[1])),
   };
 }
 
@@ -717,6 +772,7 @@ function parseRunContent(
   paragraphText: string,
   href: string | undefined,
   draft: RunDraft,
+  fields: FieldFrame[],
 ): void {
   throwIfAborted(ctx.signal);
   let pending = "";
@@ -726,14 +782,23 @@ function parseRunContent(
     pending = "";
     if (finalized !== undefined) draft.runs.push(finalized);
   };
+  // The cached result of a live PAGE/NUMPAGES field is not flow content: the
+  // field evaluates per page, so painting the cache too prints "Page 21 of 42".
+  const liveResult = (): FieldFrame | undefined => {
+    const frame = fields[fields.length - 1];
+    return frame !== undefined && frame.live !== undefined && frame.inResult ? frame : undefined;
+  };
   for (const child of run.children) {
     throwIfAborted(ctx.signal);
     switch (child.local) {
-      case "t":
-        pending += child.text;
+      case "t": {
+        const frame = liveResult();
+        if (frame === undefined) pending += child.text;
+        else frame.cached += child.text;
         break;
+      }
       case "tab":
-        pending += "\t";
+        if (liveResult() === undefined) pending += "\t";
         break;
       case "br":
       case "cr": {
@@ -749,7 +814,7 @@ function parseRunContent(
         break;
       }
       case "noBreakHyphen":
-        pending += "‑";
+        pending += NON_BREAKING_HYPHEN;
         break;
       case "sym": {
         const font = attr(child, "font");
@@ -771,7 +836,25 @@ function parseRunContent(
       case "drawing": {
         flush();
         const image = parseDrawing(child, ctx);
-        if (image !== undefined) draft.blocks.push(image);
+        if (image === undefined) break;
+        // A picture in a paragraph that also carries text stays on that line
+        // (a header logo beside its wordmark); a picture-only paragraph keeps
+        // the block image with its host alignment.
+        if (image.type === "image" && image.float === undefined && paragraphText.trim() !== "" && firstChild(child, "inline") !== undefined) {
+          draft.runs.push({
+            text: "",
+            image: {
+              mediaId: image.mediaId,
+              contentType: image.contentType,
+              width: image.width,
+              height: image.height,
+              ...(image.alt === undefined ? {} : { alt: image.alt }),
+            },
+            ...(href === undefined ? {} : { hyperlink: href }),
+          });
+        } else {
+          draft.blocks.push(image);
+        }
         break;
       }
       case "pict": {
@@ -804,23 +887,41 @@ function parseRunContent(
       case "endnoteRef":
       case "separator":
       case "continuationSeparator":
-      case "fldChar":
       case "delText":
       case "rPr":
         break;
+      case "fldChar": {
+        flush();
+        const type = attr(child, "fldCharType");
+        if (type === "begin") {
+          fields.push({ inResult: false, cached: "" });
+        } else if (type === "separate") {
+          const frame = fields[fields.length - 1];
+          if (frame !== undefined) frame.inResult = true;
+        } else if (type === "end") {
+          const frame = fields.pop();
+          // Keep the cache on the live run: it is the flow-mode fallback text.
+          if (frame?.live !== undefined && frame.cached !== "") frame.live.text = frame.cached;
+        }
+        break;
+      }
       case "lastRenderedPageBreak":
         // Stale Word layout hint: a preferred (not mandatory) split point.
         flush();
         draft.softBreak = true;
         break;
       case "instrText": {
-        const instruction = child.text.trim().split(/\s+/)[0]?.toUpperCase();
-        // Static flow renders PAGE/NUMPAGES as the single flowing page
-        // fiction; layout pagination substitutes the real values per page.
-        if (instruction === "PAGE" || instruction === "NUMPAGES") {
+        // Layout pagination substitutes the real PAGE/NUMPAGES per page; static
+        // flow falls back to the field's cached result ("1" when it has none).
+        const field = pageField(child.text);
+        if (field !== undefined) {
           flush();
-          const field = finalizeRun(ctx, props, paragraphText, "1", { field: instruction });
-          if (field !== undefined) draft.runs.push(field);
+          const marker = finalizeRun(ctx, props, paragraphText, "1", { field });
+          if (marker !== undefined) {
+            draft.runs.push(marker);
+            const frame = fields[fields.length - 1];
+            if (frame !== undefined && !frame.inResult && frame.live === undefined) frame.live = marker;
+          }
         }
         break;
       }
@@ -829,6 +930,12 @@ function parseRunContent(
     }
   }
   flush();
+}
+
+/** The live page field a field instruction names (`PAGE`, `NUMPAGES`), if it is one. */
+function pageField(instruction: string | undefined): "PAGE" | "NUMPAGES" | undefined {
+  const name = instruction?.trim().split(/\s+/)[0]?.toUpperCase();
+  return name === "PAGE" || name === "NUMPAGES" ? name : undefined;
 }
 
 function paragraphTextOf(paragraph: XmlElement): string {
@@ -869,7 +976,7 @@ function emitDraft(
   runs: TextRunModel[],
   pieces: FlowNode[],
   flushRuns: () => void,
-  align: DocxTextAlign | undefined,
+  align: TextAlign | undefined,
 ): void {
   runs.push(...draft.runs);
   for (const block of draft.blocks) {
@@ -899,36 +1006,78 @@ function layoutFor(props: ResolvedParaProps, direction: TextDirection): DocxPara
   if (props.firstLineIndent !== undefined) layout.firstLineIndent = props.firstLineIndent;
   if (props.shading !== undefined) layout.shading = props.shading;
   if (props.borders !== undefined && Object.keys(props.borders).length > 0) layout.borders = props.borders;
+  if (props.tabs !== undefined && props.tabs.length > 0) layout.tabStops = props.tabs;
   return layout;
 }
 
-function applyLayout(node: DocxParagraphNode | DocxHeadingNode, layout: DocxParagraphLayout): void {
-  if (layout.fontSizePt !== undefined) node.fontSizePt = layout.fontSizePt;
-  if (layout.align !== undefined) node.align = layout.align;
-  if (layout.lineSpacing !== undefined) node.lineSpacing = layout.lineSpacing;
-  if (layout.lineSpacingPt !== undefined) node.lineSpacingPt = layout.lineSpacingPt;
-  if (layout.spaceBeforePt !== undefined) node.spaceBeforePt = layout.spaceBeforePt;
-  if (layout.spaceAfterPt !== undefined) node.spaceAfterPt = layout.spaceAfterPt;
-  if (layout.leftIndent !== undefined) node.leftIndent = layout.leftIndent;
-  if (layout.rightIndent !== undefined) node.rightIndent = layout.rightIndent;
-  if (layout.firstLineIndent !== undefined) node.firstLineIndent = layout.firstLineIndent;
-  if (layout.shading !== undefined) node.shading = layout.shading;
-  if (layout.borders !== undefined) node.borders = layout.borders;
+/**
+ * Every field of `DocxParagraphLayout`. A record over the interface's keys, so
+ * adding a layout field without listing it here fails to compile instead of
+ * silently dropping it when a paragraph becomes a heading.
+ */
+const LAYOUT_FIELDS: Record<keyof DocxParagraphLayout, true> = {
+  fontSizePt: true,
+  align: true,
+  tabStops: true,
+  lineSpacing: true,
+  lineSpacingPt: true,
+  spaceBeforePt: true,
+  spaceAfterPt: true,
+  leftIndent: true,
+  rightIndent: true,
+  firstLineIndent: true,
+  shading: true,
+  borders: true,
+};
+const LAYOUT_KEYS = Object.keys(LAYOUT_FIELDS) as Array<keyof DocxParagraphLayout>;
+
+/** The layout a paragraph or heading node carries, present fields only. */
+function layoutOf(node: DocxParagraphLayout): DocxParagraphLayout {
+  const layout: Record<string, unknown> = {};
+  for (const key of LAYOUT_KEYS) if (node[key] !== undefined) layout[key] = node[key];
+  return layout as DocxParagraphLayout;
+}
+
+/**
+ * A paragraph's effective properties. Precedence: docDefaults < style chain
+ * (base first) < direct formatting; tab stops accumulate across all three.
+ */
+function resolveParaProps(
+  styles: StyleData,
+  directPPr: XmlElement | undefined,
+  defaultStyleId?: string,
+): { merged: ResolvedParaProps; styleId: string | undefined } {
+  const directProps: ResolvedParaProps = {};
+  readParaProps(directPPr, directProps);
+  const styleId = directProps.styleId ?? defaultStyleId;
+  const merged: ResolvedParaProps = {};
+  if (styles.defaultPPr !== undefined) readParaProps(styles.defaultPPr, merged);
+  for (const style of paragraphAncestry(styles, styleId)) readParaProps(style.pPr, merged);
+  for (const [key, value] of Object.entries(directProps)) {
+    // Tab stops accumulate across levels rather than replace, so they merge below.
+    if (value !== undefined && key !== "tabs") (merged as Record<string, unknown>)[key] = value;
+  }
+  // A direct `w:tabs` adds to the stops inherited from the style chain, and a
+  // direct `clear` removes an inherited stop at that position.
+  const directTabs = directPPr === undefined ? undefined : firstChild(directPPr, "tabs");
+  if (directTabs !== undefined) readTabStops(directTabs, merged);
+  return { merged, styleId };
+}
+
+/**
+ * The outline level (1-9) a paragraph carries: its style's heading level, else
+ * its resolved `w:outlineLvl` (0-8; level 9 is Word's "body text"). The one
+ * rule that makes a paragraph a heading node; the public outline
+ * (`document.headings`) is read back from those nodes, never re-derived.
+ */
+function outlineLevel(styleId: string | undefined, merged: ResolvedParaProps, styles: StyleData): number | undefined {
+  return headingLevelForStyle(styleId, styles)
+    ?? (merged.outlineLvl !== undefined && merged.outlineLvl <= 8 ? merged.outlineLvl + 1 : undefined);
 }
 
 function parseParagraph(paragraph: XmlElement, ctx: ParseContext, defaultStyleId?: string): ParagraphDraft {
   throwIfAborted(ctx.signal);
-  const directPPr = firstChild(paragraph, "pPr");
-  const directProps: ResolvedParaProps = {};
-  readParaProps(directPPr, directProps);
-  const styleId = directProps.styleId ?? defaultStyleId;
-  // Precedence: docDefaults < style chain (base first) < direct formatting.
-  const merged: ResolvedParaProps = {};
-  if (ctx.styles.defaultPPr !== undefined) readParaProps(ctx.styles.defaultPPr, merged);
-  for (const style of paragraphAncestry(ctx.styles, styleId)) readParaProps(style.pPr, merged);
-  for (const [key, value] of Object.entries(directProps)) {
-    if (value !== undefined) (merged as Record<string, unknown>)[key] = value;
-  }
+  const { merged, styleId } = resolveParaProps(ctx.styles, firstChild(paragraph, "pPr"), defaultStyleId);
 
   const direction: TextDirection = merged.bidi === true ? "rtl" : "ltr";
   const text = paragraphTextOf(paragraph);
@@ -937,31 +1086,41 @@ function parseParagraph(paragraph: XmlElement, ctx: ParseContext, defaultStyleId
   if (defaultSize !== undefined && merged.fontSizePt === undefined) merged.fontSizePt = defaultSize;
 
   const pieces: FlowNode[] = [];
+  const fields: FieldFrame[] = [];
   let runs: TextRunModel[] = [];
   const flushRuns = (): void => {
     if (runs.length === 0) return;
-    const node: DocxParagraphNode = { type: "paragraph", runs, direction };
-    applyLayout(node, layoutFor(merged, direction));
+    const node: DocxParagraphNode = { type: "paragraph", runs, direction, ...layoutFor(merged, direction) };
     if (styleId !== undefined) node.styleId = styleId;
     pieces.push(node);
     runs = [];
   };
 
+  /**
+   * Read one `w:r` into the open paragraph. `styleOf` maps the run's own
+   * `rStyle` to the character style it takes: most runs keep it, a
+   * hyperlink's runs fall back to the Hyperlink style.
+   */
+  const readRun = (run: XmlElement, href: string | undefined, styleOf: (own: string | undefined) => string | undefined): void => {
+    const direct = firstChild(run, "rPr");
+    const rStyle = direct === undefined ? undefined : firstChild(direct, "rStyle");
+    const props = baseRunProps(ctx, styleId, styleOf(rStyle === undefined ? undefined : attr(rStyle, "val")));
+    readRunProps(direct, props, ctx.theme);
+    const draft: RunDraft = { runs: [], blocks: [], pageBreak: false, softBreak: false };
+    parseRunContent(run, ctx, props, text, href, draft, fields);
+    emitDraft(draft, runs, pieces, flushRuns, paraAlign);
+  };
+  const ownStyle = (own: string | undefined): string | undefined => own;
+
   for (const child of contentChildren(paragraph)) {
     throwIfAborted(ctx.signal);
     if (child.local === "pPr") continue;
     if (child.local === "r") {
-      const direct = firstChild(child, "rPr");
-      const charStyle = direct === undefined ? undefined : firstChild(direct, "rStyle");
-      const charStyleId = charStyle === undefined ? undefined : attr(charStyle, "val");
-      const props = baseRunProps(ctx, styleId, charStyleId);
-      readRunProps(direct, props, ctx.theme);
-      const draft: RunDraft = { runs: [], blocks: [], pageBreak: false, softBreak: false };
-      parseRunContent(child, ctx, props, text, undefined, draft);
-      emitDraft(draft, runs, pieces, flushRuns, paraAlign);
+      readRun(child, undefined, ownStyle);
       continue;
     }
     if (child.local === "hyperlink") {
+      const tocParagraph = styleId !== undefined && /^toc\s?\d$/i.test(styleId);
       const rid = attr(child, "id");
       const anchor = attr(child, "anchor");
       const href = rid !== undefined && ctx.hyperlinks.get(rid) !== undefined
@@ -969,57 +1128,51 @@ function parseParagraph(paragraph: XmlElement, ctx: ParseContext, defaultStyleId
         : anchor !== undefined
           ? `#${anchor}`
           : undefined;
+      // A TOC's own `\h` links carry the Hyperlink style, but Word paints
+      // them as plain TOC text: the entry keeps its paragraph formatting.
+      const linkStyle = (own: string | undefined): string | undefined => (tocParagraph ? undefined : own ?? "Hyperlink");
       for (const run of contentChildren(child)) {
-        if (run.local !== "r") continue;
-        const direct = firstChild(run, "rPr");
-        const charStyle = direct === undefined ? undefined : firstChild(direct, "rStyle");
-        const charStyleId = charStyle === undefined ? undefined : attr(charStyle, "val");
-        const props = baseRunProps(ctx, styleId, charStyleId ?? "Hyperlink");
-        readRunProps(direct, props, ctx.theme);
-        const draft: RunDraft = { runs: [], blocks: [], pageBreak: false, softBreak: false };
-        parseRunContent(run, ctx, props, text, href, draft);
-        emitDraft(draft, runs, pieces, flushRuns, paraAlign);
+        if (run.local === "r") readRun(run, href, linkStyle);
       }
       continue;
     }
     if (child.local === "sdt") {
+      // A content control's runs are ordinary runs: they keep their own character style.
       const content = firstChild(child, "sdtContent");
       if (content === undefined) continue;
       for (const nested of contentChildren(content)) {
-        if (nested.local !== "r") continue;
-        const direct = firstChild(nested, "rPr");
-        const props = baseRunProps(ctx, styleId, undefined);
-        readRunProps(direct, props, ctx.theme);
-        const draft: RunDraft = { runs: [], blocks: [], pageBreak: false, softBreak: false };
-        parseRunContent(nested, ctx, props, text, undefined, draft);
-        emitDraft(draft, runs, pieces, flushRuns, paraAlign);
+        if (nested.local === "r") readRun(nested, undefined, ownStyle);
       }
       continue;
     }
     if (child.local === "fldSimple") {
-      const instruction = attr(child, "instr")?.trim().split(/\s+/)[0]?.toUpperCase();
-      if (instruction === "PAGE" || instruction === "NUMPAGES") {
-        const marker = finalizeRun(ctx, baseRunProps(ctx, styleId, undefined), text, "1", { field: instruction });
+      const field = pageField(attr(child, "instr"));
+      if (field !== undefined) {
+        const cached = paragraphTextOf(child);
+        const marker = finalizeRun(ctx, baseRunProps(ctx, styleId, undefined), text, cached === "" ? "1" : cached, { field });
         if (marker !== undefined) runs.push(marker);
+      } else {
+        // Any other simple field (DATE, TITLE, REF…) shows the result Word cached in it.
+        for (const run of contentChildren(child)) {
+          if (run.local === "r") readRun(run, undefined, ownStyle);
+        }
       }
       continue;
     }
   }
   flushRuns();
 
-  const headingLevel = headingLevelForStyle(styleId, ctx.styles)
-    ?? (merged.outlineLvl !== undefined && merged.outlineLvl <= 8 ? merged.outlineLvl + 1 : undefined);
+  const headingLevel = outlineLevel(styleId, merged, ctx.styles);
   const nodes: FlowNode[] = pieces.map((piece): FlowNode => {
     if (piece.type !== "paragraph" || headingLevel === undefined) return piece;
-    const heading: DocxHeadingNode = {
+    return {
       type: "heading",
       level: headingLevel,
-      text: piece.runs.map((run) => run.text).join(""),
+      text: runsText(piece.runs),
       direction: piece.direction,
       runs: piece.runs,
+      ...layoutOf(piece),
     };
-    applyLayout(heading, paragraphLayoutOf(piece));
-    return heading;
   });
 
   const filtered = nodes.filter((node) => node.type !== "paragraph" || node.runs.length > 0);
@@ -1033,22 +1186,6 @@ function parseParagraph(paragraph: XmlElement, ctx: ParseContext, defaultStyleId
     ...(merged.numId === undefined ? {} : { numId: merged.numId }),
     ilvl: merged.ilvl ?? 0,
   };
-}
-
-function paragraphLayoutOf(piece: DocxParagraphNode): DocxParagraphLayout {
-  const layout: DocxParagraphLayout = {};
-  if (piece.fontSizePt !== undefined) layout.fontSizePt = piece.fontSizePt;
-  if (piece.align !== undefined) layout.align = piece.align;
-  if (piece.lineSpacing !== undefined) layout.lineSpacing = piece.lineSpacing;
-  if (piece.lineSpacingPt !== undefined) layout.lineSpacingPt = piece.lineSpacingPt;
-  if (piece.spaceBeforePt !== undefined) layout.spaceBeforePt = piece.spaceBeforePt;
-  if (piece.spaceAfterPt !== undefined) layout.spaceAfterPt = piece.spaceAfterPt;
-  if (piece.leftIndent !== undefined) layout.leftIndent = piece.leftIndent;
-  if (piece.rightIndent !== undefined) layout.rightIndent = piece.rightIndent;
-  if (piece.firstLineIndent !== undefined) layout.firstLineIndent = piece.firstLineIndent;
-  if (piece.shading !== undefined) layout.shading = piece.shading;
-  if (piece.borders !== undefined) layout.borders = piece.borders;
-  return layout;
 }
 
 function mergedFontSize(ctx: ParseContext, styleId: string | undefined): number | undefined {
@@ -1076,7 +1213,7 @@ function groupListItems(drafts: BlockDraft[], ctx: ParseContext): FlowNode[] {
     const { numId, ilvl, paragraph } = draft.listItem;
     const abstractId = ctx.numbering.nums.get(numId);
     const levels = abstractId === undefined ? undefined : ctx.numbering.abstracts.get(abstractId);
-    const fallback: NumberingLevel = { numFmt: "bullet", lvlText: "•", start: 1 };
+    const fallback: NumberingLevel = { numFmt: "bullet", lvlText: BULLET, start: 1 };
     const level = levels?.get(ilvl) ?? fallback;
     const knownLevels = levels ?? new Map<number, NumberingLevel>([[ilvl, level]]);
     if (open === undefined || open.numId !== numId) {
@@ -1092,7 +1229,15 @@ function groupListItems(drafts: BlockDraft[], ctx: ParseContext): FlowNode[] {
     for (let depth = ilvl + 1; depth < counters.length; depth++) counters[depth] = 0;
     const ordered = isOrderedFormat(level.numFmt);
     const marker = markerFor(level, knownLevels, ilvl, counters);
-    const item: DocxListItemNode = { level: ilvl, ordered, marker, paragraph };
+    const markerRun = markerRunFor(ctx, level, paragraph, marker);
+    const item: DocxListItemNode = {
+      level: ilvl,
+      ordered,
+      marker,
+      ...(markerRun === undefined ? {} : { markerRun }),
+      ...(level.suffix === undefined || level.suffix === "tab" ? {} : { markerSuffix: level.suffix }),
+      paragraph,
+    };
     // Numbering indents apply only when the paragraph sets none of its own:
     // direct `w:ind` always wins over the level default.
     if (item.paragraph.leftIndent === undefined && level.indentLeft !== undefined) {
@@ -1105,6 +1250,55 @@ function groupListItems(drafts: BlockDraft[], ctx: ParseContext): FlowNode[] {
   }
   close();
   return out;
+}
+
+function tableEdge(edge: XmlElement): DocxTableEdge | undefined {
+  const val = attr(edge, "val");
+  if (val === undefined) return undefined;
+  if (val === "nil" || val === "none") return "none";
+  return paragraphBorder(edge);
+}
+
+function readEdges<K extends string>(parent: XmlElement | undefined, names: readonly K[]): Partial<Record<K, DocxTableEdge>> | undefined {
+  if (parent === undefined) return undefined;
+  const out: Partial<Record<K, DocxTableEdge>> = {};
+  for (const edge of parent.children) {
+    const name = names.find((candidate) => candidate === edge.local || (candidate === "left" && edge.local === "start") || (candidate === "right" && edge.local === "end"));
+    if (name === undefined) continue;
+    const resolved = tableEdge(edge);
+    if (resolved !== undefined) out[name] = resolved;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function readMargins(parent: XmlElement | undefined): InsetsModel | undefined {
+  if (parent === undefined) return undefined;
+  const out: InsetsModel = {};
+  for (const edge of parent.children) {
+    const value = numberAttr(edge, "w", "w:tcMar");
+    if (value === undefined) continue;
+    const inches = twipsToInches(value);
+    if (edge.local === "top") out.top = inches;
+    else if (edge.local === "bottom") out.bottom = inches;
+    else if (edge.local === "left" || edge.local === "start") out.left = inches;
+    else if (edge.local === "right" || edge.local === "end") out.right = inches;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Word's Normal Table default cell padding: 0.075in at the sides. */
+const NORMAL_TABLE_MARGINS: InsetsModel = { top: 0, bottom: 0, left: twipsToInches(108), right: twipsToInches(108) };
+
+/**
+ * A list marker's own formatting: the paragraph's run defaults with the numbering
+ * level's `w:rPr` on top, resolved like any run so colour, weight, size and
+ * family come out the same way. Absent when the level authors no formatting.
+ */
+function markerRunFor(ctx: ParseContext, level: NumberingLevel, paragraph: DocxParagraphNode, marker: string): TextRunModel | undefined {
+  if (level.rPr === undefined) return undefined;
+  const props = baseRunProps(ctx, paragraph.styleId, undefined);
+  readRunProps(level.rPr, props, ctx.theme);
+  return finalizeRun(ctx, props, marker, marker);
 }
 
 function parseTableCell(cell: XmlElement, ctx: ParseContext, origins: Array<DocxTableCellNode | undefined>, column: number): DocxTableCellNode | undefined {
@@ -1131,6 +1325,8 @@ function parseTableCell(cell: XmlElement, ctx: ParseContext, origins: Array<Docx
   const vAlignValue = vAlign === undefined ? undefined : attr(vAlign, "val");
   const shading = tcPr === undefined ? undefined : firstChild(tcPr, "shd");
   const fill = shading === undefined ? undefined : hexColor(attr(shading, "fill"));
+  const cellMargins = readMargins(tcPr === undefined ? undefined : firstChild(tcPr, "tcMar"));
+  const cellBorders = readEdges(tcPr === undefined ? undefined : firstChild(tcPr, "tcBorders"), ["top", "right", "bottom", "left"] as const);
   const drafts: BlockDraft[] = [];
   for (const child of cell.children) {
     throwIfAborted(ctx.signal);
@@ -1159,8 +1355,10 @@ function parseTableCell(cell: XmlElement, ctx: ParseContext, origins: Array<Docx
         ? { verticalAlign: "bottom" as const }
         : {}),
     ...(fill === undefined ? {} : { shading: fill }),
+    ...(cellMargins === undefined ? {} : { margins: cellMargins }),
+    ...(cellBorders === undefined ? {} : { borders: cellBorders }),
     ...(columnSpan <= 1 ? {} : { columnSpan }),
-    ...(widthValue === undefined ? {} : { width: dxaToInches(widthValue) }),
+    ...(widthValue === undefined ? {} : { width: twipsToInches(widthValue) }),
   };
   origins[column] = cellNode;
   for (let index = 1; index < columnSpan; index++) origins[column + index] = undefined;
@@ -1175,7 +1373,7 @@ function parseTable(table: XmlElement, ctx: ParseContext): FlowNode | undefined 
   const grid = firstChild(table, "tblGrid");
   const columns = grid === undefined
     ? []
-    : childElements(grid, "gridCol").map((column) => dxaToInches(numberAttr(column, "w", "w:gridCol") ?? 0));
+    : childElements(grid, "gridCol").map((column) => twipsToInches(numberAttr(column, "w", "w:gridCol") ?? 0));
   const rows: DocxTableRowNode[] = [];
   const origins: Array<DocxTableCellNode | undefined> = [];
   for (const row of childElements(table, "tr")) {
@@ -1192,12 +1390,24 @@ function parseTable(table: XmlElement, ctx: ParseContext): FlowNode | undefined 
       column += span;
     }
     rows.push({
-      ...(heightValue === undefined ? {} : { height: dxaToInches(heightValue) }),
+      ...(heightValue === undefined ? {} : { height: twipsToInches(heightValue) }),
       cells,
     });
   }
   if (rows.length === 0) return undefined;
-  return { type: "table", direction, columns, rows };
+  const tblW = tblPr === undefined ? undefined : firstChild(tblPr, "tblW");
+  const widthValue = tblW === undefined || (attr(tblW, "type") ?? "dxa") !== "dxa" ? undefined : numberAttr(tblW, "w", "w:tblW");
+  const borders = readEdges(tblPr === undefined ? undefined : firstChild(tblPr, "tblBorders"), ["top", "right", "bottom", "left", "insideH", "insideV"] as const) as DocxTableBorders | undefined;
+  const cellMargins = { ...NORMAL_TABLE_MARGINS, ...readMargins(tblPr === undefined ? undefined : firstChild(tblPr, "tblCellMar")) };
+  return {
+    type: "table",
+    direction,
+    columns,
+    rows,
+    ...(widthValue === undefined || widthValue <= 0 ? {} : { width: twipsToInches(widthValue) }),
+    ...(borders === undefined ? {} : { borders }),
+    cellMargins,
+  };
 }
 
 function parseBlocks(parent: XmlElement, ctx: ParseContext): BlockDraft[] {
@@ -1244,7 +1454,8 @@ function footnoteDirection(nodes: FlowNode[]): TextDirection {
 }
 
 /**
- * Inflate and parse the document's sections. `root` order is document order
+ * Inflate and parse the document's sections: reads the notes, streams the
+ * body, and keeps nothing afterwards. `root` order is document order
  * within each section and each entry is an independent virtualization block
  * (see the `DocumentSection` contract in `core/model.ts`). Footnote entries
  * resolve onto the last section in reference order so flow rendering keeps a
@@ -1256,10 +1467,23 @@ export async function parseDocxSections(
   signal?: AbortSignal,
 ): Promise<DocumentSection[]> {
   throwIfAborted(signal);
-  const contentTypeOf = (part: string): string | undefined => pkg.contentTypeOf(part);
-  const ctx = partContext(index, new Map(index.relTargets), contentTypeOf, signal);
-  const drafts = parseBodySections(index.body, ctx);
+  const mediaContentType = (part: string): string => pkg.mediaContentType(part);
+  // Notes first: a footnote reference in the body becomes a marker only when its note exists.
+  const notes = await readNotes(pkg, index, signal);
+  const ctx = partContext(index, notes, new Map(index.relTargets), mediaContentType, signal);
+  const drafts = await parseBodySections(pkg, index.documentPart, ctx);
   const sections: DocumentSection[] = [];
+  // Sections usually inherit the same header/footer parts: parse each once
+  // and share the (read-only) node list between the sections using it.
+  const headerFooters = new Map<string, FlowNode[]>();
+  const headerFooter = async (part: string): Promise<FlowNode[]> => {
+    let nodes = headerFooters.get(part);
+    if (nodes === undefined) {
+      nodes = await parseHeaderFooterPart(pkg, index, notes, part, mediaContentType, signal);
+      headerFooters.set(part, nodes);
+    }
+    return nodes;
+  };
   for (const draft of drafts) {
     throwIfAborted(signal);
     const root = groupListItems(draft.drafts, ctx);
@@ -1268,12 +1492,12 @@ export async function parseDocxSections(
     // referenced part wins, the rest are first/even-page alternates.
     const headerPart = draft.properties.headerRefs[0];
     if (headerPart !== undefined) {
-      const header = await parseHeaderFooterPart(pkg, index, headerPart, contentTypeOf, signal);
+      const header = await headerFooter(headerPart);
       if (header.length > 0) section.header = header;
     }
     const footerPart = draft.properties.footerRefs[0];
     if (footerPart !== undefined) {
-      const footer = await parseHeaderFooterPart(pkg, index, footerPart, contentTypeOf, signal);
+      const footer = await headerFooter(footerPart);
       if (footer.length > 0) section.footer = footer;
     }
     const firstHeading = root.find((node): node is DocxHeadingNode => node.type === "heading");
@@ -1285,7 +1509,7 @@ export async function parseDocxSections(
     throwIfAborted(signal);
     const note = ctx.notes.get(key);
     if (note === undefined) continue;
-    const noteCtx = partContext(index, new Map(index.relTargets), contentTypeOf, signal);
+    const noteCtx = partContext(index, notes, new Map(index.relTargets), mediaContentType, signal);
     noteCtx.footnoteLabels = ctx.footnoteLabels;
     noteCtx.footnoteOrder = ctx.footnoteOrder;
     const nodes = groupListItems(parseBlocks(note, noteCtx), noteCtx);
@@ -1304,11 +1528,12 @@ export async function parseDocxSections(
 async function parseHeaderFooterPart(
   pkg: OpcPackage,
   index: DocxIndex,
+  notes: Map<string, XmlElement>,
   part: string,
-  contentTypeOf: (part: string) => string | undefined,
+  mediaContentType: (part: string) => string,
   signal?: AbortSignal,
 ): Promise<FlowNode[]> {
-  const partRoot = await rootForPart(pkg, part, signal);
+  const partRoot = await pkg.readXmlIfPresent(part, signal);
   throwIfAborted(signal);
   if (partRoot === undefined) return [];
   const partRels = await pkg.relationships(part, signal);
@@ -1318,7 +1543,7 @@ async function parseHeaderFooterPart(
     if (relationship.targetMode !== "Internal") continue;
     targets.set(relationship.id, relationship.target);
   }
-  const partCtx = partContext(index, targets, contentTypeOf, signal);
+  const partCtx = partContext(index, notes, targets, mediaContentType, signal);
   return groupListItems(parseBlocks(partRoot, partCtx), partCtx);
 }
 
@@ -1379,44 +1604,54 @@ interface SectionDraft {
 }
 
 /**
- * Split the body into per-section block drafts. A paragraph-embedded
- * `w:pPr/w:sectPr` closes the section that precedes it (the paragraph's own
- * content belongs to the closing section); the trailing body `sectPr`
- * governs the last section.
+ * Split the body into per-section block drafts, streaming `w:body`'s
+ * children so the whole body never exists as one tree: each child is parsed
+ * and dropped. A paragraph-embedded `w:pPr/w:sectPr` closes the section that
+ * precedes it (the paragraph's own content belongs to the closing section);
+ * the last body-level `sectPr` governs the last section.
  */
-function parseBodySections(body: XmlElement, ctx: ParseContext): SectionDraft[] {
+async function parseBodySections(pkg: OpcPackage, documentPart: string, ctx: ParseContext): Promise<SectionDraft[]> {
   throwIfAborted(ctx.signal);
   const sections: SectionDraft[] = [];
   let current: BlockDraft[] = [];
-  for (const child of body.children) {
-    throwIfAborted(ctx.signal);
-    if (child.local === "p") {
-      pushParagraphDrafts(current, parseParagraph(child, ctx));
-      const pPr = firstChild(child, "pPr");
-      const embedded = pPr === undefined ? undefined : firstChild(pPr, "sectPr");
-      if (embedded !== undefined) {
-        sections.push({ drafts: current, properties: sectionPropertiesFrom(embedded, ctx.relTargets) });
-        current = [];
+  let trailing: SectionProperties | undefined;
+  const root = await pkg.readXmlIfPresent(documentPart, ctx.signal, {
+    streamChildrenOf: "body",
+    onChild: (child) => {
+      throwIfAborted(ctx.signal);
+      switch (child.local) {
+        case "p": {
+          pushParagraphDrafts(current, parseParagraph(child, ctx));
+          const pPr = firstChild(child, "pPr");
+          const embedded = pPr === undefined ? undefined : firstChild(pPr, "sectPr");
+          if (embedded !== undefined) {
+            sections.push({ drafts: current, properties: sectionPropertiesFrom(embedded, ctx.relTargets) });
+            current = [];
+          }
+          return;
+        }
+        case "tbl": {
+          const table = parseTable(child, ctx);
+          if (table !== undefined) current.push({ node: table });
+          return;
+        }
+        case "sdt": {
+          const content = firstChild(child, "sdtContent");
+          if (content !== undefined) current.push(...parseBlocks(content, ctx));
+          return;
+        }
+        case "sectPr":
+          trailing = sectionPropertiesFrom(child, ctx.relTargets);
+          return;
+        default:
+          // bookmarkStart/End and anything else at body level: skipped.
+          return;
       }
-      continue;
-    }
-    if (child.local === "tbl") {
-      const table = parseTable(child, ctx);
-      if (table !== undefined) current.push({ node: table });
-      continue;
-    }
-    if (child.local === "sdt") {
-      const content = firstChild(child, "sdtContent");
-      if (content !== undefined) current.push(...parseBlocks(content, ctx));
-      continue;
-    }
-    if (child.local === "sectPr" || child.local === "bookmarkStart" || child.local === "bookmarkEnd") continue;
+    },
+  });
+  if (root === undefined || firstChild(root, "body") === undefined) {
+    throw new Error(`aared/core: document "${documentPart}" is missing w:body`);
   }
-  let trailing: XmlElement | undefined;
-  for (const child of body.children) {
-    throwIfAborted(ctx.signal);
-    if (child.local === "sectPr") trailing = child;
-  }
-  sections.push({ drafts: current, properties: sectionPropertiesFrom(trailing, ctx.relTargets) });
+  sections.push({ drafts: current, properties: trailing ?? sectionPropertiesFrom(undefined, ctx.relTargets) });
   return sections;
 }

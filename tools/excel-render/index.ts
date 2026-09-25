@@ -1,9 +1,9 @@
 import { readdir, rm } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
+import { command, outputDirectory, requireRasterizer } from "../shared.js";
 
 const OUTPUT_ROOT = join(import.meta.dir, "out");
 const RASTER_DPI = 150;
-const PYMUPDF_PIN = "PyMuPDF==1.27.2";
 
 export interface ExcelPartSpec {
   /** 1-based tab position, matching the exported sheet index. */
@@ -66,43 +66,10 @@ interface ExportedSheet {
   parts: ExportedPart[];
 }
 
-function outputDirectory(fixturePath: string): string {
-  const stem = basename(fixturePath, extname(fixturePath)).replace(/[^A-Za-z0-9._-]+/g, "-");
-  if (stem === "") throw new Error("aared Excel export: fixture path has no usable file name");
-  return join(OUTPUT_ROOT, stem);
-}
-
-async function command(command: string, args: string[]): Promise<string> {
-  const child = Bun.spawn([command, ...args], { stdout: "pipe", stderr: "pipe" });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-  if (exitCode === 0) return stdout;
-  const detail = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n").slice(0, 4_000);
-  throw new Error(`aared Excel export: native export failed with exit code ${exitCode}${detail === "" ? "" : `:\n${detail}`}`);
-}
-
-async function requireRasterizer(): Promise<{ python: string; version: string }> {
-  const python = Bun.which("python") ?? Bun.which("python3");
-  if (python === null) {
-    throw new Error(`aared Excel export: Python with ${PYMUPDF_PIN} is required to rasterize sheet PDFs (pip install "${PYMUPDF_PIN}")`);
-  }
-  let version: string;
-  try {
-    version = (await command(python, ["-c", "import fitz; print(fitz.VersionBind)"])).trim();
-  } catch {
-    throw new Error(`aared Excel export: Python with ${PYMUPDF_PIN} is required to rasterize sheet PDFs (pip install "${PYMUPDF_PIN}")`);
-  }
-  if (version === "") throw new Error("aared Excel export: PyMuPDF did not report a version");
-  return { python, version };
-}
-
 async function rasterize(python: string, outputDir: string, pdfFile: string, dpi: number): Promise<ExcelPageRender> {
   const pdf = join(outputDir, pdfFile);
   const png = join(outputDir, pdfFile.replace(/\.pdf$/i, ".png"));
-  const dims = JSON.parse(await command(python, [
+  const dims = JSON.parse(await command("Excel", python, [
     join(import.meta.dir, "rasterize.py"), pdf, png, String(dpi),
   ])) as { width: number; height: number };
   if (!Number.isInteger(dims.width) || !Number.isInteger(dims.height) || dims.width <= 0 || dims.height <= 0) {
@@ -126,12 +93,12 @@ export async function renderExcel(fixturePath: string, parts: ExcelPartSpec[] = 
   }
   const pwsh = Bun.which("pwsh");
   if (pwsh === null) throw new Error("aared Excel export: pwsh is required to automate Microsoft Excel");
-  const { python, version: pymupdfVersion } = await requireRasterizer();
+  const { python, version: pymupdfVersion } = await requireRasterizer("Excel");
 
   const fixture = resolve(fixturePath);
-  const outputDir = outputDirectory(fixture);
+  const outputDir = outputDirectory(fixture, OUTPUT_ROOT);
   await rm(outputDir, { recursive: true, force: true });
-  await command(pwsh, [
+  await command("Excel", pwsh, [
     "-NoProfile", "-NonInteractive", "-STA", "-File", join(import.meta.dir, "export.ps1"),
     "-InputPath", fixture, "-OutputDir", outputDir,
     "-PartsJson", JSON.stringify(parts),

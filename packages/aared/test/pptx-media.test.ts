@@ -3,8 +3,9 @@ import { OpcPackage } from "../src/core/opc.js";
 import { indexPptx, parsePicture, parsePptxSlide } from "../src/core/pptx.js";
 import { parseXml } from "../src/core/xml.js";
 import type { PictureModel } from "../src/core/model.js";
+import { flattenElements } from "./fixture.js";
 
-const COVERAGE = `${import.meta.dir}/../../../fixtures/arabic-pptx-rtl-coverage.pptx`;
+const COVERAGE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 const PRODUCTION = `${import.meta.dir}/../../../fixtures/post-production-review.pptx`;
 
 async function openDeck(path: string) {
@@ -59,10 +60,11 @@ describe("PPTX pictures", () => {
   test("renders ink fallbacks as pictures instead of silently dropping them", async () => {
     const { pkg, deck } = await openDeck(COVERAGE);
     const slides = await Promise.all(deck.slideParts.map((_, index) => parsePptxSlide(pkg, deck, index)));
-    const shapesSlide = slides.flatMap((slide) => slide.elements).filter((element) => element.kind === "picture");
-    // 8 ink fallbacks plus the direct future-coverage image.
-    expect(shapesSlide).toHaveLength(9);
-    const direct = slides[2]!.elements.find((element) => element.kind === "picture" && element.id === "68");
+    // Ink fallbacks live inside groups; flatten so nested pictures still count.
+    const pictures = slides.flatMap((slide) => flattenElements(slide.elements)).filter((element) => element.kind === "picture");
+    // 8 ink fallbacks (grouped) plus the direct future-coverage image.
+    expect(pictures).toHaveLength(9);
+    const direct = flattenElements(slides[2]!.elements).find((element) => element.kind === "picture" && element.id === "68");
     expect(direct).toMatchObject({ mediaId: "ppt/media/image9.png", contentType: "image/png" });
   });
 

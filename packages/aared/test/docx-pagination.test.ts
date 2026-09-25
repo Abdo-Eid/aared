@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { OpcPackage } from "../src/core/opc.js";
 import { indexDocx, parseDocxSections } from "../src/core/docx/document.js";
-import { estimateBlockHeightPx, paginate } from "../src/core/docx/pagination.js";
+import { dropsTopSpacing, estimateBlockHeightPx, paginate } from "../src/core/docx/pagination.js";
+import { lineFontSizePt } from "../src/core/typography.js";
+import type { PageStartReason } from "../src/core/docx/pagination.js";
 import type { DocumentSection, FlowNode, TextRunModel } from "../src/core/model.js";
 
-const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/arabic-docx-bidi-coverage.docx`;
+const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/docx-coverage.docx`;
 
 function joined(node: { runs: TextRunModel[] }): string {
   return node.runs.map((run) => run.text).join("");
@@ -57,10 +59,10 @@ describe("DOCX layout pagination", () => {
     expect(layout.pages[3]?.widthPx).toBeCloseTo(1122.53, 0);
     expect(layout.pages[3]?.heightPx).toBeCloseTo(793.73, 0);
     const margins = layout.pages[0]?.marginsPx;
-    expect(margins?.top).toBeCloseTo(73.33, 1);
-    expect(margins?.right).toBeCloseTo(77.33, 1);
-    expect(margins?.bottom).toBeCloseTo(66.67, 1);
-    expect(margins?.left).toBeCloseTo(77.33, 1);
+    expect(margins?.top).toBeCloseTo(48, 1);
+    expect(margins?.right).toBeCloseTo(48, 1);
+    expect(margins?.bottom).toBeCloseTo(48, 1);
+    expect(margins?.left).toBeCloseTo(75.6, 1);
   });
 
   test("bidi-coverage fixture content maps to the Word reference structure", async () => {
@@ -181,5 +183,55 @@ describe("DOCX layout pagination", () => {
     expect(estimateBlockHeightPx(para, 639)).toBeCloseTo(8 + 18.4 + 8, 0);
     // Empty documents paginate to nothing, never a blank page.
     expect(paginate([])).toEqual({ pages: [], warnings: [] });
+  });
+
+  test("a header or footer taller than its margin pushes the body inward, never clips it", async () => {
+    const para = (sizePt: number): FlowNode => ({ type: "paragraph", runs: [{ text: "Header", fontSizePt: sizePt }], direction: "ltr" });
+    const section = (header?: FlowNode[], footer?: FlowNode[]): DocumentSection => ({
+      properties: {
+        breakType: "nextPage",
+        page: {
+          widthTwips: 12240, heightTwips: 15840, orientation: "portrait",
+          margins: { top: 720, right: 1440, bottom: 720, left: 1440, header: 360, footer: 360, gutter: 0 },
+        },
+        headerRefs: [], footerRefs: [],
+      },
+      root: [{ type: "paragraph", runs: [{ text: "body" }], direction: "ltr" }],
+      ...(header === undefined ? {} : { header }),
+      ...(footer === undefined ? {} : { footer }),
+    });
+    const tallHeader = para(30);
+    const tallFooter = para(20);
+    const [page] = paginate([section([tallHeader], [tallFooter])]).pages;
+    const columnPx = 6.5 * 96;
+    // Word grows a header down from its distance (0.25in) and starts the body below it.
+    expect(page?.bodyInsetsPx.top).toBeCloseTo(24 + estimateBlockHeightPx(tallHeader, columnPx), 1);
+    expect(page?.bodyInsetsPx.bottom).toBeCloseTo(24 + estimateBlockHeightPx(tallFooter, columnPx), 1);
+    // The authored margins are kept as authored; only the derived insets move.
+    expect(page?.marginsPx.top).toBeCloseTo(48, 1);
+    expect(page?.bodyInsetsPx.top).toBeGreaterThan(48);
+    // A short header stays inside its margin, and no header leaves the margin alone.
+    const [short] = paginate([section([para(8)]), section()]).pages;
+    expect(short?.bodyInsetsPx.top).toBeCloseTo(48, 1);
+    expect(paginate([section()]).pages[0]?.bodyInsetsPx).toEqual({ top: 48, bottom: 48 });
+  });
+
+  test("space-before survives at a section's first page and is dropped where the flow merely continues", () => {
+    const starts: PageStartReason[] = ["document", "section-next-page", "section-even-page", "section-odd-page", "explicit-page-break", "overflow"];
+    expect(starts.map(dropsTopSpacing)).toEqual([false, false, false, false, true, true]);
+  });
+
+  test("a paragraph's line box follows its runs, not its default size", () => {
+    const run = (fontSizePt?: number): TextRunModel => ({ text: "x", ...(fontSizePt === undefined ? {} : { fontSizePt }) });
+    // 9pt runs under a 10.5pt style are a 9pt line (Word's table rows of 9pt text measure 38.7px, not 42.9px).
+    expect(lineFontSizePt([run(9), run(9)], 10.5)).toBe(9);
+    // A run that states no size shows the paragraph default through, and the tallest run wins.
+    expect(lineFontSizePt([run(9), run()], 10.5)).toBe(10.5);
+    expect(lineFontSizePt([run(9), run(12)], 10.5)).toBe(12);
+    // An unsized tab between 8pt runs (a footer's "text, tab, page number") sets no size of its own.
+    expect(lineFontSizePt([run(8), { text: "\t" }, run(8)], 10.5)).toBe(8);
+    // An empty paragraph, or one with no sizes at all, falls back to the default (which may be absent).
+    expect(lineFontSizePt([{ text: "" }], 10.5)).toBe(10.5);
+    expect(lineFontSizePt([run()], undefined)).toBeUndefined();
   });
 });

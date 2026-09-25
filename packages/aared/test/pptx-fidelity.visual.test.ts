@@ -1,20 +1,11 @@
 import { expect, test } from "bun:test";
 import { indexPptx, parsePptxSlide } from "../src/core/pptx.js";
 import { OpcPackage } from "../src/core/opc.js";
+import { browserModule } from "./harness.js";
 
 const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
-const COVERAGE_PATH = `${import.meta.dir}/../../../fixtures/arabic-pptx-rtl-coverage.pptx`;
+const COVERAGE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 const PRODUCTION_PATH = `${import.meta.dir}/../../../fixtures/post-production-review.pptx`;
-
-async function browserModule(): Promise<string> {
-  const build = await Bun.build({
-    entrypoints: [`${import.meta.dir}/../src/pptx/index.ts`],
-    target: "browser",
-    format: "esm",
-  });
-  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
-  return build.outputs[0]!.text();
-}
 
 visual("visual DOM output: pictures, autofit, numbered bullets, resolved tables, and charts", async () => {
   const coveragePkg = await OpcPackage.open(await Bun.file(COVERAGE_PATH).arrayBuffer());
@@ -31,7 +22,7 @@ visual("visual DOM output: pictures, autofit, numbered bullets, resolved tables,
   const pictureBytes = await productionPkg.readPart(picture.mediaId);
   const pictureBase64 = Buffer.from(pictureBytes).toString("base64");
 
-  const module = await browserModule();
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
   const server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -218,21 +209,37 @@ visual("visual DOM output: pictures, autofit, numbered bullets, resolved tables,
         headerFill: cells[0] ? getComputedStyle(cells[0]).backgroundColor : null,
         margins: cells[0]?.dataset.aaredCellMargins,
         borders: cells[0]?.dataset.aaredCellBorders,
-        borderTop: cells[0]?.style.borderTop,
-        paddingTop: cells[0]?.style.paddingTop,
+        topEdge: (() => {
+          const edge = document.querySelector('[data-aared-element="table-cell-edges"] [data-aared-edge="top"]');
+          return edge === null ? null : getComputedStyle(edge).borderTopStyle + " " + getComputedStyle(edge).borderTopColor;
+        })(),
+        paddingTop: cells[0] ? getComputedStyle(cells[0]).paddingTop : null,
         lefts: cells.slice(0, 2).map((cell) => cell.getBoundingClientRect().left),
+        gridHeight: grid.getBoundingClientRect().height,
+        scale: document.querySelector('[data-aared-element="slide-scene"]').getBoundingClientRect().width / 1280,
+        textClipped: cells.some((cell) => cell.scrollHeight > cell.clientHeight + 1),
       };
     })()`) as {
       direction?: string; firstRow: string[]; headerFill: string | null; margins?: string;
-      borders?: string; borderTop?: string; paddingTop?: string; lefts: number[];
+      borders?: string; topEdge: string | null; paddingTop: string | null; lefts: number[];
+      gridHeight: number; scale: number; textClipped: boolean;
     };
     expect(tableOutput.direction).toBe("ltr");
     expect(tableOutput.firstRow[0]).toContain("Parameter");
     expect(tableOutput.headerFill).toBe("rgb(18, 23, 31)");
     expect(tableOutput.margins).toBe("resolved");
     expect(tableOutput.borders).toBe("resolved");
-    expect(tableOutput.borderTop).toContain("solid");
-    expect(tableOutput.paddingTop).not.toBe("0.2em");
+    expect(tableOutput.topEdge).toBe("solid rgb(216, 211, 201)");
+    // 0.05in top inset at 96 DPI, before the slide's own scale.
+    expect(Number.parseFloat(tableOutput.paddingTop!)).toBeCloseTo(4.8, 1);
+    // The frame is authored 1in tall but holds six 0.52in rows: PowerPoint
+    // grows the table to its rows, so the painted grid is the rows' total,
+    // and no cell's text is clipped.
+    const authoredRows = productionSlide5.elements.find((element) => element.kind === "table");
+    if (authoredRows?.kind !== "table") throw new Error("fixture structure changed: expected slide 5's table");
+    const rowTotal = authoredRows.rows.reduce((sum, row) => sum + (row.height ?? 0), 0) * 96 * tableOutput.scale;
+    expect(tableOutput.gridHeight).toBeGreaterThanOrEqual(rowTotal - 1);
+    expect(tableOutput.textClipped).toBe(false);
 
     // Charts paint typed primitives to SVG, never canvas.
     await view.evaluate(`renderFixture(${JSON.stringify(productionSlide4)}, null)`);

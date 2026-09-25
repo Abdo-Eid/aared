@@ -5,7 +5,7 @@ import type { SheetModel } from "../src/core/model.js";
 // rebuilt workbook that reorders sheets fails loud instead of silently
 // testing the wrong cells.
 
-const MANIFEST_PATH = `${import.meta.dir}/../../../fixtures/arabic-xlsx-rtl-coverage.json`;
+const MANIFEST_PATH = `${import.meta.dir}/../../../fixtures/xlsx-coverage.json`;
 
 interface TextSelector {
   hasText: string;

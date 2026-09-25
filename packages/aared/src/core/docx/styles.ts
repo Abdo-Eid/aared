@@ -9,9 +9,9 @@
  * `Heading1`/`Heading2` blocks.
  */
 
-import { attr, childElements, firstChild } from "../xml.js";
+import { attr, childElements, firstChild, ownString, ownTree } from "../xml.js";
 import type { XmlElement } from "../xml.js";
-import { throwIfAborted } from "../zip.js";
+import { throwIfAborted } from "../errors.js";
 
 export interface DocxStyle {
   type: "paragraph" | "character";
@@ -39,14 +39,15 @@ function readStyle(style: XmlElement): { id: string; parsed: DocxStyle } | undef
   const rPr = firstChild(style, "rPr");
   const basedOnId = basedOn === undefined ? undefined : attr(basedOn, "val");
   const displayName = name === undefined ? undefined : attr(name, "val");
+  // The session keeps styles for its lifetime: own every string, so they don't pin styles.xml.
   return {
-    id,
+    id: ownString(id),
     parsed: {
       type,
-      ...(basedOnId === undefined ? {} : { basedOn: basedOnId }),
-      ...(displayName === undefined ? {} : { name: displayName }),
-      ...(pPr === undefined ? {} : { pPr }),
-      ...(rPr === undefined ? {} : { rPr }),
+      ...(basedOnId === undefined ? {} : { basedOn: ownString(basedOnId) }),
+      ...(displayName === undefined ? {} : { name: ownString(displayName) }),
+      ...(pPr === undefined ? {} : { pPr: ownTree(pPr) }),
+      ...(rPr === undefined ? {} : { rPr: ownTree(rPr) }),
     },
   };
 }
@@ -60,8 +61,8 @@ export function parseStyles(root: XmlElement | undefined, signal?: AbortSignal):
   const pPrDefault = defaults === undefined ? undefined : firstChild(defaults, "pPrDefault");
   const defaultRPr = rPrDefault === undefined ? undefined : firstChild(rPrDefault, "rPr");
   const defaultPPr = pPrDefault === undefined ? undefined : firstChild(pPrDefault, "pPr");
-  if (defaultRPr !== undefined) data.defaultRPr = defaultRPr;
-  if (defaultPPr !== undefined) data.defaultPPr = defaultPPr;
+  if (defaultRPr !== undefined) data.defaultRPr = ownTree(defaultRPr);
+  if (defaultPPr !== undefined) data.defaultPPr = ownTree(defaultPPr);
   for (const style of childElements(root, "style")) {
     throwIfAborted(signal);
     const parsed = readStyle(style);

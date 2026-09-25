@@ -1,0 +1,15 @@
+{
+  "id": "pptx-coverage",
+  "slides": {
+    "rtl-text": { "hasText": "تقرير الإنتاج الأسبوعي" },
+    "rtl-table": { "hasText": "الاسم" },
+    "shapes": { "hasText": "أشكال ورسومات" },
+    "gradients": { "hasText": "تدرجات لونية" },
+    "bullets": { "hasText": "تنسيق التعداد النقطي" },
+    "wordart": { "hasText": "نص متوهج" },
+    "shape-fills": { "hasText": "تعبئة الأشكال" },
+    "pattern-background": { "hasText": "خلفية بنقش" },
+    "tiled-background": { "hasText": "خلفية مبلطة" },
+    "table-fills": { "hasText": "جدول بتعبئة" }
+  }
+}

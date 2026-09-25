@@ -1,5 +1,6 @@
 import { readdir, rm } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { command, outputDirectory } from "../shared.js";
 
 const OUTPUT_ROOT = join(import.meta.dir, "out");
 
@@ -10,24 +11,6 @@ export interface PowerPointRender {
   width: number;
   height: number;
   pages: string[];
-}
-
-function outputDirectory(fixturePath: string): string {
-  const stem = basename(fixturePath, extname(fixturePath)).replace(/[^A-Za-z0-9._-]+/g, "-");
-  if (stem === "") throw new Error("aared PowerPoint export: fixture path has no usable file name");
-  return join(OUTPUT_ROOT, stem);
-}
-
-async function command(command: string, args: string[]): Promise<string> {
-  const child = Bun.spawn([command, ...args], { stdout: "pipe", stderr: "pipe" });
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ]);
-  if (exitCode === 0) return stdout;
-  const detail = [stderr.trim(), stdout.trim()].filter(Boolean).join("\n").slice(0, 4_000);
-  throw new Error(`aared PowerPoint export: native export failed with exit code ${exitCode}${detail === "" ? "" : `:\n${detail}`}`);
 }
 
 /** Export a real PPTX with the installed PowerPoint renderer. Windows only. */
@@ -42,9 +25,9 @@ export async function renderPowerPoint(fixturePath: string, width = 1280): Promi
   if (pwsh === null) throw new Error("aared PowerPoint export: pwsh is required to automate Microsoft PowerPoint");
 
   const fixture = resolve(fixturePath);
-  const outputDir = outputDirectory(fixture);
+  const outputDir = outputDirectory(fixture, OUTPUT_ROOT);
   await rm(outputDir, { recursive: true, force: true });
-  await command(pwsh, ["-NoProfile", "-NonInteractive", "-STA", "-File", join(import.meta.dir, "export.ps1"), "-InputPath", fixture, "-OutputDir", outputDir, "-Width", String(width)]);
+  await command("PowerPoint", pwsh, ["-NoProfile", "-NonInteractive", "-STA", "-File", join(import.meta.dir, "export.ps1"), "-InputPath", fixture, "-OutputDir", outputDir, "-Width", String(width)]);
 
   const metadata = await Bun.file(join(outputDir, "powerpoint-export.json")).json() as Omit<PowerPointRender, "outputDir" | "pages">;
   const pages = (await readdir(outputDir))

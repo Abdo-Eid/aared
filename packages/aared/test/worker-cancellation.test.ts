@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { WorkerRequest, WorkerResponse } from "../src/core/rpc.js";
 
-const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/arabic-pptx-rtl-coverage.pptx`;
+const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 
 interface WorkerScopeForTest {
   onmessage: ((event: MessageEvent<WorkerRequest>) => void) | null;

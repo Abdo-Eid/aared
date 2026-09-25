@@ -1,22 +1,15 @@
 import { expect, test } from "bun:test";
+import { AaredError, isAaredError, isAbort } from "../src/core/index.js";
 import { open } from "../src/pptx/index.js";
+import { rejection } from "./harness.js";
 
-const ARABIC_FIXTURE = `${import.meta.dir}/../../../fixtures/arabic-pptx-rtl-coverage.pptx`;
+const ARABIC_FIXTURE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 
 async function rejectionMessage(promise: Promise<unknown>): Promise<string> {
   try {
     await promise;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
-  }
-  throw new Error("expected the request to reject");
-}
-
-async function rejection(promise: Promise<unknown>): Promise<Error> {
-  try {
-    await promise;
-  } catch (error) {
-    return error instanceof Error ? error : new Error(String(error));
   }
   throw new Error("expected the request to reject");
 }
@@ -198,6 +191,39 @@ test("rejects promptly when posting a worker request throws", async () => {
   Object.defineProperty(globalThis, "Worker", { configurable: true, value: FailingWorker });
   try {
     expect(await rejectionMessage(open(new ArrayBuffer(8)))).toContain("failed to post a Worker request: test post failure");
+  } finally {
+    if (original === undefined) delete (globalThis as { Worker?: typeof Worker }).Worker;
+    else Object.defineProperty(globalThis, "Worker", original);
+  }
+});
+
+test("reports worker boot failure as worker-error, never as aborted", async () => {
+  // A dead worker used to report "aborted", which every abort check
+  // (notably usePreview's) swallowed — the UI loaded forever instead of
+  // erroring. Boot failure must stay out of the cancellation taxonomy.
+  const original = Object.getOwnPropertyDescriptor(globalThis, "Worker");
+  class BootFailingWorker {
+    private failure: ((event: ErrorEvent) => void) | null = null;
+
+    set onmessage(_handler: unknown) {}
+
+    set onerror(handler: ((event: ErrorEvent) => void) | null) {
+      this.failure = handler;
+      queueMicrotask(() => this.failure?.({} as ErrorEvent));
+    }
+
+    postMessage(): void {}
+
+    terminate(): void {}
+  }
+
+  Object.defineProperty(globalThis, "Worker", { configurable: true, value: BootFailingWorker });
+  try {
+    const error = await rejection(open(await Bun.file(ARABIC_FIXTURE).arrayBuffer()));
+    expect(error).toBeInstanceOf(AaredError);
+    expect((error as AaredError).code).toBe("worker-error");
+    expect(isAbort(error)).toBe(false);
+    expect(isAaredError(error) && error.code === "aborted").toBe(false);
   } finally {
     if (original === undefined) delete (globalThis as { Worker?: typeof Worker }).Worker;
     else Object.defineProperty(globalThis, "Worker", original);

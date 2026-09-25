@@ -1,0 +1,428 @@
+---
+/**
+ * "By the numbers": size, open speed, memory and search, drawn
+ * from the generated results (`src/data/benchmarks.json`). Every value and
+ * every caption is computed in `src/lib/benchmarks.ts`; nothing is typed in.
+ * Charts are HTML and CSS bars; they grow and the headline numbers count up
+ * once, when they scroll into view (no motion under reduced-motion, and the
+ * final values are in the markup, so it reads the same without JavaScript).
+ */
+import BarChart from "./BarChart.astro";
+import {
+  aaredAllGzipKb,
+  aaredOpenMs,
+  fastestOther,
+  formatKb,
+  formatMb,
+  formatMs,
+  groups,
+  largestUnits,
+  lighterNotes,
+  searchGroups,
+  sizeGroups,
+  sizeSplitNote,
+  stitchedGzipKb,
+  type Bar,
+  type Benchmarks,
+} from "../lib/benchmarks.ts";
+
+interface Props {
+  data: Benchmarks;
+}
+
+const { data } = Astro.props;
+
+const allKb = aaredAllGzipKb(data);
+const stitched = stitchedGzipKb(data);
+const pptxOpen = aaredOpenMs(data, "pptx", false);
+const bigOpen = aaredOpenMs(data, "pptx", true);
+const bigUnits = largestUnits(data, "pptx");
+
+const size = sizeGroups(data);
+const sizeNotes = lighterNotes(size);
+const sizeSplit = sizeSplitNote(data);
+const open = {
+  "real-warm": groups(data, "open_warm", false),
+  "real-cold": groups(data, "open_cold", false),
+  "large-warm": groups(data, "open_warm", true, true),
+  "large-cold": groups(data, "open_cold", true, true),
+};
+const memory = {
+  "real-warm": groups(data, "heap", false),
+  "real-cold": groups(data, "heap_first", false),
+  "large-warm": groups(data, "heap", true),
+  "large-cold": groups(data, "heap_first", true),
+};
+const search = searchGroups(data);
+
+/** A caption computed from the bars, never claimed: in how many formats aared has the lowest value. */
+function versus(chart: { bars: Bar[] }[], format: (value: number) => string): string {
+  const measured = chart.filter((group) => group.bars.some((bar) => bar.ours) && fastestOther(group.bars) !== null);
+  if (measured.length === 0) return "";
+  const wins = measured.filter((group) => group.bars.find((bar) => bar.ours)!.value <= fastestOther(group.bars)!.value).length;
+  return `aared is the lowest in ${wins} of ${measured.length} formats.`;
+}
+
+const machine = data.machine;
+const machineText =
+  machine === null
+    ? ""
+    : `${machine.cpu}, ${machine.ram_gb} GB, ${String(machine.browser).replace("HeadlessChrome", "Chromium")}`;
+const measuredOn = new Date(data.generated).toLocaleDateString("en", { year: "numeric", month: "short", day: "numeric" });
+---
+
+<section class="numbers" aria-labelledby="numbers-title" data-numbers data-set="real" data-mode="warm">
+  <h2 id="numbers-title">By the numbers</h2>
+  <p class="numbers-lead">Measured on real files in a real browser, with the same open, move and destroy steps for every library. Method, machine and raw results are in <a href="https://github.com/Abdo-Eid/aared/blob/main/docs/BENCHMARKS.md">BENCHMARKS.md</a>.</p>
+
+  <ul class="stats">
+    {allKb !== null && (
+      <li class="stat" data-reveal>
+        <span class="stat-num"><span data-count={allKb.toFixed(0)}>{allKb.toFixed(0)}</span> KB</span>
+        <span class="stat-cap">
+          Downloaded to open all three formats in one page, gzipped, parse Worker included.
+          {stitched !== null && ` The lightest separate library for each format, together: ${stitched.total.toFixed(0)} KB.`}
+        </span>
+      </li>
+    )}
+    {pptxOpen !== null && (
+      <li class="stat" data-reveal>
+        <span class="stat-num"><span data-count={pptxOpen.toFixed(0)}>{pptxOpen.toFixed(0)}</span> ms</span>
+        <span class="stat-cap">To open a PowerPoint deck and paint its first slide (median of repeat opens).</span>
+      </li>
+    )}
+    {bigOpen !== null && bigUnits !== null && (
+      <li class="stat" data-reveal>
+        <span class="stat-num"><span data-count={bigOpen.toFixed(0)}>{bigOpen.toFixed(0)}</span> ms</span>
+        <span class="stat-cap">To open a {bigUnits}-slide deck: opening reads the file&rsquo;s index, not every slide.</span>
+      </li>
+    )}
+  </ul>
+
+  <div class="charts-head">
+    <div class="pillset" role="group" aria-label="File set" hidden data-toggles>
+      <button type="button" data-toggle="set" data-value="real" aria-pressed="true">Real files</button>
+      <button type="button" data-toggle="set" data-value="large" aria-pressed="false">Large files</button>
+    </div>
+    <p class="charts-note" data-only-set="real">The pinned example files in <code>fixtures/</code>. Switch to large files to see how cost grows with size.</p>
+    <p class="charts-note" data-only-set="large">Generated large files: 300 slides, 13 sheets of about 50,000 rows, a 40&times; document. The note beside each bar is how much more it cost than on the real files.</p>
+  </div>
+
+  <div class="charts">
+    {size.length > 0 && (
+      <article class="chart" data-reveal>
+        <h3>Download size</h3>
+        <p class="chart-cap">Gzipped KB the browser fetched to open each format&rsquo;s example files: every library from one minified production build, with its dependencies, Workers and WASM. Smaller is better. {sizeSplit}</p>
+        <BarChart groups={size} format={formatKb} label="Gzipped download size per format" />
+        <p class="chart-foot">{versus(size, formatKb)}</p>
+        {sizeNotes.map((note) => <p class="chart-foot">{note}</p>)}
+      </article>
+    )}
+
+    <article class="chart" data-reveal>
+      <h3>Open speed</h3>
+      <div class="pillset small" role="group" aria-label="Open kind" hidden data-toggles>
+        <button type="button" data-toggle="mode" data-value="warm" aria-pressed="true">Repeat open</button>
+        <button type="button" data-toggle="mode" data-value="cold" aria-pressed="false">First open</button>
+      </div>
+      <p class="chart-cap">Milliseconds from bytes in hand to the first painted frame; the median across each format&rsquo;s files. Smaller is better.</p>
+      {(["real", "large"] as const).map((set) =>
+        (["warm", "cold"] as const).map((mode) => {
+          const chart = open[`${set}-${mode}`];
+          return (
+            <div data-only-set={set} data-only-mode={mode}>
+              <BarChart groups={chart} format={formatMs} label={`Open time, ${set} files, ${mode}`} />
+              <p class="chart-foot">{versus(chart, formatMs)}</p>
+            </div>
+          );
+        }),
+      )}
+    </article>
+
+    <article class="chart" data-reveal>
+      <h3>Memory</h3>
+      <div class="pillset small" role="group" aria-label="Open kind" hidden data-toggles>
+        <button type="button" data-toggle="mode" data-value="warm" aria-pressed="true">Repeat open</button>
+        <button type="button" data-toggle="mode" data-value="cold" aria-pressed="false">First open</button>
+      </div>
+      <p class="chart-cap" data-only-mode="warm">MB the page and its Workers hold with one file open, after a forced garbage collection, once the library is loaded; the median across each format&rsquo;s files. Smaller is better. Canvas pixels are not counted.</p>
+      <p class="chart-cap" data-only-mode="cold">The same in a fresh page, so it includes loading the library&rsquo;s own code. Smaller is better. Canvas pixels are not counted.</p>
+      {(["real", "large"] as const).map((set) =>
+        (["warm", "cold"] as const).map((mode) => {
+          const chart = memory[`${set}-${mode}`];
+          return (
+            <div data-only-set={set} data-only-mode={mode}>
+              <BarChart groups={chart} format={formatMb} label={`Memory with one file open, ${set} files, ${mode === "warm" ? "repeat" : "first"} open`} />
+              <p class="chart-foot">{versus(chart, formatMb)}</p>
+            </div>
+          );
+        }),
+      )}
+    </article>
+
+    {search.length > 0 && (
+      <article class="chart" data-reveal>
+        <h3>Search on large files</h3>
+        <p class="chart-cap">aared&rsquo;s <code>search()</code>; the other libraries have no search. The first search reads every slide, sheet or section once; repeats scan what it kept.</p>
+        <BarChart groups={search} format={formatMs} label="aared search time on large files" />
+      </article>
+    )}
+  </div>
+
+  <p class="numbers-foot">
+    One machine ({machineText}), measured {measuredOn}: {data.method.warmupDiscarded + data.method.runs} opens per cell with the first {data.method.warmupDiscarded} discarded, medians reported. The full run takes about half an hour, so it is repeated only now and then; code since that date may differ.
+    Read these as the shape of the difference, not universal constants; they cover size, speed and memory, not fidelity.
+  </p>
+</section>
+
+<script>
+  const root = document.querySelector<HTMLElement>("[data-numbers]");
+  if (root) {
+    // The toggles only work with JavaScript, so they start hidden.
+    for (const group of root.querySelectorAll<HTMLElement>("[data-toggles]")) group.hidden = false;
+
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const targets = [...root.querySelectorAll<HTMLElement>("[data-reveal]")];
+
+    const countUp = (element: HTMLElement): void => {
+      const to = Number(element.dataset.count);
+      if (!Number.isFinite(to)) return;
+      const started = performance.now();
+      const step = (now: number): void => {
+        const t = Math.min(1, (now - started) / 900);
+        element.textContent = String(Math.round(to * (1 - (1 - t) ** 3)));
+        if (t < 1) requestAnimationFrame(step);
+      };
+      element.textContent = "0";
+      requestAnimationFrame(step);
+    };
+
+    const reveal = (target: HTMLElement): void => {
+      target.classList.add("in");
+      for (const number of target.querySelectorAll<HTMLElement>("[data-count]")) countUp(number);
+    };
+
+    if (reduce || !("IntersectionObserver" in window)) {
+      for (const target of targets) target.classList.add("in");
+    } else {
+      root.classList.add("anim");
+      const observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            reveal(entry.target as HTMLElement);
+            observer.unobserve(entry.target);
+          }
+        },
+        { threshold: 0.25 },
+      );
+      for (const target of targets) observer.observe(target);
+    }
+
+    for (const button of root.querySelectorAll<HTMLButtonElement>("[data-toggle]")) {
+      button.addEventListener("click", () => {
+        const key = button.dataset.toggle!;
+        root.dataset[key] = button.dataset.value!;
+        for (const other of root.querySelectorAll<HTMLButtonElement>(`[data-toggle="${key}"]`)) {
+          other.setAttribute("aria-pressed", String(other.dataset.value === button.dataset.value));
+        }
+        // Grow the bars of what just appeared.
+        if (!reduce) {
+          for (const chart of root.querySelectorAll<HTMLElement>(".chart.in")) {
+            chart.classList.remove("in");
+            void chart.offsetWidth;
+            chart.classList.add("in");
+          }
+        }
+      });
+    }
+  }
+</script>
+
+<style>
+  .numbers {
+    display: grid;
+    gap: 1rem;
+    margin: 1.25rem 0 0;
+    padding: 1.25rem;
+    background: var(--lt-mount);
+    border: 1px solid var(--lt-mount-edge);
+    border-radius: var(--lt-radius);
+  }
+  .numbers h2 {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 600;
+  }
+  .numbers-lead {
+    margin: 0;
+    max-width: 70ch;
+    font-size: 0.95rem;
+    font-weight: 500;
+    line-height: 1.6;
+    color: var(--lt-ink-soft);
+  }
+  .numbers-lead a {
+    color: var(--lt-accent);
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .stat {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.9rem 1rem;
+    background: var(--lt-code);
+    border: 1px solid var(--lt-code-edge);
+    border-radius: var(--lt-radius);
+  }
+  .stat-num {
+    font-family: var(--lt-font-display);
+    font-size: 2rem;
+    line-height: 1.1;
+    color: var(--lt-ink);
+  }
+  .stat-cap {
+    font-size: 0.85rem;
+    font-weight: 500;
+    line-height: 1.5;
+    color: var(--lt-ink-soft);
+  }
+
+  .charts-head {
+    display: grid;
+    gap: 0.5rem;
+  }
+  .charts-note {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--lt-ink-soft);
+  }
+  .pillset {
+    display: inline-flex;
+    gap: 0.25rem;
+    justify-self: start;
+    padding: 0.25rem;
+    background: color-mix(in srgb, var(--lt-mount-edge) 55%, transparent);
+    border: 1px solid var(--lt-mount-edge);
+    border-radius: 999px;
+    font-family: var(--lt-font-mono, ui-monospace, monospace);
+    font-size: 0.78rem;
+  }
+  .pillset[hidden] {
+    display: none;
+  }
+  .pillset button {
+    font: inherit;
+    padding: 0.28rem 0.85rem;
+    border: none;
+    border-radius: 999px;
+    background: none;
+    color: var(--lt-ink-soft);
+    cursor: pointer;
+  }
+  .pillset button:hover {
+    color: var(--lt-ink);
+  }
+  .pillset button:focus-visible {
+    outline: 2px solid var(--lt-accent);
+    outline-offset: 2px;
+  }
+  .pillset button[aria-pressed="true"] {
+    background: var(--lt-pill);
+    color: var(--lt-ink);
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+  }
+  .pillset.small {
+    font-size: 0.72rem;
+  }
+
+  .charts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+  @media (max-width: 52rem) {
+    .charts {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  .chart {
+    display: grid;
+    align-content: start;
+    gap: 0.6rem;
+    padding: 1rem;
+    border: 1px solid var(--lt-mount-edge);
+    border-radius: var(--lt-radius);
+  }
+  .chart.wide {
+    grid-column: 1 / -1;
+  }
+  .chart h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  .chart-cap {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 500;
+    line-height: 1.5;
+    color: var(--lt-ink-soft);
+  }
+  .chart-cap code {
+    font-size: 0.85em;
+  }
+  .chart-foot {
+    margin: 0.4rem 0 0;
+    font-size: 0.78rem;
+    font-weight: 500;
+    line-height: 1.5;
+    color: var(--lt-ink-soft);
+  }
+  .chart-foot:empty {
+    display: none;
+  }
+  .numbers-foot {
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 500;
+    line-height: 1.6;
+    color: var(--lt-ink-soft);
+  }
+
+  /* Toggled sets: only the chosen one shows. */
+  [data-set="real"] [data-only-set="large"],
+  [data-set="large"] [data-only-set="real"],
+  [data-mode="warm"] [data-only-mode="cold"],
+  [data-mode="cold"] [data-only-mode="warm"] {
+    display: none;
+  }
+
+  /* Motion: bars start empty and grow when the chart scrolls into view. */
+  .anim :global(.chart:not(.in) .bc-bar) {
+    width: 0;
+  }
+  .anim .stat {
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+  .anim .stat.in {
+    opacity: 1;
+    transform: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .numbers :global(.bc-bar) {
+      transition: none;
+    }
+  }
+</style>

@@ -4,9 +4,10 @@
  * `document.ts`, marker text resolves here.
  */
 
-import { attr, childElements, firstChild, textContent } from "../xml.js";
+import { attr, childElements, firstChild, ownString, ownTree, textContent } from "../xml.js";
 import type { XmlElement } from "../xml.js";
-import { throwIfAborted } from "../zip.js";
+import { throwIfAborted } from "../errors.js";
+import { twipsToInches } from "../units.js";
 
 export interface NumberingLevel {
   /** Raw `w:numFmt` value (`bullet`, `decimal`, `lowerLetter`, …). */
@@ -18,6 +19,10 @@ export interface NumberingLevel {
   indentLeft?: number;
   /** Hanging indent in inches (positive magnitude), for marker alignment. */
   indentHanging?: number;
+  /** The level's marker run formatting (`w:lvl > w:rPr`), resolved by the caller with theme and styles. */
+  rPr?: XmlElement;
+  /** What follows the marker (`w:suff`); Word's default is a tab to the text indent. */
+  suffix?: "tab" | "space" | "nothing";
 }
 
 export interface NumberingData {
@@ -42,14 +47,21 @@ function readLevel(level: XmlElement): { ilvl: number; parsed: NumberingLevel } 
   const hanging = ind === undefined ? undefined : attr(ind, "hanging");
   const leftDx = left === undefined ? Number.NaN : Number(left);
   const hangingDx = hanging === undefined ? Number.NaN : Number(hanging);
+  const rPr = firstChild(level, "rPr");
+  const suff = firstChild(level, "suff");
+  const suffValue = suff === undefined ? undefined : attr(suff, "val");
+  const suffix = suffValue === "space" || suffValue === "nothing" ? suffValue : undefined;
+  // The session keeps numbering for its lifetime: own every string, so it doesn't pin numbering.xml.
   return {
     ilvl: index,
     parsed: {
-      numFmt: numFmt === undefined ? "bullet" : attr(numFmt, "val") ?? "bullet",
-      lvlText: lvlText === undefined ? "" : attr(lvlText, "val") ?? textContent(lvlText),
+      numFmt: ownString(numFmt === undefined ? "bullet" : attr(numFmt, "val") ?? "bullet"),
+      lvlText: ownString(lvlText === undefined ? "" : attr(lvlText, "val") ?? textContent(lvlText)),
       start: start === undefined ? 1 : Number(attr(start, "val") ?? "1"),
-      ...(Number.isFinite(leftDx) ? { indentLeft: leftDx / 1440 } : {}),
-      ...(Number.isFinite(hangingDx) ? { indentHanging: hangingDx / 1440 } : {}),
+      ...(Number.isFinite(leftDx) ? { indentLeft: twipsToInches(leftDx) } : {}),
+      ...(Number.isFinite(hangingDx) ? { indentHanging: twipsToInches(hangingDx) } : {}),
+      ...(rPr === undefined ? {} : { rPr: ownTree(rPr) }),
+      ...(suffix === undefined ? {} : { suffix }),
     },
   };
 }
@@ -67,7 +79,7 @@ export function parseNumbering(root: XmlElement | undefined, signal?: AbortSigna
       const parsed = readLevel(level);
       if (parsed !== undefined) levels.set(parsed.ilvl, parsed.parsed);
     }
-    data.abstracts.set(id, levels);
+    data.abstracts.set(ownString(id), levels);
   }
   for (const num of childElements(root, "num")) {
     throwIfAborted(signal);
@@ -76,7 +88,7 @@ export function parseNumbering(root: XmlElement | undefined, signal?: AbortSigna
     if (numId === undefined || abstractId === undefined) continue;
     const target = attr(abstractId, "val");
     if (target === undefined) continue;
-    data.nums.set(numId, target);
+    data.nums.set(ownString(numId), ownString(target));
     for (const override of childElements(num, "lvlOverride")) {
       const ilvl = attr(override, "ilvl");
       const start = firstChild(override, "startOverride");

@@ -27,6 +27,7 @@ it well, so `aared` pairs with it instead of duplicating it.
 ## Compared to other libraries
 
 Full table and reasoning: [`docs/COMPETITORS.md`](docs/COMPETITORS.md).
+Measured numbers (method + generated tables): [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
 
 | Library | Formats | Client-side | Paragraph-level RTL |
 |---|---|---|---|
@@ -43,12 +44,15 @@ is in [`docs/DECISION_LOG.md §1`](docs/DECISION_LOG.md#1-why-this-project-exist
 ## Install
 
 ```bash
-npm install aared
+npm install @aared/viewer
 # optional, for Office fonts nobody has installed locally:
-npm install aared-fonts
+npm install @aared/fonts
 ```
 
-*(Not yet published — this is the target install once M1 ships.)*
+*(Not released yet — `@aared/viewer` on npm is a name-holding placeholder
+with no code, and the snippets below still say `aared/...` until the package
+is renamed for its first release at `0.1.0`. Until then, build it from
+source: see [Develop](#develop).)*
 
 ## Quick start
 
@@ -60,30 +64,52 @@ npm install aared-fonts
 <aared-viewer src="quarterly-report.pptx" controls></aared-viewer>
 ```
 
-Or build a custom UI on the headless entrypoints:
+Or build a custom UI on the headless entrypoints — one per format, same
+shape:
 
 ```ts
-// PPTX
 import { open, render } from "aared/pptx";
-const deck = await open(file);
-const slide = deck.slides.get(0);
-const viewer = await render({ slide, target: document.querySelector("#stage") });
 
-// XLSX
+const deck = await open(file);
+const viewer = await render({
+  slide: deck.slides.get(0),
+  target: document.querySelector<HTMLElement>("#stage")!,
+});
+```
+
+```ts
 import { open, render } from "aared/xlsx";
+
 const workbook = await open(file);
 const sheet = workbook.sheets.get("Revenue");
-const data = await sheet.read("A1:M200");
-const viewer = await render({ sheet, target: document.querySelector("#stage") });
+const data = await sheet.read({ range: "A1:M200" }); // cell values, no rendering
+const viewer = await render({ sheet, target: document.querySelector<HTMLElement>("#stage")! });
+```
 
-// DOCX
+```ts
 import { open, render } from "aared/docx";
-const document = await open(file);
-const viewer = await render({ document, target: document.querySelector("#stage") });
+
+const doc = await open(file); // not `document`: that would shadow the page's
+const viewer = await render({ document: doc, target: document.querySelector<HTMLElement>("#stage")! });
 ```
 
 Full API: the API reference page in the docs site — `bun run docs:dev`,
 open `/api` (source: `site/src/content/docs/api.mdx`).
+
+## Fonts
+
+Office files name fonts nobody has installed (Calibri, Sakkal Majalla…).
+Nothing downloads unless you pass a resolver — `aared-fonts` ships the
+ready-made metric-compatible one:
+
+```ts
+import { open } from "aared/pptx";
+import { defaultResolver } from "aared-fonts";
+
+const deck = await open(file, { fontResolver: defaultResolver });
+```
+
+Fonts embedded in the file itself are not read yet.
 
 ## How it works
 
@@ -102,7 +128,7 @@ shaped this way, chronologically: [`docs/DECISION_LOG.md`](docs/DECISION_LOG.md)
 ## What you can preview today
 
 The entrypoint-backed route opens and renders PPTX slides, XLSX sheets, and DOCX
-flow sections through `aared/pptx`, `aared/xlsx`, `aared/docx`, or
+documents through `aared/pptx`, `aared/xlsx`, `aared/docx`, or
 `<aared-viewer>`. Each format has real Arabic/RTL fixture coverage, including
 tables. Fidelity is still in progress; inspect [`docs/ROADMAP.md`](docs/ROADMAP.md)
 for supported features and deliberate gaps.
@@ -125,12 +151,13 @@ page count, orientations, hard breaks, and per-page headers/footers/footnotes.
 ## Develop
 
 ```bash
-bun install
-bun run typecheck
-bun test
+bun install            # workspace install
+bun run dev            # bench/ visual harness at http://localhost:5173
+bun run typecheck      # tsc --noEmit across all packages
+bun test               # bun:test — unit tests
+bun run test:visual    # WebView DOM-output + capture tests (captures need Office)
+bun run build          # tsdown — real dist output
 ```
-
-See [`HANDOFF.md`](HANDOFF.md) for the full command set as it fills in.
 
 ## License
 

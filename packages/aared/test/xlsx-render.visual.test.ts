@@ -5,7 +5,7 @@ import { parseXlsxSheet } from "../src/core/xlsx/sheet.js";
 import { findCoverageSheet } from "./xlsx-fixture.js";
 
 const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
-const COVERAGE_PATH = `${import.meta.dir}/../../../fixtures/arabic-xlsx-rtl-coverage.xlsx`;
+const COVERAGE_PATH = `${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`;
 const TRACKER_PATH = `${import.meta.dir}/../../../fixtures/post-production-tracker.xlsx`;
 
 async function sheetModels() {
@@ -20,6 +20,7 @@ async function sheetModels() {
   return {
     rtl: (await findCoverageSheet(coverage, "rtl-grid")).sheet,
     summary: (await findCoverageSheet(coverage, "summary")).sheet,
+    deep: (await findCoverageSheet(coverage, "deep-log")).sheet,
     dashboard: await parseXlsxSheet(trackerPkg, trackerWorkbook, 0),
     log: await parseXlsxSheet(trackerPkg, trackerWorkbook, 1),
   };
@@ -146,7 +147,7 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
       const letters = [...grid?.querySelectorAll('[data-aared-element="column-header"]') ?? []].map((cell) => cell.textContent);
       const numbers = [...grid?.querySelectorAll('[data-aared-element="row-header"]') ?? []].map((cell) => cell.textContent);
       const corner = grid?.querySelector('[data-aared-element="corner"]');
-      const letterTop = grid?.querySelector('[data-aared-element="column-header"]')?.style.top;
+      const letter = grid?.querySelector('[data-aared-element="column-header"]');
       const rowHead = grid?.querySelector('[data-aared-element="row-header"]');
       const frozenCorner = grid?.querySelector('tr[data-aared-row="0"] td');
       const frozenColumn = grid?.querySelector('tr[data-aared-row="3"] td[data-aared-col="0"]');
@@ -154,10 +155,12 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
         flag: grid?.dataset.aaredHeaders,
         letters,
         numbers,
-        cornerTop: corner?.style.top,
-        cornerSide: corner?.style.right,
-        letterTop,
-        rowHeadSide: rowHead?.style.right,
+        // Headings take their look from the grid's class rules, not inline style.
+        cornerInline: corner?.getAttribute("style"),
+        cornerTop: corner && getComputedStyle(corner).top,
+        cornerSide: corner && getComputedStyle(corner).right,
+        letterTop: letter && getComputedStyle(letter).top,
+        rowHeadSide: rowHead && getComputedStyle(rowHead).right,
         frozenTop: frozenCorner?.style.top,
         frozenColumnSide: frozenColumn?.style.right,
         frameBorder: grid?.style.border,
@@ -169,6 +172,7 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
     expect(headingsOutput.letters).toEqual(["A", "B", "C", "E"]);
     expect(headingsOutput.numbers).toEqual(["1", "2", "3", "4", "5", "6", "8", "9", "10", "11"]);
     // Headings stick to the top and inline-start edges (physical right in RTL).
+    expect(headingsOutput.cornerInline).toBeNull();
     expect(headingsOutput.cornerTop).toBe("0px");
     expect(headingsOutput.cornerSide).toBe("0px");
     expect(headingsOutput.letterTop).toBe("0px");
@@ -187,7 +191,8 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
       return {
         gridlines: grid?.dataset.aaredGridlines,
         linkText: link?.textContent,
-        linkDecoration: link?.style.textDecoration,
+        linkDecoration: link && getComputedStyle(link).textDecorationLine,
+        linkColorInline: link?.style.color,
         canvasCount: document.querySelectorAll("canvas").length,
       };
     })()`) as Record<string, unknown>;
@@ -195,6 +200,8 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
     // Native print shows no underline: the link keeps cell styling only.
     expect(chromeOutput.linkText).toBe("دليل الإنتاج");
     expect(chromeOutput.linkDecoration).toBe("none");
+    // The colour varies per cell, so it stays inline.
+    expect(chromeOutput.linkColorInline).not.toBe("");
     expect(chromeOutput.canvasCount).toBe(0);
 
     await view.evaluate(`renderSheet(${JSON.stringify(models.rtl)}, { headers: false, gridlines: "hide" })`);
@@ -281,3 +288,259 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
     server.stop();
   }
 });
+
+visual("viewport fill: fills the rendered space in bounded and content-sized scrollers without feedback growth", async () => {
+  const models = await sheetModels();
+  const build = await Bun.build({
+    entrypoints: [`${import.meta.dir}/../src/xlsx/index.ts`],
+    target: "browser",
+    format: "esm",
+  });
+  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
+  const module = await build.outputs[0]!.text();
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      const url = new URL(request.url);
+      if (url.pathname === "/xlsx.mjs") {
+        return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
+      }
+      // Two hosts: #unbounded sizes itself to its content (no height), the
+      // way a plain embedder div lays out; #bounded gives a fixed 1000px.
+      return new Response(`<!doctype html><style>
+        html,body{margin:0}
+        #unbounded{width:900px;border:1px solid #999}
+        #bounded{width:900px;height:1000px;border:1px solid #999}
+        /* Simulate font metrics that lay rows out taller than their modeled
+           heights (Arabic text does this on real machines): with a
+           content-sized scroller this used to feed the fill measurement
+           back into itself, growing the sheet on every re-render. */
+        td[data-aared-element="cell"], td[data-aared-element="fill-cell"],
+        tr[data-aared-element="fill-row"] th {
+          font-size: 13pt !important; line-height: 2.4 !important;
+        }
+      </style>
+      <div id="unbounded"></div><div id="bounded"></div>
+      <script type="module">
+        import { render } from "/xlsx.mjs";
+        window.renderBoth = async (model) => {
+          const handles = await Promise.all([
+            render({ sheet: model, target: document.querySelector("#unbounded") }),
+            render({ sheet: model, target: document.querySelector("#bounded") }),
+          ]);
+          return handles.length;
+        };
+      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
+    },
+  });
+  try {
+    await using view = new Bun.WebView({ width: 1280, height: 1400 });
+    await view.navigate(server.url.href);
+    await view.evaluate(`renderBoth(${JSON.stringify(models.dashboard)})`);
+    // The first windowed paint re-runs inside a rAF once real layout
+    // metrics exist; sample only after that settles.
+    await view.evaluate(`(() => new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 80)));
+    }))()`);
+
+    const sample = `(() => {
+      const fillCount = (root) => root.querySelectorAll('[data-aared-element="fill-row"]').length;
+      const lastFillNumber = (root) => {
+        const headers = [...root.querySelectorAll('[data-aared-element="fill-row-header"]')].map((h) => Number(h.textContent));
+        return headers.length > 0 ? headers[headers.length - 1] : 0;
+      };
+      const unbounded = document.querySelector("#unbounded [data-aared-element='sheet-scroll']");
+      const bounded = document.querySelector("#bounded [data-aared-element='sheet-scroll']");
+      return {
+        unbounded: { fill: fillCount(document.querySelector("#unbounded")), last: lastFillNumber(document.querySelector("#unbounded")), clientH: unbounded?.clientHeight ?? -1, scrollH: unbounded?.scrollHeight ?? -1 },
+        bounded: { fill: fillCount(document.querySelector("#bounded")), last: lastFillNumber(document.querySelector("#bounded")), clientH: bounded?.clientHeight ?? -1, scrollH: bounded?.scrollHeight ?? -1 },
+      };
+    })()`;
+    const initial = await view.evaluate(sample) as {
+      unbounded: { fill: number; last: number; clientH: number; scrollH: number };
+      bounded: { fill: number; last: number; clientH: number; scrollH: number };
+    };
+
+    // Bounded: the sheet is shorter than the host, so the viewport fill
+    // paints numbered empty rows down to the host bottom. (Rows may lay out
+    // a few pixels taller than their tracks under the simulated metrics, so
+    // exact top-out is not asserted — stability is.)
+    expect(initial.bounded.fill).toBeGreaterThan(0);
+    expect(initial.bounded.last).toBeGreaterThan(models.dashboard.extent.rows);
+    expect(initial.bounded.scrollH).toBeGreaterThanOrEqual(initial.bounded.clientH);
+    // Content-sized: no scroller of its own, so the grid adopts the
+    // document viewport's visible room (the 1400px test window) as its
+    // height and fills it — numbered rows down toward the window bottom,
+    // without anywhere near the old feedback cap.
+    expect(initial.unbounded.fill).toBeGreaterThan(0);
+    expect(initial.unbounded.last).toBeGreaterThan(models.dashboard.extent.rows);
+    expect(initial.unbounded.last).toBeLessThan(models.dashboard.extent.rows + 200);
+    expect(initial.unbounded.scrollH).toBeGreaterThanOrEqual(1300);
+
+    // Re-renders (scroll, resize) must not compound: cycle scroll positions
+    // and return to the start — the same scroll state must paint the same
+    // sheet. Under the feedback bug each pass grew the fill (to its
+    // 500-track cap), so identical scroll state ⇒ identical height is the
+    // regression pin. Drift between *different* scroll positions is expected
+    // here (windowed spacers are model-sized while the simulated rows are
+    // not) and is not a defect.
+    for (let step = 0; step < 4; step++) {
+      await view.evaluate(`(() => {
+        for (const scroller of document.querySelectorAll('[data-aared-element="sheet-scroll"]')) {
+          scroller.scrollTop = Math.min(scroller.scrollTop + 200, scroller.scrollHeight);
+          scroller.dispatchEvent(new Event("scroll"));
+        }
+        window.dispatchEvent(new Event("resize"));
+        return true;
+      })()`);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    await view.evaluate(`(() => new Promise((resolve) => {
+      for (const scroller of document.querySelectorAll('[data-aared-element="sheet-scroll"]')) {
+        scroller.scrollTop = 0;
+        scroller.dispatchEvent(new Event("scroll"));
+      }
+      requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 80)));
+    }))()`);
+    const after = await view.evaluate(sample) as typeof initial;
+    expect(after.unbounded.fill).toBe(initial.unbounded.fill);
+    expect(after.unbounded.last).toBe(initial.unbounded.last);
+    expect(after.unbounded.scrollH).toBe(initial.unbounded.scrollH);
+    expect(after.bounded.fill).toBe(initial.bounded.fill);
+    expect(after.bounded.last).toBe(initial.bounded.last);
+    expect(after.bounded.scrollH).toBe(initial.bounded.scrollH);
+  } finally {
+    server.stop();
+  }
+});
+
+visual("zoom: a sheet opens at 100%, and fit-width / fit-page really fit its used area", async () => {
+  const models = await sheetModels();
+  const build = await Bun.build({
+    entrypoints: [`${import.meta.dir}/../src/xlsx/index.ts`],
+    target: "browser",
+    format: "esm",
+  });
+  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
+  const module = await build.outputs[0]!.text();
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      const url = new URL(request.url);
+      if (url.pathname === "/xlsx.mjs") {
+        return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
+      }
+      return new Response(`<!doctype html><style>
+        html,body{margin:0}
+        #bounded{width:900px;height:500px}
+        #short{width:900px;height:450px}
+        #tiny{width:900px;height:200px}
+        #unbounded{width:900px}
+      </style>
+      <div id="bounded"></div><div id="short"></div><div id="tiny"></div><div id="unbounded"></div>
+      <script type="module">
+        import { render } from "/xlsx.mjs";
+        const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 30))));
+        const handles = {};
+        window.show = async (id, model, zoom, appearance) => {
+          handles[id]?.destroy();
+          const input = { sheet: model, target: document.getElementById(id) };
+          if (zoom !== undefined) input.zoom = zoom;
+          if (appearance !== undefined) input.appearance = appearance;
+          handles[id] = await render(input);
+          await frame();
+          return window.measure(id);
+        };
+        window.act = async (id, action) => {
+          const handle = handles[id];
+          if (action.zoom !== undefined) handle.setZoom(action.zoom);
+          if (action.appearance !== undefined) handle.setAppearance(action.appearance);
+          if (action.width !== undefined) document.getElementById(id).style.width = action.width;
+          await frame();
+          return window.measure(id);
+        };
+        window.measure = (id) => {
+          const root = document.getElementById(id);
+          const scroller = root.querySelector('[data-aared-element="sheet-scroll"]');
+          return {
+            zoom: handles[id].zoom,
+            scale: handles[id].scale,
+            hostZoom: root.querySelector('[data-aared-element="sheet"]').style.zoom,
+            overflowX: scroller.scrollWidth - scroller.clientWidth,
+            overflowY: scroller.scrollHeight - scroller.clientHeight,
+            fillColumns: root.querySelectorAll('[data-aared-element="fill-column-header"]').length,
+            rows: root.querySelectorAll('tr[data-aared-row]').length,
+            headers: root.querySelector('[data-aared-element="corner"]') !== null,
+          };
+        };
+      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
+    },
+  });
+  interface Measure {
+    zoom: unknown; scale: number; hostZoom: string; overflowX: number; overflowY: number;
+    fillColumns: number; rows: number; headers: boolean;
+  }
+  try {
+    await using view = new Bun.WebView({ width: 1280, height: 1200 });
+    await view.navigate(server.url.href);
+    const log = JSON.stringify(models.log);
+    const dashboard = JSON.stringify(models.dashboard);
+
+    // 100% by default, like Excel: no zoom on the host, and a sheet wider
+    // than its host scrolls sideways.
+    const opened = await view.evaluate(`show("bounded", ${log})`) as Measure;
+    expect(opened.zoom).toBe(1);
+    expect(opened.scale).toBe(1);
+    expect(opened.hostZoom).toBe("");
+    expect(opened.overflowX).toBeGreaterThan(0);
+
+    // fit-width: the used columns fill the width exactly — no sideways
+    // scroll, and no viewport-fill columns (the fit leaves no room for them).
+    const fitted = await view.evaluate(`act("bounded", { zoom: "fit-width" })`) as Measure;
+    expect(fitted.zoom).toBe("fit-width");
+    expect(fitted.scale).toBeLessThan(1);
+    expect(fitted.overflowX).toBeLessThanOrEqual(1);
+    expect(fitted.fillColumns).toBe(0);
+
+    // The fit follows the room: a narrower host re-fits smaller.
+    const narrower = await view.evaluate(`act("bounded", { width: "600px" })`) as Measure;
+    expect(narrower.scale).toBeLessThan(fitted.scale);
+    expect(narrower.overflowX).toBeLessThanOrEqual(1);
+
+    // A headers toggle changes the used width, so the fit is recomputed.
+    const bare = await view.evaluate(`act("bounded", { appearance: { spreadsheet: { headers: false } } })`) as Measure;
+    expect(bare.headers).toBe(false);
+    expect(bare.scale).toBeGreaterThan(narrower.scale);
+    expect(bare.overflowX).toBeLessThanOrEqual(1);
+    // setAppearance replaces, never merges: knobs left out return to their defaults.
+    const replaced = await view.evaluate(`act("bounded", { appearance: { theme: "light" } })`) as Measure;
+    expect(replaced.headers).toBe(true);
+
+    // fit-page keeps the whole used area in view in a short host — the
+    // painted rows included, which outgrow the model below 100% as borders
+    // snap to device pixels.
+    const page = await view.evaluate(`show("short", ${dashboard}, "fit-page")`) as Measure;
+    expect(page.scale).toBeGreaterThan(0.25);
+    expect(page.overflowX).toBeLessThanOrEqual(1);
+    expect(page.overflowY).toBeLessThanOrEqual(1);
+    const pageWidth = await view.evaluate(`act("short", { zoom: "fit-width" })`) as Measure;
+    expect(page.scale).toBeLessThan(pageWidth.scale);
+
+    // A host with no height of its own offers none: fit-page = fit-width.
+    const unboundedPage = await view.evaluate(`show("unbounded", ${dashboard}, "fit-page")`) as Measure;
+    const unboundedWidth = await view.evaluate(`act("unbounded", { zoom: "fit-width" })`) as Measure;
+    expect(unboundedPage.scale).toBeCloseTo(unboundedWidth.scale, 3);
+
+    // A deep sheet's fit-page stops at 25%: it scrolls rather than shrinking
+    // to nothing, and the row window stays bounded.
+    const floored = await view.evaluate(`show("tiny", ${JSON.stringify(models.deep)}, "fit-page")`) as Measure;
+    expect(floored.scale).toBe(0.25);
+    expect(floored.rows).toBeLessThan(models.deep.extent.rows);
+
+    // RTL sheets fit the same way.
+    const rtl = await view.evaluate(`show("bounded", ${JSON.stringify(models.rtl)}, "fit-width")`) as Measure;
+    expect(rtl.overflowX).toBeLessThanOrEqual(1);
+  } finally {
+    server.stop();
+  }
+}, 30000);

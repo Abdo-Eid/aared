@@ -1,30 +1,53 @@
-/** The default, deliberately small UI for the headless aared APIs. */
+/**
+ * `<aared-viewer>`: the default, deliberately small UI over the headless
+ * aared APIs. Attributes are its API (`src`, `type`, `index`, `zoom`,
+ * `controls`, `theme`); read-only `format` and `info` report what opened;
+ * `goTo()` navigates; removing the element is its teardown.
+ *
+ * It follows the same grammar as `preview()`: `index`/`goTo()` switch units,
+ * events report changes (never the starting state — that is `load`), zoom is
+ * the render handle's own (so each format's fit logic applies and
+ * `zoomchange` forwards naturally), and every failure is an `AaredError`
+ * with the same code `preview()` uses for the same situation.
+ */
 
-import type { DocumentFormat, DocumentInfo, ZoomValue } from "../core/index.js";
+import type { Appearance, DocumentFormat, DocumentInfo, WorkerInit, ZoomValue } from "../core/index.js";
+import { AaredError, isAbort } from "../core/index.js";
+import { resolveTheme } from "../appearance.js";
+import { DEFAULT_ZOOM, announceUnit, followSheet, forwardRenderEvents, openFormat } from "../format-route.js";
+import type { AnyDocument, RenderHandle } from "../format-route.js";
+import { safeScale, sameZoom } from "../render-handle.js";
 import type { PptxDocument } from "../pptx/index.js";
 import type { XlsxDocument } from "../xlsx/index.js";
 import type { DocxDocument } from "../docx/index.js";
-import { WorkerSession } from "../core/session.js";
+import { WorkerSession, sourceBytes } from "../core/session.js";
 
 export type { ZoomValue } from "../core/index.js";
 export type { DocumentFormat } from "../core/index.js";
 
 type ViewerSource = File | Blob | ArrayBuffer | string;
-type AnyDocument = PptxDocument | XlsxDocument | DocxDocument;
-
-interface RenderHandle extends EventTarget {
-  destroy(): void;
-}
 
 export type ViewerThemeAttribute = "light" | "dark" | "system";
 
-function abortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
+/** Zoom the controls bar steps through: ×1.25 per press, within 25%–300%. */
+const ZOOM_STEP = 1.25;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 3;
+
+const ICON_OPEN = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">';
+const ENTER_FULLSCREEN_ICON = `${ICON_OPEN}<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>`;
+const EXIT_FULLSCREEN_ICON = `${ICON_OPEN}<path d="M3 8h3a2 2 0 0 0 2-2V3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M21 16h-3a2 2 0 0 0-2 2v3"/></svg>`;
+
+function isFormat(type: string | null): type is DocumentFormat {
+  return type === "pptx" || type === "xlsx" || type === "docx";
 }
 
-function sourceTypeError(type: string | null): Error | undefined {
-  if (type === null || type === "pptx" || type === "xlsx" || type === "docx") return undefined;
-  return new Error(`<aared-viewer>: unsupported type "${type}"; use "pptx", "xlsx", "docx", or omit type for detection`);
+function sourceTypeError(type: string | null): AaredError | undefined {
+  if (type === null || isFormat(type)) return undefined;
+  return new AaredError(
+    "unsupported-format",
+    `aared/element: unsupported type "${type}"; use "pptx", "xlsx", "docx", or omit type for detection`,
+  );
 }
 
 export class AaredViewer extends HTMLElement {
@@ -40,49 +63,58 @@ export class AaredViewer extends HTMLElement {
   #doc: AnyDocument | null = null;
   #format: DocumentFormat | null = null;
   #shadow: ShadowRoot;
-  #stage: HTMLDivElement;
   #page: HTMLDivElement;
   #controls: HTMLDivElement;
   #file: File | Blob | ArrayBuffer | null = null;
+  #workerInit: WorkerInit | undefined = undefined;
   #openController: AbortController | null = null;
   #generation = 0;
   #renderGeneration = 0;
-  #slideSize: { width: number; height: number } | null = null;
-  #resizeObserver: ResizeObserver | null = null;
+  #fullscreenButton: HTMLButtonElement | null = null;
   #slideRender: RenderHandle | null = null;
   #renderAbortController: AbortController | null = null;
   #resolvedTheme: "light" | "dark" = "light";
   #contentRenderTheme: "light" | "dark" | null = null;
   #themeMediaQuery: MediaQueryList | null = null;
+  /** The unit on screen, so an `index` that already matches it renders nothing. */
+  #shownIndex: number | null = null;
+  /** Set while the element writes its own `index` attribute (tab follow, `goTo`), so no second render runs. */
+  #writingIndex = false;
 
   constructor() {
     super();
     this.#shadow = this.attachShadow({ mode: "open" });
     const style = document.createElement("style");
+    // Theme defaults live in private properties and each visual property has
+    // one rule, so a consumer's --aared-background / --aared-page-shadow win
+    // in both themes (a hard-coded dark rule used to override them).
     style.textContent = `
-      :host { display: block; min-width: 0; min-height: 0; }
-      :host([data-aared-theme="dark"]) [part="stage"] { background: #1c1c1f; }
-      :host([data-aared-theme="dark"]) [part="page"] { box-shadow: 0 1px 5px rgb(0 0 0 / 0.6); }
-      :host([data-aared-theme="dark"]) [part="controls"] { color: #e4e4e7; }
-      [part="stage"] { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; height: 100%; overflow: auto; background: var(--aared-background, #f2f2f2); color: var(--aared-text, inherit); }
-      [part="page"] { flex: 0 0 auto; width: 100%; min-width: 0; margin: auto; box-shadow: var(--aared-page-shadow, 0 1px 5px rgb(0 0 0 / 0.25)); }
-      [part="controls"] { display: flex; align-items: center; justify-content: center; gap: .5rem; padding: .5rem; font: 14px system-ui, sans-serif; }
+      :host { display: flex; flex-direction: column; min-width: 0; min-height: 0; --_aared-stage: #f2f2f2; --_aared-shadow: 0 1px 5px rgb(0 0 0 / 0.25); --_aared-controls-ink: inherit; }
+      :host([data-aared-theme="dark"]) { --_aared-stage: #1c1c1f; --_aared-shadow: 0 1px 5px rgb(0 0 0 / 0.6); --_aared-controls-ink: #e4e4e7; }
+      [part="stage"] { display: flex; flex: 1 1 auto; align-items: center; justify-content: center; min-width: 0; min-height: 0; overflow: auto; background: var(--aared-background, var(--_aared-stage)); color: var(--aared-text, inherit); }
+      [part="page"] { flex: 0 0 auto; width: 100%; min-width: 0; margin: auto; box-shadow: var(--aared-page-shadow, var(--_aared-shadow)); }
+      :host([data-aared-format="xlsx"]) [part="stage"] { align-items: stretch; }
+      :host([data-aared-format="xlsx"]) [part="page"] { margin: 0; }
+      :host([data-aared-format="pptx"]) [part="page"] { align-self: stretch; margin: 0; display: flex; flex-direction: column; box-shadow: none; }
+      :host([data-aared-format="pptx"]) [part="page"] > [data-aared-element="slide"] { margin: auto; flex: none; box-shadow: var(--aared-page-shadow, var(--_aared-shadow)); }
+      [part~="controls"] { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; padding: .5rem; font: 14px system-ui, sans-serif; color: var(--_aared-controls-ink); }
+      :host(:fullscreen) [part~="controls"] { background: var(--aared-background, var(--_aared-stage)); }
       button { font: inherit; }
     `;
-    this.#stage = document.createElement("div");
-    this.#stage.part.add("stage");
+    const stage = document.createElement("div");
+    stage.part.add("stage");
     this.#page = document.createElement("div");
     this.#page.part.add("page");
-    this.#stage.append(this.#page);
+    stage.append(this.#page);
     this.#controls = document.createElement("div");
     this.#controls.part.add("controls");
     this.#controls.part.add("toolbar");
-    this.#shadow.append(style, this.#stage, this.#controls);
-    if (typeof ResizeObserver !== "undefined") {
-      this.#resizeObserver = new ResizeObserver(() => this.#updateChrome());
-    }
+    this.#shadow.append(style, stage, this.#controls);
+    // No `#updateChrome()` here: it writes `data-aared-theme` on the host,
+    // and `document.createElement()` / `new AaredViewer()` throw
+    // NotSupportedError if the constructor adds attributes. It runs from
+    // `connectedCallback` instead.
     this.#createControls();
-    this.#updateChrome();
   }
 
   get src(): string | null {
@@ -94,10 +126,28 @@ export class AaredViewer extends HTMLElement {
     else this.setAttribute("src", value);
   }
 
+  /** The requested format (`type` attribute), or `null` to detect. See `format` for what opened. */
   get type(): DocumentFormat | null {
-    return this.getAttribute("type") as DocumentFormat | null;
+    const raw = this.getAttribute("type");
+    return isFormat(raw) ? raw : null;
   }
 
+  set type(value: DocumentFormat | null) {
+    if (value === null) this.removeAttribute("type");
+    else this.setAttribute("type", value);
+  }
+
+  /** The detected (or asserted) format of the open document, or `null` before one opens. */
+  get format(): DocumentFormat | null {
+    return this.#format;
+  }
+
+  /** What `open()` knows about the open document (also the `load` detail), or `null`. */
+  get info(): DocumentInfo | null {
+    return this.#doc?.info ?? null;
+  }
+
+  /** The unit to show (`index` attribute), zero-based. */
   get index(): number {
     return Number(this.getAttribute("index") ?? 0);
   }
@@ -106,10 +156,15 @@ export class AaredViewer extends HTMLElement {
     this.setAttribute("index", String(value));
   }
 
+  /**
+   * The zoom: the `zoom` attribute when set, else the render handle's own, else
+   * the format's default (`fit-page` slides, `1` sheets, `fit-width` documents).
+   */
   get zoom(): ZoomValue {
     const raw = this.getAttribute("zoom");
     if (raw === "fit-width" || raw === "fit-page") return raw;
-    return raw === null ? "fit-width" : Number(raw);
+    if (raw !== null) return Number(raw);
+    return this.#slideRender?.zoom ?? (this.#format === null ? "fit-width" : DEFAULT_ZOOM[this.#format]);
   }
 
   set zoom(value: ZoomValue) {
@@ -124,10 +179,10 @@ export class AaredViewer extends HTMLElement {
     this.toggleAttribute("controls", value);
   }
 
-  /** Viewer chrome theme (`light` | `dark` | `system`). Content stays source-faithful. */
+  /** Viewer theme (`light` | `dark` | `system`). Fixed `light` unless the host opts in to `dark` or `system`. */
   get theme(): ViewerThemeAttribute {
     const raw = this.getAttribute("theme");
-    return raw === "light" || raw === "dark" ? raw : "system";
+    return raw === "dark" || raw === "system" ? raw : "light";
   }
 
   set theme(value: ViewerThemeAttribute) {
@@ -143,46 +198,68 @@ export class AaredViewer extends HTMLElement {
     if (this.isConnected) void this.open().catch(() => {});
   }
 
+  get worker(): WorkerInit | undefined {
+    return this.#workerInit;
+  }
+
+  set worker(value: WorkerInit | undefined) {
+    this.#workerInit = value;
+  }
+
+  /**
+   * (Re)open `file` or `src` and render unit `index`. Resolves once painted
+   * and `load` has fired; rejects — after firing `error` once with the same
+   * `AaredError` as `detail.cause` — when it fails. A newer `open()` wins.
+   */
   async open(): Promise<void> {
     const generation = this.#replaceDocument();
     const controller = this.#openController!;
-    const source = this.#file ?? this.src;
+    const source: ViewerSource | null = this.#file ?? this.src;
+    const workerInit = this.#workerInit;
     try {
       const typeError = sourceTypeError(this.getAttribute("type"));
       if (typeError !== undefined) throw typeError;
-      if (source === null) throw new Error("<aared-viewer>: provide a src URL or file before calling open()");
+      if (source === null) throw new AaredError("not-found", "aared/element: provide a src URL or file before calling open()");
 
-      const bytes = await this.#readSource(source, controller.signal, generation);
+      const bytes = await sourceBytes("aared/element", source, controller.signal, (loaded, total) => {
+        this.#progress(loaded, total, generation);
+      });
       if (!this.#current(generation, controller)) return;
-      const requestedType = this.getAttribute("type") as DocumentFormat | null;
-      const format = requestedType ?? await WorkerSession.detectFormat("aared/element", bytes, controller.signal);
+      // An asserted type skips detection: the per-format `open()` raises the
+      // typed `unsupported-format` mismatch itself, naming what it found.
+      const format = this.type ?? await WorkerSession.detectFormat("aared/element", bytes, {
+        signal: controller.signal,
+        ...(workerInit === undefined ? {} : { worker: workerInit }),
+      });
       if (!this.#current(generation, controller)) return;
-      if (requestedType !== null && requestedType !== format) {
-        throw new Error(`<aared-viewer>: explicit type "${requestedType}" does not match detected format "${format}"`);
-      }
-      const doc = await this.#openFormat(format, bytes, controller.signal);
+      const doc = await openFormat(
+        format,
+        bytes,
+        workerInit === undefined ? { signal: controller.signal } : { signal: controller.signal, worker: workerInit },
+      );
       if (!this.#current(generation, controller)) {
         doc.close();
         return;
       }
       if (doc.info.count === 0) {
         doc.close();
-        throw new Error("<aared-viewer>: this document has no slides, sheets, or sections to show");
+        throw new AaredError("invalid-document", "aared/element: this document has no slides, sheets, or sections to show");
       }
       this.#doc = doc;
       this.#format = format;
       const page = this.#requestedPage(doc.info.count);
-      const rendered = await this.#render(page, generation);
+      await this.#render(page, generation);
       if (!this.#current(generation, controller)) return;
+      // The starting unit is reported by `load` (read `index`/`info`), never
+      // by `indexchange`: events describe changes.
       this.dispatchEvent(new CustomEvent<DocumentInfo>("load", { detail: doc.info }));
-      if (rendered) this.#announcePage(page);
       this.#updateChrome();
     } catch (error) {
-      if (!this.#current(generation, controller) || abortError(error)) return;
+      if (!this.#current(generation, controller) || isAbort(error)) return;
       this.#doc?.close();
       this.#doc = null;
       this.#format = null;
-      this.#slideSize = null;
+      this.#shownIndex = null;
       this.#page.replaceChildren();
       this.#updateChrome();
       this.#report(error);
@@ -190,65 +267,73 @@ export class AaredViewer extends HTMLElement {
     }
   }
 
-  goTo(index: number): void {
+  /**
+   * Show unit `index`. Resolves once painted; going to the unit already shown
+   * is a no-op. Rejects — after firing `error` once — with a `not-found`
+   * `AaredError` outside `0 <= index < info.count`.
+   */
+  async goTo(index: number): Promise<void> {
     try {
       this.#assertPage(index, this.#doc?.info.count);
     } catch (error) {
       this.#report(error);
       throw error;
     }
-    if (this.index !== index) {
-      this.index = index;
-      return;
-    }
-    if (this.#doc !== null) void this.#showPage(index);
+    if (index === this.#shownIndex && this.#slideRender !== null) return;
+    this.#writeIndex(index);
+    if (this.#doc !== null) await this.#showPage(index, true);
   }
 
   connectedCallback(): void {
-    this.#resizeObserver?.observe(this.#stage);
+    this.#updateChrome();
     this.#listenSystemTheme();
+    document.addEventListener("fullscreenchange", this.#onFullscreenChange);
+    this.#syncFullscreen();
     if (this.#file !== null || this.src !== null) void this.open().catch(() => {});
   }
 
   disconnectedCallback(): void {
-    this.#resizeObserver?.disconnect();
+    document.removeEventListener("fullscreenchange", this.#onFullscreenChange);
     this.#themeMediaQuery?.removeEventListener("change", this.#onSystemThemeChange);
     this.#themeMediaQuery = null;
     this.#replaceDocument();
   }
 
   attributeChangedCallback(name: string): void {
-    if (name === "zoom" || name === "controls" || name === "theme") {
+    if (name === "controls" || name === "theme") {
+      this.#updateChrome();
+      return;
+    }
+    if (name === "zoom") {
+      // The render handle owns zoom: its fit logic applies, and its
+      // `zoomchange` (fired only on a real change) forwards to us. Removing
+      // the attribute goes back to the format's default.
+      const handle = this.#slideRender;
+      if (handle !== null && this.#format !== null) {
+        const want = this.hasAttribute("zoom") ? this.zoom : DEFAULT_ZOOM[this.#format];
+        if (!sameZoom(handle.zoom, want)) handle.setZoom(want);
+      }
       this.#updateChrome();
       return;
     }
     if (name === "type") {
-      const requestedType = this.getAttribute("type") as DocumentFormat | null;
+      const requestedType = this.getAttribute("type");
       if (this.#doc !== null && this.#format !== null && requestedType !== null && requestedType !== this.#format) {
-        const error = new Error(`<aared-viewer>: explicit type "${requestedType}" does not match detected format "${this.#format}"`);
+        const error = sourceTypeError(requestedType) ?? new AaredError(
+          "unsupported-format",
+          `aared/element: type "${requestedType}" does not match the open document's format "${this.#format}"`,
+        );
         this.#replaceDocument();
         this.#report(error);
         return;
       }
     }
     if (name === "index") {
-      if (this.#doc !== null) void this.#showPage(this.index);
+      if (this.#writingIndex) return;
+      if (this.#doc !== null && this.index !== this.#shownIndex) void this.#showPage(this.index, false);
       return;
     }
     if (this.isConnected) void this.open().catch(() => {});
-  }
-
-  async #openFormat(format: DocumentFormat, bytes: ArrayBuffer, signal: AbortSignal): Promise<AnyDocument> {
-    if (format === "pptx") {
-      const pptx = await import("../pptx/index.js");
-      return pptx.open(bytes, { signal });
-    }
-    if (format === "xlsx") {
-      const xlsx = await import("../xlsx/index.js");
-      return xlsx.open(bytes, { signal });
-    }
-    const docx = await import("../docx/index.js");
-    return docx.open(bytes, { signal });
   }
 
   #replaceDocument(): number {
@@ -259,11 +344,11 @@ export class AaredViewer extends HTMLElement {
     this.#doc?.close();
     this.#doc = null;
     this.#format = null;
+    this.#shownIndex = null;
     this.#slideRender?.destroy();
     this.#slideRender = null;
     this.#renderAbortController?.abort();
     this.#renderAbortController = null;
-    this.#slideSize = null;
     this.#page.replaceChildren();
     this.#updateChrome();
     return this.#generation;
@@ -273,114 +358,95 @@ export class AaredViewer extends HTMLElement {
     return generation === this.#generation && controller === this.#openController && !controller.signal.aborted;
   }
 
-  async #readSource(source: ViewerSource, signal: AbortSignal, generation: number): Promise<ArrayBuffer> {
-    if (typeof source !== "string") {
-      const total = source instanceof ArrayBuffer ? source.byteLength : source.size;
-      this.#progress(0, total, generation);
-      const bytes = source instanceof ArrayBuffer ? source.slice(0) : await source.arrayBuffer();
-      this.#progress(bytes.byteLength, total, generation);
-      return bytes;
+  /** Write `index` without re-rendering (the caller renders, or the unit is already on screen). */
+  #writeIndex(index: number): void {
+    this.#writingIndex = true;
+    try {
+      this.setAttribute("index", String(index));
+    } finally {
+      this.#writingIndex = false;
     }
-    const response = await fetch(source, { signal });
-    if (!response.ok) throw new Error(`<aared-viewer>: failed to fetch "${source}": HTTP ${response.status}`);
-    const totalHeader = response.headers.get("content-length");
-    const total = totalHeader === null ? undefined : Number(totalHeader);
-    this.#progress(0, Number.isFinite(total) && total! >= 0 ? total : undefined, generation);
-    if (response.body === null) {
-      const bytes = await response.arrayBuffer();
-      this.#progress(bytes.byteLength, bytes.byteLength, generation);
-      return bytes;
-    }
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let loaded = 0;
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      chunks.push(chunk.value);
-      loaded += chunk.value.byteLength;
-      this.#progress(loaded, total, generation);
-    }
-    const bytes = new Uint8Array(loaded);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return bytes.buffer;
   }
 
-  async #showPage(index: number): Promise<void> {
+  /** Render `index` and announce it. `rethrow` for `goTo()`; attribute changes only report. */
+  async #showPage(index: number, rethrow: boolean): Promise<void> {
     try {
       this.#assertPage(index, this.#doc?.info.count);
       const generation = this.#generation;
       const rendered = await this.#render(index, generation);
-      if (!rendered || generation !== this.#generation) return;
-      this.#announcePage(index);
+      if (!rendered || generation !== this.#generation || this.#doc === null || this.#format === null) return;
+      announceUnit(this, this.#format, this.#doc, index);
       this.#updateChrome();
     } catch (error) {
-      if (this.#doc !== null && !abortError(error)) this.#report(error);
+      if (this.#doc === null || isAbort(error)) return;
+      this.#report(error);
+      if (rethrow) throw error;
     }
   }
 
-  /** `indexchange` always fires; format-native siblings fire when they apply. */
-  #announcePage(index: number): void {
-    this.dispatchEvent(new CustomEvent("indexchange", { detail: { index } }));
-    if (this.#format === "pptx") {
-      this.dispatchEvent(new CustomEvent("slidechange", { detail: { slide: index } }));
-    } else if (this.#format === "xlsx") {
-      const name = this.#doc !== null && this.#format === "xlsx"
-        ? (this.#doc as XlsxDocument).sheets.list()[index]?.info.name
-        : undefined;
-      this.dispatchEvent(new CustomEvent("sheetchange", { detail: { sheet: name ?? index } }));
-    }
+  /**
+   * The one appearance the element renders each format with — used for the
+   * first paint and every later theme change alike. `setAppearance` replaces
+   * rather than merges, so building it twice differently would drop knobs
+   * (the XLSX tab strip used to vanish on a theme toggle).
+   */
+  #appearanceFor(format: DocumentFormat): Appearance {
+    return format === "xlsx"
+      ? { theme: this.#resolvedTheme, spreadsheet: { sheetTabs: true } }
+      : { theme: this.#resolvedTheme };
   }
 
   async #render(index: number, generation: number): Promise<boolean> {
     const doc = this.#doc;
     const format = this.#format;
-    if (doc === null || format === null) throw new Error("<aared-viewer>: no document is open");
+    if (doc === null || format === null) throw new AaredError("not-found", "aared/element: no document is open");
     const renderGeneration = ++this.#renderGeneration;
     const stale = () => generation !== this.#generation || renderGeneration !== this.#renderGeneration;
     this.#slideRender?.destroy();
     this.#slideRender = null;
+    // Only what the element sets: each format's `render()` owns its defaults
+    // (session media, its default zoom). The zoom attribute, when set, wins.
+    const common = {
+      target: this.#page,
+      appearance: this.#appearanceFor(format),
+      ...(this.hasAttribute("zoom") ? { zoom: this.zoom } : {}),
+    };
+    let rendered: RenderHandle;
     if (format === "pptx") {
       const renderer = await import("../pptx/index.js");
       if (stale()) return false;
-      const deck = doc as PptxDocument;
-      const slide = deck.slides.get(index);
-      this.#slideSize = { ...slide.info.size };
-      const mediaResolver = (mediaId: string) => deck.media.get(mediaId);
-      const rendered = await renderer.render({ slide, target: this.#page, mediaResolver });
-      if (stale()) {
-        rendered.destroy();
-        return false;
-      }
-      this.#slideRender = rendered;
-      this.#forwardRenderEvents(rendered);
+      rendered = await renderer.render({ ...common, slide: (doc as PptxDocument).slides.get(index) });
     } else if (format === "xlsx") {
       const renderer = await import("../xlsx/index.js");
       if (stale()) return false;
-      const workbook = doc as XlsxDocument;
-      const sheet = workbook.sheets.get(index);
-      this.#slideSize = null;
-      const mediaResolver = (mediaId: string) => workbook.media.get(mediaId);
-      const rendered = await renderer.render({ sheet, target: this.#page, mediaResolver, appearance: { theme: this.#resolvedTheme } });
-      if (stale()) {
-        rendered.destroy();
-        return false;
-      }
-      this.#slideRender = rendered;
-      this.#forwardRenderEvents(rendered);
+      rendered = await renderer.render({ ...common, sheet: (doc as XlsxDocument).sheets.get(index) });
     } else {
       const renderer = await import("../docx/index.js");
       if (stale()) return false;
-      const document = doc as DocxDocument;
-      this.#slideSize = null;
-      const mediaResolver = (mediaId: string) => document.media.get(mediaId);
-      this.#slideRender = await renderer.render({ document, target: this.#page, mediaResolver, appearance: { theme: this.#resolvedTheme } });
-      this.#forwardRenderEvents(this.#slideRender!);
+      rendered = await renderer.render({ ...common, document: doc as DocxDocument });
     }
+    if (stale()) {
+      rendered.destroy();
+      return false;
+    }
+    this.#slideRender = rendered;
+    this.#shownIndex = index;
+    this.#renderAbortController?.abort();
+    const controller = new AbortController();
+    this.#renderAbortController = controller;
+    forwardRenderEvents(rendered, this, controller.signal);
+    // A sheet-tab click switches sheets inside the renderer: follow it on
+    // `index` without re-rendering, and announce it like any navigation.
+    followSheet(rendered, controller.signal, (sheet) => {
+      if (this.#doc === null || this.#format === null || sheet === this.#shownIndex) return;
+      this.#shownIndex = sheet;
+      this.#writeIndex(sheet);
+      announceUnit(this, this.#format, this.#doc, sheet);
+      this.#updateChrome();
+    });
+    // A zoom attribute changed while this unit rendered: the old handle was
+    // already gone, so apply it now — the forwarded event reports it once.
+    if (this.hasAttribute("zoom") && !sameZoom(rendered.zoom, this.zoom)) rendered.setZoom(this.zoom);
     this.#contentRenderTheme = this.#resolvedTheme;
     return true;
   }
@@ -393,10 +459,10 @@ export class AaredViewer extends HTMLElement {
 
   #assertPage(page: number, total?: number): void {
     if (!Number.isInteger(page) || page < 0) {
-      throw new RangeError(`<aared-viewer>: index must be a non-negative integer; received ${String(page)}`);
+      throw new AaredError("not-found", `aared/element: index must be a non-negative integer; received ${String(page)}`);
     }
     if (total !== undefined && page >= total) {
-      throw new RangeError(`<aared-viewer>: index ${page} is outside this ${total}-unit document`);
+      throw new AaredError("not-found", `aared/element: index ${page} is outside this ${total}-unit document`);
     }
   }
 
@@ -407,24 +473,10 @@ export class AaredViewer extends HTMLElement {
     }));
   }
 
+  /** Fire `error` once; `cause` is the `AaredError` itself (the one `goTo()`/`open()` reject with). */
   #report(cause: unknown): void {
     const message = cause instanceof Error ? cause.message : String(cause);
     this.dispatchEvent(new CustomEvent("error", { detail: { message, cause } }));
-  }
-
-  #forwardRenderEvents(handle: RenderHandle): void {
-    this.#renderAbortController?.abort();
-    const controller = new AbortController();
-    this.#renderAbortController = controller;
-    const signal = controller.signal;
-    const forward = (type: string) => {
-      handle.addEventListener(type, (event) => {
-        this.dispatchEvent(new CustomEvent(type, { detail: (event as CustomEvent).detail }));
-      }, { signal });
-    };
-    for (const type of ["zoomchange", "linkactivate", "cellactivate", "selectionchange", "sheetchange"]) {
-      forward(type);
-    }
   }
 
   #onSystemThemeChange = (): void => {
@@ -442,70 +494,107 @@ export class AaredViewer extends HTMLElement {
   #createControls(): void {
     const previous = document.createElement("button");
     previous.type = "button";
+    previous.part.add("button");
     previous.textContent = "Previous";
-    previous.addEventListener("click", () => this.goTo(Math.max(0, this.index - 1)));
+    previous.addEventListener("click", () => void this.goTo(Math.max(0, this.index - 1)).catch(() => {}));
     const indicator = document.createElement("span");
+    indicator.part.add("label");
     indicator.dataset.aaredControls = "index";
     const next = document.createElement("button");
     next.type = "button";
+    next.part.add("button");
     next.textContent = "Next";
     next.addEventListener("click", () => {
       const total = this.#doc?.info.count ?? 0;
-      this.goTo(Math.min(Math.max(total - 1, 0), this.index + 1));
+      void this.goTo(Math.min(Math.max(total - 1, 0), this.index + 1)).catch(() => {});
     });
     const zoomOut = document.createElement("button");
     zoomOut.type = "button";
+    zoomOut.part.add("button");
     zoomOut.textContent = "-";
     zoomOut.setAttribute("aria-label", "Zoom out");
-    zoomOut.addEventListener("click", () => this.#setNumericZoom(1 / 1.25));
+    zoomOut.addEventListener("click", () => this.#stepZoom(1 / ZOOM_STEP));
     const zoomIn = document.createElement("button");
     zoomIn.type = "button";
+    zoomIn.part.add("button");
     zoomIn.textContent = "+";
     zoomIn.setAttribute("aria-label", "Zoom in");
-    zoomIn.addEventListener("click", () => this.#setNumericZoom(1.25));
+    zoomIn.addEventListener("click", () => this.#stepZoom(ZOOM_STEP));
     const zoom = document.createElement("span");
+    zoom.part.add("label");
     zoom.dataset.aaredControls = "zoom";
     this.#controls.append(previous, indicator, next, zoomOut, zoom, zoomIn);
+    if (typeof this.requestFullscreen === "function") {
+      const fullscreen = document.createElement("button");
+      fullscreen.type = "button";
+      fullscreen.part.add("button");
+      fullscreen.part.add("fullscreen");
+      fullscreen.addEventListener("click", () => this.#toggleFullscreen());
+      this.#fullscreenButton = fullscreen;
+      this.#syncFullscreen();
+      this.#controls.append(fullscreen);
+    }
   }
 
-  #setNumericZoom(factor: number): void {
-    const current = typeof this.zoom === "number" && Number.isFinite(this.zoom) ? this.zoom : 1;
-    this.zoom = Math.min(3, Math.max(0.25, current * factor));
+  #toggleFullscreen(): void {
+    if (document.fullscreenElement === this) void document.exitFullscreen().catch(() => {});
+    else void this.requestFullscreen().catch(() => {});
+  }
+
+  #onFullscreenChange = (): void => this.#syncFullscreen();
+
+  #syncFullscreen(): void {
+    const button = this.#fullscreenButton;
+    if (button === null) return;
+    const active = document.fullscreenElement === this;
+    const label = active ? "Exit full screen" : "Full screen";
+    button.innerHTML = active ? EXIT_FULLSCREEN_ICON : ENTER_FULLSCREEN_ICON;
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    // Hosts embedded without permission (e.g. an iframe lacking
+    // allow="fullscreen") report the API as disabled.
+    button.hidden = document.fullscreenEnabled === false;
+  }
+
+  /**
+   * +/−: step from the numeric zoom, or from the scale a fit mode actually
+   * painted (so "Fit page" at 62% steps to 78%, not to 125%), clamped to
+   * 25%–300% and rounded so repeated steps don't drift.
+   */
+  #stepZoom(factor: number): void {
+    const zoom = this.zoom;
+    const base = typeof zoom === "number" ? safeScale(zoom) : (this.#slideRender?.scale ?? 1);
+    const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, base * factor));
+    this.zoom = Math.round(next * 100) / 100;
   }
 
   #updateChrome(): void {
-    const theme = this.theme;
-    const resolved = theme === "system"
-      ? (typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-      : theme;
+    const resolved = resolveTheme(this.theme);
     const prevTheme = this.#resolvedTheme;
     this.#resolvedTheme = resolved;
     this.dataset.aaredTheme = resolved;
-    // When the resolved theme changes and a document is open, re-render
-    // the current unit so adaptive content adapts to the new chrome.
-    if (resolved !== prevTheme && this.#doc !== null && this.#contentRenderTheme !== null) {
-      void this.#render(this.index, this.#generation).catch(() => {});
-    }
-    const zoom = this.zoom;
-    const numericZoom = typeof zoom === "number" && Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
-    if (typeof zoom === "number") {
-      this.#page.style.width = `${numericZoom * 100}%`;
-      this.#page.style.maxWidth = "none";
-    } else if (zoom === "fit-page" && this.#slideSize !== null && this.#stage.clientHeight > 0) {
-      const width = Math.min(this.#stage.clientWidth, this.#stage.clientHeight * (this.#slideSize.width / this.#slideSize.height));
-      this.#page.style.width = `${width}px`;
-      this.#page.style.maxWidth = "100%";
-    } else {
-      this.#page.style.width = "100%";
-      this.#page.style.maxWidth = "none";
+    if (this.#format === null) delete this.dataset.aaredFormat;
+    else this.dataset.aaredFormat = this.#format;
+    // When the resolved theme changes and a document is open, forward it in
+    // place — with the same appearance the first paint used — so the unit
+    // index, zoom, and Worker session survive.
+    if (resolved !== prevTheme && this.#format !== null && this.#slideRender !== null && this.#contentRenderTheme !== null) {
+      this.#slideRender.setAppearance(this.#appearanceFor(this.#format));
+      this.#contentRenderTheme = resolved;
     }
     this.#controls.hidden = !this.controls;
     const total = this.#doc?.info.count ?? 0;
-    const page = this.index;
     const indicator = this.#controls.querySelector<HTMLElement>('[data-aared-controls="index"]');
     const zoomIndicator = this.#controls.querySelector<HTMLElement>('[data-aared-controls="zoom"]');
-    if (indicator !== null) indicator.textContent = total === 0 ? "0 / 0" : `${page + 1} / ${total}`;
-    if (zoomIndicator !== null) zoomIndicator.textContent = zoom === "fit-width" ? "Fit width" : zoom === "fit-page" ? "Fit page" : `${Math.round(numericZoom * 100)}%`;
+    if (indicator !== null) indicator.textContent = total === 0 ? "0 / 0" : `${this.index + 1} / ${total}`;
+    if (zoomIndicator !== null) {
+      const zoom = this.zoom;
+      zoomIndicator.textContent = zoom === "fit-width"
+        ? "Fit width"
+        : zoom === "fit-page"
+          ? "Fit page"
+          : `${Math.round(safeScale(zoom) * 100)}%`;
+    }
   }
 }
 

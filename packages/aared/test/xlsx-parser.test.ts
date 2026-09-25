@@ -10,7 +10,7 @@ import type { SheetModel } from "../src/core/model.js";
 // synthetic (pure functions, allowed by AGENTS.md § Testing rule).
 
 const TRACKER_PATH = `${import.meta.dir}/../../../fixtures/post-production-tracker.xlsx`;
-const COVERAGE_PATH = `${import.meta.dir}/../../../fixtures/arabic-xlsx-rtl-coverage.xlsx`;
+const COVERAGE_PATH = `${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`;
 
 async function tracker() {
   const pkg = await OpcPackage.open(await Bun.file(TRACKER_PATH).arrayBuffer());
@@ -152,7 +152,7 @@ describe("XLSX styles, values, and formats on the real tracker", () => {
     const chart = dashboard.drawings[0];
     if (chart?.kind !== "chart") throw new Error("fixture structure changed: expected a dashboard chart");
     expect(chart.sourceChartId).toBe("xl/charts/chart1.xml");
-    expect(chart.graphic?.viewBox).toEqual({ width: 400, height: 300 });
+    expect(chart.graphic?.viewBox).toEqual({ width: 1000, height: 600 });
     expect(chart.graphic?.primitives.length).toBeGreaterThan(0);
     expect(chart.graphic?.primitives.some((primitive) => primitive.kind === "rect")).toBe(true);
     expect(chart.graphic?.primitives.some((primitive) => primitive.kind === "text" && primitive.text.includes("Hours logged by episode"))).toBe(true);

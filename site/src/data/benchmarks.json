@@ -1,0 +1,6030 @@
+{
+ "generated": "2026-09-24T21:12:31.834Z",
+ "sources": {
+  "run": "20260924-235805.json",
+  "size": "size-20260924-231918.json",
+  "search": "search-20260924-235815.json"
+ },
+ "machine": {
+  "bun": "1.4.2",
+  "node": "v26.3.0",
+  "platform": "win32",
+  "arch": "x64",
+  "os": "Windows_NT 10.0.26200",
+  "cpu": "AMD Ryzen 7 6800H with Radeon Graphics",
+  "cores": 16,
+  "ram_gb": 15,
+  "browser": "HeadlessChrome/153.0.0.0"
+ },
+ "method": {
+  "runs": 11,
+  "warmupDiscarded": 2,
+  "coldRuns": 5,
+  "memoryRuns": 5,
+  "navigationRuns": 5
+ },
+ "size": {
+  "formats": [
+   {
+    "renderer": "aared",
+    "format": "pptx",
+    "fixtures": [
+     "pptx-coverage.pptx",
+     "post-production-review.pptx"
+    ],
+    "version": "0.0.0",
+    "totals": {
+     "files": 6,
+     "bytes": 269972,
+     "gzip": 83543,
+     "brotli": 70415,
+     "main": 40145,
+     "worker": 43398,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "pptxviewjs",
+    "format": "pptx",
+    "fixtures": [
+     "pptx-coverage.pptx",
+     "post-production-review.pptx"
+    ],
+    "version": "1.1.9",
+    "totals": {
+     "files": 3,
+     "bytes": 898723,
+     "gzip": 259171,
+     "brotli": 209110,
+     "main": 259171,
+     "worker": 0,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "silurus",
+    "format": "pptx",
+    "fixtures": [
+     "pptx-coverage.pptx",
+     "post-production-review.pptx"
+    ],
+    "version": "0.87.0",
+    "totals": {
+     "files": 2,
+     "bytes": 2619795,
+     "gzip": 944462,
+     "brotli": 690797,
+     "main": 262079,
+     "worker": 0,
+     "wasm": 682383
+    }
+   },
+   {
+    "renderer": "aiden0z",
+    "format": "pptx",
+    "fixtures": [
+     "pptx-coverage.pptx",
+     "post-production-review.pptx"
+    ],
+    "version": "1.3.0",
+    "totals": {
+     "files": 4,
+     "bytes": 1244192,
+     "gzip": 390818,
+     "brotli": 323129,
+     "main": 390818,
+     "worker": 0,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "mdurbar",
+    "format": "pptx",
+    "fixtures": [
+     "pptx-coverage.pptx",
+     "post-production-review.pptx"
+    ],
+    "version": "0.2.2",
+    "totals": {
+     "files": 1,
+     "bytes": 98860,
+     "gzip": 29405,
+     "brotli": 25104,
+     "main": 29405,
+     "worker": 0,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "omni",
+    "format": "pptx",
+    "fixtures": [
+     "pptx-coverage.pptx",
+     "post-production-review.pptx"
+    ],
+    "version": "0.2.0",
+    "totals": {
+     "files": 6,
+     "bytes": 1392798,
+     "gzip": 451600,
+     "brotli": 368706,
+     "main": 451600,
+     "worker": 0,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "aared",
+    "format": "xlsx",
+    "fixtures": [
+     "post-production-tracker.xlsx",
+     "xlsx-coverage.xlsx"
+    ],
+    "version": "0.0.0",
+    "totals": {
+     "files": 6,
+     "bytes": 183366,
+     "gzip": 63717,
+     "brotli": 55987,
+     "main": 20319,
+     "worker": 43398,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "sheetjs",
+    "format": "xlsx",
+    "fixtures": [
+     "post-production-tracker.xlsx",
+     "xlsx-coverage.xlsx"
+    ],
+    "version": "0.20.3",
+    "totals": {
+     "files": 1,
+     "bytes": 499549,
+     "gzip": 164197,
+     "brotli": 135271,
+     "main": 164197,
+     "worker": 0,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "xlscalc",
+    "format": "xlsx",
+    "fixtures": [
+     "post-production-tracker.xlsx",
+     "xlsx-coverage.xlsx"
+    ],
+    "version": "0.4.0",
+    "totals": {
+     "files": 2,
+     "bytes": 1085183,
+     "gzip": 327236,
+     "brotli": 263715,
+     "main": 327236,
+     "worker": 0,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "spreadsheet-preview",
+    "format": "xlsx",
+    "fixtures": [
+     "post-production-tracker.xlsx",
+     "xlsx-coverage.xlsx"
+    ],
+    "version": "0.1.0",
+    "totals": {
+     "files": 1,
+     "bytes": 1275512,
+     "gzip": 438388,
+     "brotli": 300146,
+     "main": 438388,
+     "worker": 0,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "omni",
+    "format": "xlsx",
+    "fixtures": [
+     "post-production-tracker.xlsx",
+     "xlsx-coverage.xlsx"
+    ],
+    "version": "0.2.0",
+    "totals": {
+     "files": 3,
+     "bytes": 536608,
+     "gzip": 178769,
+     "brotli": 148301,
+     "main": 178769,
+     "worker": 0,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "aared",
+    "format": "docx",
+    "fixtures": [
+     "docx-coverage.docx"
+    ],
+    "version": "0.0.0",
+    "totals": {
+     "files": 6,
+     "bytes": 176772,
+     "gzip": 61684,
+     "brotli": 54140,
+     "main": 18286,
+     "worker": 43398,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "docx-preview",
+    "format": "docx",
+    "fixtures": [
+     "docx-coverage.docx"
+    ],
+    "version": "0.4.0",
+    "totals": {
+     "files": 3,
+     "bytes": 173514,
+     "gzip": 51453,
+     "brotli": 45443,
+     "main": 51453,
+     "worker": 0,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "docx-renderer",
+    "format": "docx",
+    "fixtures": [
+     "docx-coverage.docx"
+    ],
+    "version": "0.2.2",
+    "totals": {
+     "files": 3,
+     "bytes": 451903,
+     "gzip": 135472,
+     "brotli": 115911,
+     "main": 135472,
+     "worker": 0,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "omni",
+    "format": "docx",
+    "fixtures": [
+     "docx-coverage.docx"
+    ],
+    "version": "0.2.0",
+    "totals": {
+     "files": 5,
+     "bytes": 208210,
+     "gzip": 65027,
+     "brotli": 57568,
+     "main": 65027,
+     "worker": 0,
+     "wasm": 0
+    }
+   }
+  ],
+  "aaredAll": {
+   "files": 9,
+   "bytes": 340521,
+   "gzip": 107847,
+   "brotli": 92215,
+   "main": 64449,
+   "worker": 43398,
+   "wasm": 0
+  },
+  "stitched": {
+   "totals": {
+    "files": 5,
+    "bytes": 771923,
+    "gzip": 245055,
+    "brotli": 205818,
+    "main": 245055,
+    "worker": 0,
+    "wasm": 0
+   },
+   "parts": [
+    {
+     "renderer": "mdurbar",
+     "format": "pptx"
+    },
+    {
+     "renderer": "sheetjs",
+     "format": "xlsx"
+    },
+    {
+     "renderer": "docx-preview",
+     "format": "docx"
+    }
+   ]
+  }
+ },
+ "run": [
+  {
+   "fixture": "pptx-coverage.pptx",
+   "format": "pptx",
+   "renderer": "aared",
+   "units": 10,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 84.90000000596046,
+    "p95": 116.29999999701977,
+    "min": 77,
+    "max": 116.29999999701977
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 31.600000001490116,
+    "p95": 32,
+    "min": 29.399999998509884,
+    "max": 32
+   },
+   "nav_ms": {
+    "n": 50,
+    "median": 33.600000001490116,
+    "p95": 216.40000000596046,
+    "min": 23.69999999552965,
+    "max": 265.8999999985099
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 582.4000000059605,
+    "p95": 630.2000000029802,
+    "min": 532.4000000059605,
+    "max": 630.2000000029802
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 938.5009765625,
+    "min": 876.83984375,
+    "max": 944.5986328125,
+    "samples": [
+     877,
+     937,
+     945,
+     939,
+     942
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 180.63671875,
+    "min": 138.4833984375,
+    "max": 180.75,
+    "samples": [
+     138,
+     180,
+     181,
+     181,
+     181
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 757.8486328125,
+    "min": 738.3564453125,
+    "max": 763.9619140625,
+    "samples": [
+     738,
+     757,
+     764,
+     758,
+     761
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 2339.0390625,
+    "min": 2338.890625,
+    "max": 2339.7109375,
+    "samples": [
+     2339,
+     2340,
+     2339,
+     2339,
+     2339
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 788.8212890625,
+    "min": 788.6728515625,
+    "max": 789.4931640625,
+    "samples": [
+     789,
+     789,
+     789,
+     789,
+     789
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 1550.2177734375,
+    "min": 1550.2177734375,
+    "max": 1550.2177734375,
+    "samples": [
+     1550,
+     1550,
+     1550,
+     1550,
+     1550
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 1264.189453125,
+    "min": 1218.498046875,
+    "max": 1321.568359375,
+    "samples": [
+     1322,
+     1218,
+     1264
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 4.6640625,
+    "min": -57.5283203125,
+    "max": 7.33984375,
+    "samples": [
+     -58,
+     0,
+     7,
+     5,
+     5
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1318.283203125,
+    "min": 1318.283203125,
+    "max": 1318.283203125,
+    "samples": [
+     1318
+    ]
+   },
+   "elements": 65,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "pptx-coverage.pptx",
+   "format": "pptx",
+   "renderer": "pptxviewjs",
+   "units": 10,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 226,
+    "p95": 254.5,
+    "min": 214.29999999701977,
+    "max": 254.5
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 99,
+    "p95": 117.89999999850988,
+    "min": 82.10000000149012,
+    "max": 117.89999999850988
+   },
+   "nav_ms": {
+    "n": 50,
+    "median": 33.20000000298023,
+    "p95": 34,
+    "min": 27.200000002980232,
+    "max": 36.5
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 331.80000000447035,
+    "p95": 333.3999999985099,
+    "min": 325.80000000447035,
+    "max": 333.3999999985099
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 1547.234375,
+    "min": 1266.17578125,
+    "max": 1583.794921875,
+    "samples": [
+     1537,
+     1555,
+     1584,
+     1547,
+     1266
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 1547.234375,
+    "min": 1266.17578125,
+    "max": 1583.794921875,
+    "samples": [
+     1537,
+     1555,
+     1584,
+     1547,
+     1266
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 5913.8388671875,
+    "min": 5911.9521484375,
+    "max": 5913.9443359375,
+    "samples": [
+     5912,
+     5914,
+     5914,
+     5912,
+     5914
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 5913.8388671875,
+    "min": 5911.9521484375,
+    "max": 5913.9443359375,
+    "samples": [
+     5912,
+     5914,
+     5914,
+     5912,
+     5914
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 1494.35546875,
+    "min": 1472.244140625,
+    "max": 1744.572265625,
+    "samples": [
+     1745,
+     1472,
+     1494
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 1544.91796875,
+    "min": 1076.21875,
+    "max": 1581.478515625,
+    "samples": [
+     1535,
+     1553,
+     1581,
+     1545,
+     1076
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 1,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "pptx-coverage.pptx",
+   "format": "pptx",
+   "renderer": "silurus",
+   "units": 10,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 419.5,
+    "p95": 476.5,
+    "min": 397.6000000014901,
+    "max": 476.5
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 249.5,
+    "p95": 312.3999999985099,
+    "min": 197.19999999552965,
+    "max": 312.3999999985099
+   },
+   "nav_ms": {
+    "n": 50,
+    "median": 33.5,
+    "p95": 35.600000001490116,
+    "min": 24.80000000447035,
+    "max": 42.100000001490116
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 332.80000000447035,
+    "p95": 333,
+    "min": 328.8999999985099,
+    "max": 333
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 2093.763671875,
+    "min": 2087.1181640625,
+    "max": 2127.798828125,
+    "samples": [
+     2087,
+     2097,
+     2128,
+     2094,
+     2093
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 1169.6083984375,
+    "min": 1162.962890625,
+    "max": 1203.6435546875,
+    "samples": [
+     1163,
+     1173,
+     1204,
+     1170,
+     1169
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 924.1552734375,
+    "min": 924.1552734375,
+    "max": 924.1552734375,
+    "samples": [
+     924,
+     924,
+     924,
+     924,
+     924
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 4867.9208984375,
+    "min": 4867.7724609375,
+    "max": 4867.9208984375,
+    "samples": [
+     4868,
+     4868,
+     4868,
+     4868,
+     4868
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 3943.765625,
+    "min": 3943.6171875,
+    "max": 3943.765625,
+    "samples": [
+     3944,
+     3944,
+     3944,
+     3944,
+     3944
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 924.1552734375,
+    "min": 924.1552734375,
+    "max": 924.1552734375,
+    "samples": [
+     924,
+     924,
+     924,
+     924,
+     924
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 2883.638671875,
+    "min": 2878.6328125,
+    "max": 2917.708984375,
+    "samples": [
+     2884,
+     2918,
+     2879
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 0.62109375,
+    "min": -5.2939453125,
+    "max": 4.25390625,
+    "samples": [
+     -5,
+     4,
+     1,
+     1,
+     0
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 1,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "pptx-coverage.pptx",
+   "format": "pptx",
+   "renderer": "aiden0z",
+   "units": 10,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 397.6000000014901,
+    "p95": 459.20000000298023,
+    "min": 387,
+    "max": 459.20000000298023
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 134.59999999403954,
+    "p95": 151.10000000149012,
+    "min": 118.80000000447035,
+    "max": 151.10000000149012
+   },
+   "nav_ms": {
+    "n": 50,
+    "median": 33.100000001490116,
+    "p95": 34.399999998509884,
+    "min": 13.899999998509884,
+    "max": 34.5
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 326.6000000014901,
+    "p95": 328.8999999985099,
+    "min": 314.30000000447035,
+    "max": 328.8999999985099
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 4542.107421875,
+    "min": 4496.0166015625,
+    "max": 4560.994140625,
+    "samples": [
+     4496,
+     4548,
+     4561,
+     4542,
+     4540
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 4542.107421875,
+    "min": 4496.0166015625,
+    "max": 4560.994140625,
+    "samples": [
+     4496,
+     4548,
+     4561,
+     4542,
+     4540
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 9119.2822265625,
+    "min": 9118.4228515625,
+    "max": 9120.1025390625,
+    "samples": [
+     9120,
+     9119,
+     9118,
+     9120,
+     9118
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 9119.2822265625,
+    "min": 9118.4228515625,
+    "max": 9120.1025390625,
+    "samples": [
+     9120,
+     9119,
+     9118,
+     9120,
+     9118
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 5072.068359375,
+    "min": 4548.169921875,
+    "max": 5077.181640625,
+    "samples": [
+     5077,
+     4548,
+     5072
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 2.87890625,
+    "min": -42.6962890625,
+    "max": 16.1953125,
+    "samples": [
+     -43,
+     9,
+     16,
+     3,
+     1
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 575,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "pptx-coverage.pptx",
+   "format": "pptx",
+   "renderer": "mdurbar",
+   "units": 10,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 147.39999999850988,
+    "p95": 160.20000000298023,
+    "min": 140.39999999850988,
+    "max": 160.20000000298023
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 76.69999999552965,
+    "p95": 102.19999999552965,
+    "min": 72.40000000596046,
+    "max": 102.19999999552965
+   },
+   "nav_ms": {
+    "n": 50,
+    "median": 33.29999999701977,
+    "p95": 34.599999994039536,
+    "min": 19.19999999552965,
+    "max": 34.899999998509884
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 321.29999999701977,
+    "p95": 330.79999999701977,
+    "min": 320.5,
+    "max": 330.79999999701977
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 1185.4541015625,
+    "min": 1150.994140625,
+    "max": 1193.2158203125,
+    "samples": [
+     1151,
+     1193,
+     1190,
+     1184,
+     1185
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 1185.4541015625,
+    "min": 1150.994140625,
+    "max": 1193.2158203125,
+    "samples": [
+     1151,
+     1193,
+     1190,
+     1184,
+     1185
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 1902.099609375,
+    "min": 1902.013671875,
+    "max": 1902.388671875,
+    "samples": [
+     1902,
+     1902,
+     1902,
+     1902,
+     1902
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 1902.099609375,
+    "min": 1902.013671875,
+    "max": 1902.388671875,
+    "samples": [
+     1902,
+     1902,
+     1902,
+     1902,
+     1902
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 1204.8916015625,
+    "min": 1187.123046875,
+    "max": 1213.3837890625,
+    "samples": [
+     1205,
+     1213,
+     1187
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 0.6875,
+    "min": -30.5556640625,
+    "max": 10.57421875,
+    "samples": [
+     -31,
+     11,
+     5,
+     0,
+     1
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 153,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "pptx-coverage.pptx",
+   "format": "pptx",
+   "renderer": "omni",
+   "units": 10,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 422.3999999985099,
+    "p95": 447.1000000014901,
+    "min": 412.30000000447035,
+    "max": 447.1000000014901
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 115.60000000149012,
+    "p95": 145,
+    "min": 101.10000000149012,
+    "max": 145
+   },
+   "nav_ms": {
+    "n": 50,
+    "median": 33.20000000298023,
+    "p95": 34.29999999701977,
+    "min": 13.600000001490116,
+    "max": 34.80000000447035
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 319.6000000014901,
+    "p95": 328.29999999701977,
+    "min": 314.69999999552965,
+    "max": 328.29999999701977
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 3805.6240234375,
+    "min": 3799.423828125,
+    "max": 3807.6318359375,
+    "samples": [
+     3799,
+     3808,
+     3806,
+     3804,
+     3806
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 3805.6240234375,
+    "min": 3799.423828125,
+    "max": 3807.6318359375,
+    "samples": [
+     3799,
+     3808,
+     3806,
+     3804,
+     3806
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 8805.1484375,
+    "min": 8804.46875,
+    "max": 8805.65234375,
+    "samples": [
+     8804,
+     8805,
+     8805,
+     8806,
+     8805
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 8805.1484375,
+    "min": 8804.46875,
+    "max": 8805.65234375,
+    "samples": [
+     8804,
+     8805,
+     8805,
+     8806,
+     8805
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 3913.2919921875,
+    "min": 3912.4091796875,
+    "max": 3915.5576171875,
+    "samples": [
+     3916,
+     3913,
+     3912
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 1.921875,
+    "min": -3.6298828125,
+    "max": 4.6640625,
+    "samples": [
+     -4,
+     5,
+     2,
+     1,
+     3
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 740,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "post-production-review.pptx",
+   "format": "pptx",
+   "renderer": "aared",
+   "units": 7,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 85.59999999403954,
+    "p95": 99.5,
+    "min": 79.60000000149012,
+    "max": 99.5
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 31.80000000447035,
+    "p95": 33.399999998509884,
+    "min": 28.700000002980232,
+    "max": 33.399999998509884
+   },
+   "nav_ms": {
+    "n": 35,
+    "median": 33.20000000298023,
+    "p95": 34.29999999701977,
+    "min": 27.100000001490116,
+    "max": 56.600000001490116
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 232.20000000298023,
+    "p95": 247.39999999850988,
+    "min": 230.30000000447035,
+    "max": 247.39999999850988
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 626.029296875,
+    "min": 586.2392578125,
+    "max": 642.162109375,
+    "samples": [
+     586,
+     622,
+     626,
+     628,
+     642
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 121.05078125,
+    "min": 78.5302734375,
+    "max": 136.96875,
+    "samples": [
+     79,
+     121,
+     121,
+     121,
+     137
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 505.193359375,
+    "min": 500.744140625,
+    "max": 507.708984375,
+    "samples": [
+     508,
+     501,
+     505,
+     506,
+     505
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 2052.7080078125,
+    "min": 2052.7080078125,
+    "max": 2052.7080078125,
+    "samples": [
+     2053,
+     2053,
+     2053,
+     2053,
+     2053
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 737.787109375,
+    "min": 737.787109375,
+    "max": 737.787109375,
+    "samples": [
+     738,
+     738,
+     738,
+     738,
+     738
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 1314.9208984375,
+    "min": 1314.9208984375,
+    "max": 1314.9208984375,
+    "samples": [
+     1315,
+     1315,
+     1315,
+     1315,
+     1315
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 797.89453125,
+    "min": 785.56640625,
+    "max": 812.1005859375,
+    "samples": [
+     812,
+     786,
+     798
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 4.1171875,
+    "min": -35.2587890625,
+    "max": 5.671875,
+    "samples": [
+     -35,
+     0,
+     4,
+     6,
+     5
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1238.4892578125,
+    "min": 1238.4892578125,
+    "max": 1238.4892578125,
+    "samples": [
+     1238
+    ]
+   },
+   "elements": 39,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "post-production-review.pptx",
+   "format": "pptx",
+   "renderer": "pptxviewjs",
+   "units": 7,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 217.69999999552965,
+    "p95": 220.5,
+    "min": 205,
+    "max": 220.5
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 91.5,
+    "p95": 137.60000000149012,
+    "min": 80.89999999850988,
+    "max": 137.60000000149012
+   },
+   "nav_ms": {
+    "n": 35,
+    "median": 33.29999999701977,
+    "p95": 76.29999999701977,
+    "min": 16.899999998509884,
+    "max": 115.79999999701977
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 232,
+    "p95": 327.1000000014901,
+    "min": 229.39999999850988,
+    "max": 327.1000000014901
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 967.8046875,
+    "min": 960.2685546875,
+    "max": 988.1484375,
+    "samples": [
+     960,
+     988,
+     964,
+     986,
+     968
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 967.8046875,
+    "min": 960.2685546875,
+    "max": 988.1484375,
+    "samples": [
+     960,
+     988,
+     964,
+     986,
+     968
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 5017.3291015625,
+    "min": 5016.3095703125,
+    "max": 5017.9853515625,
+    "samples": [
+     5017,
+     5017,
+     5016,
+     5018,
+     5016
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 5017.3291015625,
+    "min": 5016.3095703125,
+    "max": 5017.9853515625,
+    "samples": [
+     5017,
+     5017,
+     5016,
+     5018,
+     5016
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 961.28515625,
+    "min": 769.90234375,
+    "max": 1880.8994140625,
+    "samples": [
+     1881,
+     770,
+     961
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 961.796875,
+    "min": 913.68359375,
+    "max": 985.83203125,
+    "samples": [
+     958,
+     986,
+     962,
+     984,
+     914
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 1,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "post-production-review.pptx",
+   "format": "pptx",
+   "renderer": "silurus",
+   "units": 7,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 370.19999999552965,
+    "p95": 397.69999999552965,
+    "min": 351.8999999985099,
+    "max": 397.69999999552965
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 248,
+    "p95": 340.3999999985099,
+    "min": 215.5,
+    "max": 340.3999999985099
+   },
+   "nav_ms": {
+    "n": 35,
+    "median": 33.30000000447035,
+    "p95": 48.899999998509884,
+    "min": 22.100000001490116,
+    "max": 52.100000001490116
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 232.5,
+    "p95": 291,
+    "min": 231.19999999552965,
+    "max": 291
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 1187.7490234375,
+    "min": 1178.771484375,
+    "max": 1187.8427734375,
+    "samples": [
+     1179,
+     1188,
+     1188,
+     1188,
+     1188
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 292.65625,
+    "min": 283.6787109375,
+    "max": 292.75,
+    "samples": [
+     284,
+     293,
+     293,
+     293,
+     293
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 895.0927734375,
+    "min": 895.0927734375,
+    "max": 895.0927734375,
+    "samples": [
+     895,
+     895,
+     895,
+     895,
+     895
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 4010.6806640625,
+    "min": 4010.0244140625,
+    "max": 4014.7080078125,
+    "samples": [
+     4015,
+     4010,
+     4011,
+     4010,
+     4014
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 3115.587890625,
+    "min": 3114.931640625,
+    "max": 3119.615234375,
+    "samples": [
+     3120,
+     3115,
+     3116,
+     3115,
+     3119
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 895.0927734375,
+    "min": 895.0927734375,
+    "max": 895.0927734375,
+    "samples": [
+     895,
+     895,
+     895,
+     895,
+     895
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 2814.9267578125,
+    "min": 2811.1533203125,
+    "max": 2825.2705078125,
+    "samples": [
+     2825,
+     2815,
+     2811
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 0,
+    "min": -9.1259765625,
+    "max": 0.328125,
+    "samples": [
+     -9,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 1,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "post-production-review.pptx",
+   "format": "pptx",
+   "renderer": "aiden0z",
+   "units": 7,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 521.2000000029802,
+    "p95": 536.6000000014901,
+    "min": 497.3999999985099,
+    "max": 536.6000000014901
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 138.10000000149012,
+    "p95": 175.79999999701977,
+    "min": 122.70000000298023,
+    "max": 175.79999999701977
+   },
+   "nav_ms": {
+    "n": 35,
+    "median": 33.19999999552965,
+    "p95": 34.100000001490116,
+    "min": 11.5,
+    "max": 34.29999999701977
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 217.10000000149012,
+    "p95": 230.89999999850988,
+    "min": 211.60000000149012,
+    "max": 230.89999999850988
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 4482.4228515625,
+    "min": 4476.1875,
+    "max": 4496.1123046875,
+    "samples": [
+     4476,
+     4496,
+     4489,
+     4482,
+     4482
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 4482.4228515625,
+    "min": 4476.1875,
+    "max": 4496.1123046875,
+    "samples": [
+     4476,
+     4496,
+     4489,
+     4482,
+     4482
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 9848.9765625,
+    "min": 9848.86328125,
+    "max": 9849.01953125,
+    "samples": [
+     9849,
+     9849,
+     9849,
+     9849,
+     9849
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 9848.9765625,
+    "min": 9848.86328125,
+    "max": 9849.01953125,
+    "samples": [
+     9849,
+     9849,
+     9849,
+     9849,
+     9849
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 4984.3642578125,
+    "min": 4976.0947265625,
+    "max": 5017.8466796875,
+    "samples": [
+     5018,
+     4984,
+     4976
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 10.46484375,
+    "min": -0.5048828125,
+    "max": 22.765625,
+    "samples": [
+     -1,
+     23,
+     17,
+     6,
+     10
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 738,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "post-production-review.pptx",
+   "format": "pptx",
+   "renderer": "mdurbar",
+   "units": 7,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 99.70000000298023,
+    "p95": 105.5,
+    "min": 99.19999999552965,
+    "max": 105.5
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 51,
+    "p95": 65.19999999552965,
+    "min": 45.399999998509884,
+    "max": 65.19999999552965
+   },
+   "nav_ms": {
+    "n": 35,
+    "median": 33.30000000447035,
+    "p95": 34.399999998509884,
+    "min": 16.69999999552965,
+    "max": 49.5
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 231.5,
+    "p95": 244.5,
+    "min": 215.89999999850988,
+    "max": 244.5
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 597.1083984375,
+    "min": 502.376953125,
+    "max": 610.7529296875,
+    "samples": [
+     502,
+     611,
+     604,
+     596,
+     597
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 597.1083984375,
+    "min": 502.376953125,
+    "max": 610.7529296875,
+    "samples": [
+     502,
+     611,
+     604,
+     596,
+     597
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 1292.4638671875,
+    "min": 1291.9912109375,
+    "max": 1293.11328125,
+    "samples": [
+     1292,
+     1292,
+     1293,
+     1293,
+     1292
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 1292.4638671875,
+    "min": 1291.9912109375,
+    "max": 1293.11328125,
+    "samples": [
+     1292,
+     1292,
+     1293,
+     1293,
+     1292
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 577.6708984375,
+    "min": 572.4169921875,
+    "max": 590.9208984375,
+    "samples": [
+     591,
+     572,
+     578
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 0.24609375,
+    "min": -96.7587890625,
+    "max": 13.890625,
+    "samples": [
+     -97,
+     14,
+     7,
+     -2,
+     0
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 42,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "post-production-review.pptx",
+   "format": "pptx",
+   "renderer": "omni",
+   "units": 7,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 518.3999999985099,
+    "p95": 579,
+    "min": 486.30000000447035,
+    "max": 579
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 102.5,
+    "p95": 122.70000000298023,
+    "min": 91.5,
+    "max": 122.70000000298023
+   },
+   "nav_ms": {
+    "n": 35,
+    "median": 33.100000001490116,
+    "p95": 34.29999999701977,
+    "min": 21.899999998509884,
+    "max": 34.70000000298023
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 226.39999999850988,
+    "p95": 231.80000000447035,
+    "min": 222.89999999850988,
+    "max": 231.80000000447035
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 4352.970703125,
+    "min": 4135.3037109375,
+    "max": 4651.2998046875,
+    "samples": [
+     4353,
+     4651,
+     4260,
+     4485,
+     4135
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 4352.970703125,
+    "min": 4135.3037109375,
+    "max": 4651.2998046875,
+    "samples": [
+     4353,
+     4651,
+     4260,
+     4485,
+     4135
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 10524.123046875,
+    "min": 10186.556640625,
+    "max": 10537.654296875,
+    "samples": [
+     10538,
+     10497,
+     10524,
+     10531,
+     10187
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 10524.123046875,
+    "min": 10186.556640625,
+    "max": 10537.654296875,
+    "samples": [
+     10538,
+     10497,
+     10524,
+     10531,
+     10187
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 4795.1474609375,
+    "min": 4324.6943359375,
+    "max": 4845.5498046875,
+    "samples": [
+     4846,
+     4325,
+     4795
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 555.2294921875,
+    "min": 545.6875,
+    "max": 953.48828125,
+    "samples": [
+     555,
+     953,
+     551,
+     944,
+     546
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 916,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "post-production-tracker.xlsx",
+   "format": "xlsx",
+   "renderer": "aared",
+   "units": 4,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 147.89999999850988,
+    "p95": 154.29999999701977,
+    "min": 141,
+    "max": 154.29999999701977
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 26.700000002980232,
+    "p95": 41.099999994039536,
+    "min": 23.399999998509884,
+    "max": 41.099999994039536
+   },
+   "nav_ms": {
+    "n": 20,
+    "median": 33.399999998509884,
+    "p95": 46.899999998509884,
+    "min": 20.899999998509884,
+    "max": 52.900000005960464
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 123.30000000447035,
+    "p95": 155.70000000298023,
+    "min": 122.29999999701977,
+    "max": 155.70000000298023
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 1274.6826171875,
+    "min": 996.4873046875,
+    "max": 1290.6083984375,
+    "samples": [
+     1226,
+     996,
+     1275,
+     1291,
+     1279
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 1151.2421875,
+    "min": 869.53515625,
+    "max": 1169.20703125,
+    "samples": [
+     1116,
+     870,
+     1151,
+     1169,
+     1157
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 121.4013671875,
+    "min": 109.9912109375,
+    "max": 126.9521484375,
+    "samples": [
+     110,
+     127,
+     123,
+     121,
+     121
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 2705.3154296875,
+    "min": 2705.1982421875,
+    "max": 2705.4638671875,
+    "samples": [
+     2705,
+     2705,
+     2705,
+     2705,
+     2705
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 1744.5986328125,
+    "min": 1744.4814453125,
+    "max": 1744.7470703125,
+    "samples": [
+     1745,
+     1744,
+     1745,
+     1744,
+     1745
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 960.716796875,
+    "min": 960.716796875,
+    "max": 960.716796875,
+    "samples": [
+     961,
+     961,
+     961,
+     961,
+     961
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 797.7939453125,
+    "min": 765.5048828125,
+    "max": 831.7197265625,
+    "samples": [
+     832,
+     798,
+     766
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 0.69140625,
+    "min": -308.99609375,
+    "max": 8.53515625,
+    "samples": [
+     -45,
+     -309,
+     3,
+     1,
+     9
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1179.7607421875,
+    "min": 1179.7607421875,
+    "max": 1179.7607421875,
+    "samples": [
+     1180
+    ]
+   },
+   "elements": 453,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "post-production-tracker.xlsx",
+   "format": "xlsx",
+   "renderer": "sheetjs",
+   "units": 4,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 95.79999999701977,
+    "p95": 113.60000000149012,
+    "min": 94,
+    "max": 113.60000000149012
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 31.899999998509884,
+    "p95": 34.30000000447035,
+    "min": 31.299999997019768,
+    "max": 34.30000000447035
+   },
+   "nav_ms": {
+    "n": 20,
+    "median": 32.899999998509884,
+    "p95": 34.30000000447035,
+    "min": 31.200000002980232,
+    "max": 34.5
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 131.90000000596046,
+    "p95": 132.70000000298023,
+    "min": 129.70000000298023,
+    "max": 132.70000000298023
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 589.5595703125,
+    "min": 497.890625,
+    "max": 625.9228515625,
+    "samples": [
+     498,
+     626,
+     586,
+     590,
+     592
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 589.5595703125,
+    "min": 497.890625,
+    "max": 625.9228515625,
+    "samples": [
+     498,
+     626,
+     586,
+     590,
+     592
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 2866.3603515625,
+    "min": 2866.3212890625,
+    "max": 2866.7705078125,
+    "samples": [
+     2867,
+     2867,
+     2866,
+     2866,
+     2866
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 2866.3603515625,
+    "min": 2866.3212890625,
+    "max": 2866.7705078125,
+    "samples": [
+     2867,
+     2867,
+     2866,
+     2866,
+     2866
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 327.2744140625,
+    "min": 324.6259765625,
+    "max": 357.2958984375,
+    "samples": [
+     357,
+     325,
+     327
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": -1.03125,
+    "min": -92.4072265625,
+    "max": 20.84765625,
+    "samples": [
+     -92,
+     21,
+     -4,
+     -1,
+     1
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 337,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "post-production-tracker.xlsx",
+   "format": "xlsx",
+   "renderer": "xlscalc",
+   "units": 4,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 440.70000000298023,
+    "p95": 474.69999999552965,
+    "min": 427.20000000298023,
+    "max": 474.69999999552965
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 116,
+    "p95": 118.10000000149012,
+    "min": 114.39999999850988,
+    "max": 118.10000000149012
+   },
+   "nav_ms": {
+    "n": 20,
+    "median": 33.20000000298023,
+    "p95": 34.399999998509884,
+    "min": 28.799999997019768,
+    "max": 50.80000000447035
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 132.19999999552965,
+    "p95": 145.60000000149012,
+    "min": 130.29999999701977,
+    "max": 145.60000000149012
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 881.9814453125,
+    "min": 855.63671875,
+    "max": 890.8212890625,
+    "samples": [
+     856,
+     891,
+     880,
+     885,
+     882
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 881.9814453125,
+    "min": 855.63671875,
+    "max": 890.8212890625,
+    "samples": [
+     856,
+     891,
+     880,
+     885,
+     882
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 6888.9384765625,
+    "min": 6888.6064453125,
+    "max": 6892.7392578125,
+    "samples": [
+     6893,
+     6889,
+     6889,
+     6889,
+     6889
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 6888.9384765625,
+    "min": 6888.6064453125,
+    "max": 6892.7392578125,
+    "samples": [
+     6893,
+     6889,
+     6889,
+     6889,
+     6889
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 584.1337890625,
+    "min": 460.1533203125,
+    "max": 593.3681640625,
+    "samples": [
+     460,
+     593,
+     584
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 3.9609375,
+    "min": -39.1806640625,
+    "max": 12.80078125,
+    "samples": [
+     -39,
+     13,
+     2,
+     6,
+     4
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 292,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "post-production-tracker.xlsx",
+   "format": "xlsx",
+   "renderer": "spreadsheet-preview",
+   "units": 4,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 768.3000000044703,
+    "p95": 778.5,
+    "min": 736,
+    "max": 778.5
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 448.79999999701977,
+    "p95": 481.79999999701977,
+    "min": 432.30000000447035,
+    "max": 481.79999999701977
+   },
+   "nav_ms": {
+    "n": 20,
+    "median": 32.899999998509884,
+    "p95": 34.19999999552965,
+    "min": 31.30000000447035,
+    "max": 34.5
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 131.79999999701977,
+    "p95": 132.30000000447035,
+    "min": 131.30000000447035,
+    "max": 132.30000000447035
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 1092.2099609375,
+    "min": 998.5927734375,
+    "max": 1134.626953125,
+    "samples": [
+     1135,
+     1133,
+     1086,
+     999,
+     1092
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 1092.2099609375,
+    "min": 998.5927734375,
+    "max": 1134.626953125,
+    "samples": [
+     1135,
+     1133,
+     1086,
+     999,
+     1092
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 10995.0400390625,
+    "min": 10994.3642578125,
+    "max": 10996.1689453125,
+    "samples": [
+     10995,
+     10995,
+     10996,
+     10994,
+     10995
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 10995.0400390625,
+    "min": 10994.3642578125,
+    "max": 10996.1689453125,
+    "samples": [
+     10995,
+     10995,
+     10996,
+     10994,
+     10995
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 1100.1865234375,
+    "min": 1094.5107421875,
+    "max": 1105.1435546875,
+    "samples": [
+     1095,
+     1100,
+     1105
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 98.736328125,
+    "min": -17.7900390625,
+    "max": 157.8388671875,
+    "samples": [
+     99,
+     113,
+     158,
+     -18,
+     76
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 43,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "post-production-tracker.xlsx",
+   "format": "xlsx",
+   "renderer": "omni",
+   "units": 1,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 128.30000000447035,
+    "p95": 138.39999999850988,
+    "min": 120.19999999552965,
+    "max": 138.39999999850988
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 31.600000001490116,
+    "p95": 34.099999994039536,
+    "min": 26.5,
+    "max": 34.099999994039536
+   },
+   "nav_ms": {
+    "n": 5,
+    "median": 31.5,
+    "p95": 32.30000000447035,
+    "min": 30.600000001490116,
+    "max": 32.30000000447035
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 31.5,
+    "p95": 32.30000000447035,
+    "min": 30.600000001490116,
+    "max": 32.30000000447035
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 1107.3271484375,
+    "min": 1095.306640625,
+    "max": 1116.6865234375,
+    "samples": [
+     1095,
+     1117,
+     1097,
+     1116,
+     1107
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 1107.3271484375,
+    "min": 1095.306640625,
+    "max": 1116.6865234375,
+    "samples": [
+     1095,
+     1117,
+     1097,
+     1116,
+     1107
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 3537.9013671875,
+    "min": 3537.6904296875,
+    "max": 3538.1474609375,
+    "samples": [
+     3538,
+     3538,
+     3538,
+     3538,
+     3538
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 3537.9013671875,
+    "min": 3537.6904296875,
+    "max": 3538.1474609375,
+    "samples": [
+     3538,
+     3538,
+     3538,
+     3538,
+     3538
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 1110.4873046875,
+    "min": 1107.7333984375,
+    "max": 1114.6708984375,
+    "samples": [
+     1110,
+     1115,
+     1108
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 0.703125,
+    "min": -17.6533203125,
+    "max": 11.15234375,
+    "samples": [
+     -18,
+     11,
+     -10,
+     3,
+     1
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 309,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "xlsx-coverage.xlsx",
+   "format": "xlsx",
+   "renderer": "aared",
+   "units": 4,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 109.39999999850988,
+    "p95": 138.29999999701977,
+    "min": 108.60000000149012,
+    "max": 138.29999999701977
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 26.30000000447035,
+    "p95": 39.599999994039536,
+    "min": 22.5,
+    "max": 39.599999994039536
+   },
+   "nav_ms": {
+    "n": 20,
+    "median": 34,
+    "p95": 81.19999999552965,
+    "min": 25.299999997019768,
+    "max": 82.29999999701977
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 167.10000000149012,
+    "p95": 218.69999999552965,
+    "min": 161.20000000298023,
+    "max": 218.69999999552965
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 691.548828125,
+    "min": 394.7939453125,
+    "max": 697.291015625,
+    "samples": [
+     395,
+     691,
+     692,
+     697,
+     695
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 605.5859375,
+    "min": 320.0068359375,
+    "max": 606.77734375,
+    "samples": [
+     320,
+     605,
+     607,
+     607,
+     606
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 86.013671875,
+    "min": 74.787109375,
+    "max": 90.513671875,
+    "samples": [
+     75,
+     86,
+     85,
+     91,
+     90
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 1902.9384765625,
+    "min": 1902.7900390625,
+    "max": 1903.7548828125,
+    "samples": [
+     1903,
+     1903,
+     1903,
+     1904,
+     1903
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 1015.796875,
+    "min": 1015.3828125,
+    "max": 1015.796875,
+    "samples": [
+     1016,
+     1016,
+     1016,
+     1016,
+     1015
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 887.1416015625,
+    "min": 887.1416015625,
+    "max": 888.0478515625,
+    "samples": [
+     887,
+     887,
+     887,
+     888,
+     888
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 944.2099609375,
+    "min": 871.7060546875,
+    "max": 995.4638671875,
+    "samples": [
+     995,
+     872,
+     944
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 2.46875,
+    "min": -293.5595703125,
+    "max": 6.96875,
+    "samples": [
+     -294,
+     2,
+     2,
+     7,
+     5
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1066.0146484375,
+    "min": 1066.0146484375,
+    "max": 1066.0146484375,
+    "samples": [
+     1066
+    ]
+   },
+   "elements": 202,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "xlsx-coverage.xlsx",
+   "format": "xlsx",
+   "renderer": "sheetjs",
+   "units": 4,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 202.89999999850988,
+    "p95": 221.20000000298023,
+    "min": 196.79999999701977,
+    "max": 221.20000000298023
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 118.29999999701977,
+    "p95": 136.10000000149012,
+    "min": 110.80000000447035,
+    "max": 136.10000000149012
+   },
+   "nav_ms": {
+    "n": 20,
+    "median": 32.5,
+    "p95": 34.100000001490116,
+    "min": 19.80000000447035,
+    "max": 34.5
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 122,
+    "p95": 124.70000000298023,
+    "min": 120.20000000298023,
+    "max": 124.70000000298023
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 4234.115234375,
+    "min": 4172.419921875,
+    "max": 4238.677734375,
+    "samples": [
+     4172,
+     4234,
+     4235,
+     4234,
+     4239
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 4234.115234375,
+    "min": 4172.419921875,
+    "max": 4238.677734375,
+    "samples": [
+     4172,
+     4234,
+     4235,
+     4234,
+     4239
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 6497.5751953125,
+    "min": 6497.1689453125,
+    "max": 6497.9189453125,
+    "samples": [
+     6498,
+     6498,
+     6497,
+     6497,
+     6498
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 6497.5751953125,
+    "min": 6497.1689453125,
+    "max": 6497.9189453125,
+    "samples": [
+     6498,
+     6498,
+     6497,
+     6497,
+     6498
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 4346.4677734375,
+    "min": 4343.2451171875,
+    "max": 4383.5556640625,
+    "samples": [
+     4384,
+     4343,
+     4346
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 1.13671875,
+    "min": -64.9765625,
+    "max": 5.8203125,
+    "samples": [
+     -65,
+     1,
+     3,
+     1,
+     6
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 69,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "xlsx-coverage.xlsx",
+   "format": "xlsx",
+   "renderer": "xlscalc",
+   "units": 4,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 540,
+    "p95": 571.6999999955297,
+    "min": 528.1999999955297,
+    "max": 571.6999999955297
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 169.19999999552965,
+    "p95": 199.69999999552965,
+    "min": 162.5,
+    "max": 199.69999999552965
+   },
+   "nav_ms": {
+    "n": 20,
+    "median": 33.5,
+    "p95": 66.29999999701977,
+    "min": 29.80000000447035,
+    "max": 66.79999999701977
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 148.59999999403954,
+    "p95": 197.79999999701977,
+    "min": 130.70000000298023,
+    "max": 197.79999999701977
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 4637.251953125,
+    "min": 4495.927734375,
+    "max": 4654.044921875,
+    "samples": [
+     4593,
+     4644,
+     4637,
+     4654,
+     4496
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 4637.251953125,
+    "min": 4495.927734375,
+    "max": 4654.044921875,
+    "samples": [
+     4593,
+     4644,
+     4637,
+     4654,
+     4496
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 10778,
+    "min": 10775.21875,
+    "max": 10778.23046875,
+    "samples": [
+     10778,
+     10775,
+     10778,
+     10778,
+     10778
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 10778,
+    "min": 10775.21875,
+    "max": 10778.23046875,
+    "samples": [
+     10778,
+     10775,
+     10778,
+     10778,
+     10778
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 4765.310546875,
+    "min": 4757.357421875,
+    "max": 4787.615234375,
+    "samples": [
+     4788,
+     4757,
+     4765
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 5.3671875,
+    "min": -152.01171875,
+    "max": 21.2421875,
+    "samples": [
+     -26,
+     12,
+     5,
+     21,
+     -152
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 68,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "xlsx-coverage.xlsx",
+   "format": "xlsx",
+   "renderer": "spreadsheet-preview",
+   "units": 4,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 911.6999999955297,
+    "p95": 927.9000000059605,
+    "min": 882.1000000014901,
+    "max": 927.9000000059605
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 548.6000000014901,
+    "p95": 582.3999999985099,
+    "min": 531.5,
+    "max": 582.3999999985099
+   },
+   "nav_ms": {
+    "n": 20,
+    "median": 33.099999994039536,
+    "p95": 33.899999998509884,
+    "min": 30.69999999552965,
+    "max": 34
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 131.70000000298023,
+    "p95": 132.79999999701977,
+    "min": 130.79999999701977,
+    "max": 132.79999999701977
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 1109.228515625,
+    "min": 1063.1884765625,
+    "max": 1113.568359375,
+    "samples": [
+     1063,
+     1114,
+     1094,
+     1113,
+     1109
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 1109.228515625,
+    "min": 1063.1884765625,
+    "max": 1113.568359375,
+    "samples": [
+     1063,
+     1114,
+     1094,
+     1113,
+     1109
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 11025.3291015625,
+    "min": 11024.9775390625,
+    "max": 11027.1884765625,
+    "samples": [
+     11025,
+     11027,
+     11025,
+     11025,
+     11025
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 11025.3291015625,
+    "min": 11024.9775390625,
+    "max": 11027.1884765625,
+    "samples": [
+     11025,
+     11027,
+     11025,
+     11025,
+     11025
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 1126.572265625,
+    "min": 1109.287109375,
+    "max": 1142.486328125,
+    "samples": [
+     1109,
+     1142,
+     1127
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 130.5869140625,
+    "min": 84.8203125,
+    "max": 134.9853515625,
+    "samples": [
+     85,
+     134,
+     115,
+     135,
+     131
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 43,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "xlsx-coverage.xlsx",
+   "format": "xlsx",
+   "renderer": "omni",
+   "units": 1,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 232.70000000298023,
+    "p95": 252.79999999701977,
+    "min": 223.89999999850988,
+    "max": 252.79999999701977
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 119.89999999850988,
+    "p95": 139.79999999701977,
+    "min": 111.79999999701977,
+    "max": 139.79999999701977
+   },
+   "nav_ms": {
+    "n": 5,
+    "median": 25.299999997019768,
+    "p95": 32,
+    "min": 15.899999998509884,
+    "max": 32
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 25.299999997019768,
+    "p95": 32,
+    "min": 15.899999998509884,
+    "max": 32
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 4430.6298828125,
+    "min": 4427.9619140625,
+    "max": 4431.6103515625,
+    "samples": [
+     4428,
+     4431,
+     4432,
+     4431,
+     4430
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 4430.6298828125,
+    "min": 4427.9619140625,
+    "max": 4431.6103515625,
+    "samples": [
+     4428,
+     4431,
+     4432,
+     4431,
+     4430
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 6862.3203125,
+    "min": 6862.11328125,
+    "max": 6862.51953125,
+    "samples": [
+     6863,
+     6862,
+     6862,
+     6862,
+     6862
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 6862.3203125,
+    "min": 6862.11328125,
+    "max": 6862.51953125,
+    "samples": [
+     6863,
+     6862,
+     6862,
+     6862,
+     6862
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 4430.4658203125,
+    "min": 4426.7353515625,
+    "max": 4438.7705078125,
+    "samples": [
+     4427,
+     4439,
+     4430
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 1.234375,
+    "min": -0.625,
+    "max": 2.09375,
+    "samples": [
+     -1,
+     2,
+     2,
+     1,
+     1
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 81,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "docx-coverage.docx",
+   "format": "docx",
+   "renderer": "aared",
+   "units": 0,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 210.5,
+    "p95": 230.59999999403954,
+    "min": 204.5,
+    "max": 230.59999999403954
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 32.5,
+    "p95": 43.100000001490116,
+    "min": 29.700000002980232,
+    "max": 43.100000001490116
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 1047.0078125,
+    "min": 1004.1904296875,
+    "max": 1328.82421875,
+    "samples": [
+     1004,
+     1329,
+     1037,
+     1058,
+     1047
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 871.359375,
+    "min": 845.3662109375,
+    "max": 1153.640625,
+    "samples": [
+     845,
+     1154,
+     864,
+     871,
+     873
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 174,
+    "min": 158.82421875,
+    "max": 186.79296875,
+    "samples": [
+     159,
+     175,
+     174,
+     187,
+     174
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 2555.318359375,
+    "min": 2555.123046875,
+    "max": 2556.212890625,
+    "samples": [
+     2555,
+     2555,
+     2555,
+     2556,
+     2555
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 1457.91796875,
+    "min": 1457.76953125,
+    "max": 1458.80078125,
+    "samples": [
+     1458,
+     1458,
+     1458,
+     1459,
+     1458
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 1097.400390625,
+    "min": 1097.353515625,
+    "max": 1097.412109375,
+    "samples": [
+     1097,
+     1097,
+     1097,
+     1097,
+     1097
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 1270.1953125,
+    "min": 1261.33203125,
+    "max": 1304.41796875,
+    "samples": [
+     1270,
+     1261,
+     1304
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 539.5703125,
+    "min": 496.7216796875,
+    "max": 613.68359375,
+    "samples": [
+     497,
+     614,
+     530,
+     551,
+     540
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1058.189453125,
+    "min": 1058.189453125,
+    "max": 1058.189453125,
+    "samples": [
+     1058
+    ]
+   },
+   "elements": 616,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "docx-coverage.docx",
+   "format": "docx",
+   "renderer": "docx-preview",
+   "units": 0,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 292.5,
+    "p95": 310.59999999403954,
+    "min": 277.5,
+    "max": 310.59999999403954
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 97.59999999403954,
+    "p95": 114.89999999850988,
+    "min": 96.40000000596046,
+    "max": 114.89999999850988
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 993.8056640625,
+    "min": 939.984375,
+    "max": 996.0361328125,
+    "samples": [
+     940,
+     994,
+     996,
+     995,
+     992
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 993.8056640625,
+    "min": 939.984375,
+    "max": 996.0361328125,
+    "samples": [
+     940,
+     994,
+     996,
+     995,
+     992
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 2138.5380859375,
+    "min": 2138.1044921875,
+    "max": 2152.0068359375,
+    "samples": [
+     2138,
+     2138,
+     2139,
+     2152,
+     2152
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 2138.5380859375,
+    "min": 2138.1044921875,
+    "max": 2152.0068359375,
+    "samples": [
+     2138,
+     2138,
+     2139,
+     2152,
+     2152
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 1009.1650390625,
+    "min": 1000.5908203125,
+    "max": 1019.8720703125,
+    "samples": [
+     1020,
+     1009,
+     1001
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 3.51953125,
+    "min": -52.8408203125,
+    "max": 5.2734375,
+    "samples": [
+     -53,
+     4,
+     5,
+     5,
+     1
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 647,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "docx-coverage.docx",
+   "format": "docx",
+   "renderer": "docx-renderer",
+   "units": 0,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 925.6000000014901,
+    "p95": 1090.3999999985099,
+    "min": 894.6999999955297,
+    "max": 1090.3999999985099
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 547.5,
+    "p95": 683.7999999970198,
+    "min": 497.8999999985099,
+    "max": 683.7999999970198
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 1896.0771484375,
+    "min": 1737.9599609375,
+    "max": 1936.9521484375,
+    "samples": [
+     1738,
+     1910,
+     1896,
+     1937,
+     1855
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 1896.0771484375,
+    "min": 1737.9599609375,
+    "max": 1936.9521484375,
+    "samples": [
+     1738,
+     1910,
+     1896,
+     1937,
+     1855
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 4496.9892578125,
+    "min": 4492.4150390625,
+    "max": 4503.1494140625,
+    "samples": [
+     4497,
+     4502,
+     4493,
+     4492,
+     4503
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 4496.9892578125,
+    "min": 4492.4150390625,
+    "max": 4503.1494140625,
+    "samples": [
+     4497,
+     4502,
+     4493,
+     4492,
+     4503
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 1913.7568359375,
+    "min": 1909.0380859375,
+    "max": 1921.8193359375,
+    "samples": [
+     1909,
+     1922,
+     1914
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 974.00390625,
+    "min": 855.08984375,
+    "max": 1000.84765625,
+    "samples": [
+     855,
+     974,
+     991,
+     1001,
+     972
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 710,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "docx-coverage.docx",
+   "format": "docx",
+   "renderer": "omni",
+   "units": 0,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 303.6000000014901,
+    "p95": 333.5,
+    "min": 291.5,
+    "max": 333.5
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 97.59999999403954,
+    "p95": 98.5,
+    "min": 83.20000000298023,
+    "max": 98.5
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 1416.470703125,
+    "min": 1383.4912109375,
+    "max": 1432.935546875,
+    "samples": [
+     1383,
+     1416,
+     1433,
+     1419,
+     1416
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 1416.470703125,
+    "min": 1383.4912109375,
+    "max": 1432.935546875,
+    "samples": [
+     1383,
+     1416,
+     1433,
+     1419,
+     1416
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 2748.232421875,
+    "min": 2746.369140625,
+    "max": 2749.095703125,
+    "samples": [
+     2746,
+     2748,
+     2749,
+     2748,
+     2749
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 2748.232421875,
+    "min": 2746.369140625,
+    "max": 2749.095703125,
+    "samples": [
+     2746,
+     2748,
+     2749,
+     2748,
+     2749
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 1435.560546875,
+    "min": 1425.533203125,
+    "max": 1435.705078125,
+    "samples": [
+     1436,
+     1426,
+     1436
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 4.83203125,
+    "min": -30.6083984375,
+    "max": 7.4765625,
+    "samples": [
+     -31,
+     5,
+     1,
+     7,
+     5
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 599,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-300-slides.pptx",
+   "format": "pptx",
+   "renderer": "aared",
+   "units": 300,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 96,
+    "p95": 104.30000000447035,
+    "min": 92.30000000447035,
+    "max": 104.30000000447035
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 31.19999999552965,
+    "p95": 32.79999999701977,
+    "min": 29.799999997019768,
+    "max": 32.79999999701977
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 1347.9736328125,
+    "min": 1325.296875,
+    "max": 1351.9697265625,
+    "samples": [
+     1325,
+     1347,
+     1348,
+     1352,
+     1351
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 175.1484375,
+    "min": 169.1826171875,
+    "max": 175.3984375,
+    "samples": [
+     169,
+     175,
+     175,
+     175,
+     175
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 1172.8251953125,
+    "min": 1156.1142578125,
+    "max": 1176.5712890625,
+    "samples": [
+     1156,
+     1171,
+     1173,
+     1177,
+     1176
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 2798.1728515625,
+    "min": 2798.1103515625,
+    "max": 2798.2587890625,
+    "samples": [
+     2798,
+     2798,
+     2798,
+     2798,
+     2798
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 791.677734375,
+    "min": 791.529296875,
+    "max": 791.677734375,
+    "samples": [
+     792,
+     792,
+     792,
+     792,
+     792
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 2006.5810546875,
+    "min": 2006.4951171875,
+    "max": 2006.5810546875,
+    "samples": [
+     2007,
+     2006,
+     2007,
+     2007,
+     2007
+    ]
+   },
+   "heap_visited_kb": null,
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 1.84765625,
+    "min": -21.0712890625,
+    "max": 5.59375,
+    "samples": [
+     -21,
+     1,
+     2,
+     6,
+     5
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1086.533203125,
+    "min": 1086.533203125,
+    "max": 1086.533203125,
+    "samples": [
+     1087
+    ]
+   },
+   "elements": 39,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-300-slides.pptx",
+   "format": "pptx",
+   "renderer": "pptxviewjs",
+   "units": 300,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 2994.1999999955297,
+    "p95": 3042.5,
+    "min": 2718.3000000044703,
+    "max": 3042.5
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 2500.39999999851,
+    "p95": 2822.1999999955297,
+    "min": 2450.2000000029802,
+    "max": 2822.1999999955297
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 39317.203125,
+    "min": 36106.8427734375,
+    "max": 39975.16015625,
+    "samples": [
+     36107,
+     39317,
+     39975,
+     39402,
+     39288
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 39317.203125,
+    "min": 36106.8427734375,
+    "max": 39975.16015625,
+    "samples": [
+     36107,
+     39317,
+     39975,
+     39402,
+     39288
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 62856.244140625,
+    "min": 62852.130859375,
+    "max": 62882.658203125,
+    "samples": [
+     62852,
+     62874,
+     62856,
+     62853,
+     62883
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 62856.244140625,
+    "min": 62852.130859375,
+    "max": 62882.658203125,
+    "samples": [
+     62852,
+     62874,
+     62856,
+     62853,
+     62883
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": null,
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 39314.88671875,
+    "min": 34547.8623046875,
+    "max": 39972.84375,
+    "samples": [
+     34548,
+     39315,
+     39973,
+     39400,
+     39286
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 1,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-300-slides.pptx",
+   "format": "pptx",
+   "renderer": "silurus",
+   "units": 300,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 1526.9000000059605,
+    "p95": 1563.7000000029802,
+    "min": 1447,
+    "max": 1563.7000000029802
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 1297,
+    "p95": 1363.6000000014901,
+    "min": 1246.2999999970198,
+    "max": 1363.6000000014901
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 1351.591796875,
+    "min": 1349.4267578125,
+    "max": 1356.8349609375,
+    "samples": [
+     1349,
+     1352,
+     1357,
+     1355,
+     1351
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 390.2490234375,
+    "min": 388.083984375,
+    "max": 395.4921875,
+    "samples": [
+     388,
+     390,
+     395,
+     394,
+     389
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 961.3427734375,
+    "min": 961.3427734375,
+    "max": 961.3427734375,
+    "samples": [
+     961,
+     961,
+     961,
+     961,
+     961
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 4188.0205078125,
+    "min": 4187.8564453125,
+    "max": 4192.7119140625,
+    "samples": [
+     4188,
+     4188,
+     4188,
+     4188,
+     4193
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 3226.677734375,
+    "min": 3226.513671875,
+    "max": 3231.369140625,
+    "samples": [
+     3227,
+     3227,
+     3227,
+     3227,
+     3231
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 961.3427734375,
+    "min": 961.3427734375,
+    "max": 961.3427734375,
+    "samples": [
+     961,
+     961,
+     961,
+     961,
+     961
+    ]
+   },
+   "heap_visited_kb": null,
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 0.984375,
+    "min": -1.1142578125,
+    "max": 6.2734375,
+    "samples": [
+     -1,
+     1,
+     6,
+     4,
+     0
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 1,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-300-slides.pptx",
+   "format": "pptx",
+   "renderer": "aiden0z",
+   "units": 300,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 5822.79999999702,
+    "p95": 5911.60000000149,
+    "min": 5723.5,
+    "max": 5911.60000000149
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 4886,
+    "p95": 5464.79999999702,
+    "min": 4709.70000000298,
+    "max": 5464.79999999702
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 155728.6953125,
+    "min": 155722.2265625,
+    "max": 156049.802734375,
+    "samples": [
+     155894,
+     155725,
+     156050,
+     155729,
+     155722
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 155728.6953125,
+    "min": 155722.2265625,
+    "max": 156049.802734375,
+    "samples": [
+     155894,
+     155725,
+     156050,
+     155729,
+     155722
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 163477.41015625,
+    "min": 163444.28515625,
+    "max": 163517.91015625,
+    "samples": [
+     163453,
+     163477,
+     163505,
+     163518,
+     163444
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 163477.41015625,
+    "min": 163444.28515625,
+    "max": 163517.91015625,
+    "samples": [
+     163453,
+     163477,
+     163505,
+     163518,
+     163444
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": null,
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 14.28515625,
+    "min": 6.65625,
+    "max": 31.2255859375,
+    "samples": [
+     31,
+     28,
+     13,
+     14,
+     7
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 31706,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-300-slides.pptx",
+   "format": "pptx",
+   "renderer": "mdurbar",
+   "units": 300,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 1862.1000000014901,
+    "p95": 2113.5,
+    "min": 1844.5,
+    "max": 2113.5
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 1595.6999999955297,
+    "p95": 1724.8999999985099,
+    "min": 1531,
+    "max": 1724.8999999985099
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 9924.12890625,
+    "min": 9872.5341796875,
+    "max": 9927.39453125,
+    "samples": [
+     9873,
+     9927,
+     9922,
+     9924,
+     9927
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 9924.12890625,
+    "min": 9872.5341796875,
+    "max": 9927.39453125,
+    "samples": [
+     9873,
+     9927,
+     9922,
+     9924,
+     9927
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 10868.70703125,
+    "min": 10858.34375,
+    "max": 10869.0859375,
+    "samples": [
+     10869,
+     10869,
+     10858,
+     10868,
+     10869
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 10868.70703125,
+    "min": 10858.34375,
+    "max": 10869.0859375,
+    "samples": [
+     10869,
+     10869,
+     10858,
+     10868,
+     10869
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": null,
+   "heap_residual_kb": {
+    "n": 5,
+    "median": -1.71484375,
+    "min": -54.0634765625,
+    "max": 1.55078125,
+    "samples": [
+     -54,
+     2,
+     -4,
+     -2,
+     1
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 42,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-300-slides.pptx",
+   "format": "pptx",
+   "renderer": "omni",
+   "units": 300,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 3497,
+    "p95": 3615.7999999970198,
+    "min": 3387.39999999851,
+    "max": 3615.7999999970198
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 2918.89999999851,
+    "p95": 3202.8000000044703,
+    "min": 2788.10000000149,
+    "max": 3202.8000000044703
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 137538.4990234375,
+    "min": 137102.9775390625,
+    "max": 137680.1201171875,
+    "samples": [
+     137103,
+     137539,
+     137680,
+     137250,
+     137538
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 137538.4990234375,
+    "min": 137102.9775390625,
+    "max": 137680.1201171875,
+    "samples": [
+     137103,
+     137539,
+     137680,
+     137250,
+     137538
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 146074.4638671875,
+    "min": 145946.8564453125,
+    "max": 146131.703125,
+    "samples": [
+     146080,
+     146132,
+     146074,
+     145947,
+     146013
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 146074.4638671875,
+    "min": 145946.8564453125,
+    "max": 146131.703125,
+    "samples": [
+     146080,
+     146132,
+     146074,
+     145947,
+     146013
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": null,
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 30910.890625,
+    "min": 30591.4326171875,
+    "max": 30989.2890625,
+    "samples": [
+     30591,
+     30921,
+     30989,
+     30911,
+     30910
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 39270,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-13-sheets.xlsx",
+   "format": "xlsx",
+   "renderer": "sheetjs",
+   "units": 13,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 2977.60000000149,
+    "p95": 3023.10000000149,
+    "min": 2734,
+    "max": 3023.10000000149
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 2379.3000000044703,
+    "p95": 2524.60000000149,
+    "min": 2308.60000000149,
+    "max": 2524.60000000149
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 56320.7470703125,
+    "min": 56318.7509765625,
+    "max": 56332.0361328125,
+    "samples": [
+     56321,
+     56332,
+     56319,
+     56321,
+     56328
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 56320.7470703125,
+    "min": 56318.7509765625,
+    "max": 56332.0361328125,
+    "samples": [
+     56321,
+     56332,
+     56319,
+     56321,
+     56328
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 60847.4072265625,
+    "min": 60847.1103515625,
+    "max": 60848.9814453125,
+    "samples": [
+     60847,
+     60849,
+     60848,
+     60847,
+     60847
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 60847.4072265625,
+    "min": 60847.1103515625,
+    "max": 60848.9814453125,
+    "samples": [
+     60847,
+     60849,
+     60848,
+     60847,
+     60847
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": null,
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 4.71484375,
+    "min": 2.8984375,
+    "max": 16.4140625,
+    "samples": [
+     5,
+     16,
+     3,
+     5,
+     12
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 69,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-13-sheets.xlsx",
+   "format": "xlsx",
+   "renderer": "aared",
+   "units": 13,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 61.79999999701977,
+    "p95": 261.6000000014901,
+    "min": 60.29999999701977,
+    "max": 261.6000000014901
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 28.899999998509884,
+    "p95": 31.299999997019768,
+    "min": 27.200000002980232,
+    "max": 31.299999997019768
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 2392.91796875,
+    "min": 2376.9755859375,
+    "max": 2397.5,
+    "samples": [
+     2377,
+     2396,
+     2388,
+     2398,
+     2393
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 600.18359375,
+    "min": 595.7294921875,
+    "max": 600.73046875,
+    "samples": [
+     596,
+     600,
+     601,
+     600,
+     600
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 1792.59375,
+    "min": 1781.24609375,
+    "max": 1797.33984375,
+    "samples": [
+     1781,
+     1796,
+     1787,
+     1797,
+     1793
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 3619.712890625,
+    "min": 3618.916015625,
+    "max": 3620.244140625,
+    "samples": [
+     3620,
+     3619,
+     3620,
+     3619,
+     3620
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 1016.984375,
+    "min": 1016.1875,
+    "max": 1017.515625,
+    "samples": [
+     1018,
+     1016,
+     1017,
+     1017,
+     1017
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 2602.728515625,
+    "min": 2602.728515625,
+    "max": 2602.728515625,
+    "samples": [
+     2603,
+     2603,
+     2603,
+     2603,
+     2603
+    ]
+   },
+   "heap_visited_kb": null,
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 5.9140625,
+    "min": -10.3955078125,
+    "max": 10.16015625,
+    "samples": [
+     -10,
+     9,
+     1,
+     10,
+     6
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1028.892578125,
+    "min": 1028.892578125,
+    "max": 1028.892578125,
+    "samples": [
+     1029
+    ]
+   },
+   "elements": 202,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-13-sheets.xlsx",
+   "format": "xlsx",
+   "renderer": "xlscalc",
+   "units": 13,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 13011.89999999851,
+    "p95": 13209.69999999553,
+    "min": 12857.5,
+    "max": 13209.69999999553
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 12748.20000000298,
+    "p95": 13365.5,
+    "min": 12348.30000000447,
+    "max": 13365.5
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 165764.73046875,
+    "min": 165738.3642578125,
+    "max": 165797.0126953125,
+    "samples": [
+     165765,
+     165791,
+     165738,
+     165797,
+     165747
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 165764.73046875,
+    "min": 165738.3642578125,
+    "max": 165797.0126953125,
+    "samples": [
+     165765,
+     165791,
+     165738,
+     165797,
+     165747
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 172061.8916015625,
+    "min": 172061.4658203125,
+    "max": 172067.2509765625,
+    "samples": [
+     172067,
+     172061,
+     172062,
+     172062,
+     172062
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 172061.8916015625,
+    "min": 172061.4658203125,
+    "max": 172067.2509765625,
+    "samples": [
+     172067,
+     172061,
+     172062,
+     172062,
+     172062
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": null,
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 21.44140625,
+    "min": 7.9921875,
+    "max": 34.4560546875,
+    "samples": [
+     34,
+     21,
+     8,
+     29,
+     20
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 68,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-13-sheets.xlsx",
+   "format": "xlsx",
+   "renderer": "spreadsheet-preview",
+   "units": 13,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 3018.8000000044703,
+    "p95": 3033.7999999970198,
+    "min": 2960.7999999970198,
+    "max": 3033.7999999970198
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 2748.5,
+    "p95": 2832,
+    "min": 2715.2999999970198,
+    "max": 2832
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 118516.37890625,
+    "min": 118373.4755859375,
+    "max": 118535.63671875,
+    "samples": [
+     118373,
+     118516,
+     118536,
+     118519,
+     118502
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 118516.37890625,
+    "min": 118373.4755859375,
+    "max": 118535.63671875,
+    "samples": [
+     118373,
+     118516,
+     118536,
+     118519,
+     118502
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 128820.6513671875,
+    "min": 128818.5654296875,
+    "max": 128821.0380859375,
+    "samples": [
+     128819,
+     128821,
+     128820,
+     128821,
+     128821
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 128820.6513671875,
+    "min": 128818.5654296875,
+    "max": 128821.0380859375,
+    "samples": [
+     128819,
+     128821,
+     128820,
+     128821,
+     128821
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": null,
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 44720.4501953125,
+    "min": 44620.0625,
+    "max": 44765.6025390625,
+    "samples": [
+     44620,
+     44720,
+     44761,
+     44766,
+     44694
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 61,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-13-sheets.xlsx",
+   "format": "xlsx",
+   "renderer": "omni",
+   "units": 1,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 2798.4000000059605,
+    "p95": 2921.60000000149,
+    "min": 1386.8999999985099,
+    "max": 2921.60000000149
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 2492.5,
+    "p95": 2619.39999999851,
+    "min": 2432.8000000044703,
+    "max": 2619.39999999851
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 58272.92578125,
+    "min": 58266.5810546875,
+    "max": 58286.06640625,
+    "samples": [
+     58267,
+     58286,
+     58273,
+     58272,
+     58276
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 58272.92578125,
+    "min": 58266.5810546875,
+    "max": 58286.06640625,
+    "samples": [
+     58267,
+     58286,
+     58273,
+     58272,
+     58276
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 62964.5234375,
+    "min": 62964.33984375,
+    "max": 62965.3984375,
+    "samples": [
+     62964,
+     62965,
+     62965,
+     62965,
+     62964
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 62964.5234375,
+    "min": 62964.33984375,
+    "max": 62965.3984375,
+    "samples": [
+     62964,
+     62965,
+     62965,
+     62965,
+     62964
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": null,
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 3.24609375,
+    "min": -2.5322265625,
+    "max": 16.93359375,
+    "samples": [
+     -3,
+     17,
+     3,
+     2,
+     7
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 90,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-40x.docx",
+   "format": "docx",
+   "renderer": "aared",
+   "units": 0,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 637.2000000029802,
+    "p95": 664,
+    "min": 626.3000000044703,
+    "max": 664
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 366.79999999701977,
+    "p95": 615.9000000059605,
+    "min": 336.3999999985099,
+    "max": 615.9000000059605
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 15814.59375,
+    "min": 15802.2099609375,
+    "max": 16843.26953125,
+    "samples": [
+     15802,
+     15812,
+     15815,
+     15827,
+     16843
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 15459.6611328125,
+    "min": 15450.10546875,
+    "max": 16491.1181640625,
+    "samples": [
+     15450,
+     15452,
+     15460,
+     15471,
+     16491
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 354.9326171875,
+    "min": 352.1044921875,
+    "max": 359.5146484375,
+    "samples": [
+     352,
+     360,
+     355,
+     356,
+     352
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 15180.3994140625,
+    "min": 14957.3291015625,
+    "max": 15204.7587890625,
+    "samples": [
+     15203,
+     14960,
+     14957,
+     15180,
+     15205
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 13868.8984375,
+    "min": 13647.5859375,
+    "max": 13893.3203125,
+    "samples": [
+     13891,
+     13648,
+     13648,
+     13869,
+     13893
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 1311.5009765625,
+    "min": 1309.6962890625,
+    "max": 1312.0400390625,
+    "samples": [
+     1312,
+     1312,
+     1310,
+     1312,
+     1311
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 1,
+    "median": 32839.51953125,
+    "min": 32839.51953125,
+    "max": 32839.51953125,
+    "samples": [
+     32840
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 15410.2705078125,
+    "min": 15397.546875,
+    "max": 16438.9462890625,
+    "samples": [
+     15398,
+     15407,
+     15410,
+     15422,
+     16439
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1158.162109375,
+    "min": 1158.162109375,
+    "max": 1158.162109375,
+    "samples": [
+     1158
+    ]
+   },
+   "elements": 18340,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-40x.docx",
+   "format": "docx",
+   "renderer": "docx-preview",
+   "units": 0,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 2021.2000000029802,
+    "p95": 2075.5,
+    "min": 1978,
+    "max": 2075.5
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 1775.8999999985099,
+    "p95": 1940.2999999970198,
+    "min": 1703.5,
+    "max": 1940.2999999970198
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 24966.9228515625,
+    "min": 24925.05078125,
+    "max": 24975.9853515625,
+    "samples": [
+     24925,
+     24976,
+     24967,
+     24967,
+     24966
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 24966.9228515625,
+    "min": 24925.05078125,
+    "max": 24975.9853515625,
+    "samples": [
+     24925,
+     24976,
+     24967,
+     24967,
+     24966
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 23826.849609375,
+    "min": 23825.744140625,
+    "max": 23859.853515625,
+    "samples": [
+     23826,
+     23860,
+     23826,
+     23828,
+     23827
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 23826.849609375,
+    "min": 23825.744140625,
+    "max": 23859.853515625,
+    "samples": [
+     23826,
+     23860,
+     23826,
+     23828,
+     23827
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 1,
+    "median": 25303.9501953125,
+    "min": 25303.9501953125,
+    "max": 25303.9501953125,
+    "samples": [
+     25304
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 5.02734375,
+    "min": -39.6142578125,
+    "max": 13.484375,
+    "samples": [
+     -40,
+     13,
+     5,
+     5,
+     4
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 16940,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-40x.docx",
+   "format": "docx",
+   "renderer": "omni",
+   "units": 0,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 2109.2999999970198,
+    "p95": 2244.1999999955297,
+    "min": 2071.5,
+    "max": 2244.1999999955297
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 1844.5,
+    "p95": 2015.6000000014901,
+    "min": 1771.3000000044703,
+    "max": 2015.6000000014901
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 35563.638671875,
+    "min": 35531.6220703125,
+    "max": 35588.103515625,
+    "samples": [
+     35532,
+     35588,
+     35566,
+     35564,
+     35562
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 35563.638671875,
+    "min": 35531.6220703125,
+    "max": 35588.103515625,
+    "samples": [
+     35532,
+     35588,
+     35566,
+     35564,
+     35562
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 34680.3525390625,
+    "min": 34678.9931640625,
+    "max": 34681.1923828125,
+    "samples": [
+     34679,
+     34680,
+     34680,
+     34681,
+     34681
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 34680.3525390625,
+    "min": 34678.9931640625,
+    "max": 34681.1923828125,
+    "samples": [
+     34679,
+     34680,
+     34680,
+     34681,
+     34681
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 1,
+    "median": 35899.357421875,
+    "min": 35899.357421875,
+    "max": 35899.357421875,
+    "samples": [
+     35899
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 4.87890625,
+    "min": -65.0439453125,
+    "max": 11.71875,
+    "samples": [
+     -65,
+     12,
+     7,
+     5,
+     3
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 0,
+    "min": 0,
+    "max": 0,
+    "samples": [
+     0
+    ]
+   },
+   "elements": 17459,
+   "status": "measured",
+   "error": null
+  }
+ ],
+ "search": [
+  {
+   "fixture": "large-300-slides.pptx",
+   "format": "pptx",
+   "size_kb": 898.7177734375,
+   "open_ms": {
+    "n": 5,
+    "median": 29.5,
+    "p95": 32.30000000447035,
+    "min": 25.200000002980232,
+    "max": 32.30000000447035
+   },
+   "cold_ms": {
+    "n": 5,
+    "median": 317.29999999701977,
+    "p95": 344.6000000014901,
+    "min": 307.1000000014901,
+    "max": 344.6000000014901
+   },
+   "warm_ms": {
+    "n": 5,
+    "median": 0.20000000298023224,
+    "p95": 0.29999999701976776,
+    "min": 0.19999999552965164,
+    "max": 0.29999999701976776
+   },
+   "hit_ms": {
+    "n": 5,
+    "median": 0.20000000298023224,
+    "p95": 0.29999999701976776,
+    "min": 0.19999999552965164,
+    "max": 0.29999999701976776
+   },
+   "hits": 214,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-13-sheets.xlsx",
+   "format": "xlsx",
+   "size_kb": 1726.513671875,
+   "open_ms": {
+    "n": 5,
+    "median": 23.100000001490116,
+    "p95": 26.700000002980232,
+    "min": 19.30000000447035,
+    "max": 26.700000002980232
+   },
+   "cold_ms": {
+    "n": 5,
+    "median": 996.6999999955297,
+    "p95": 1039.3999999985099,
+    "min": 964.2999999970198,
+    "max": 1039.3999999985099
+   },
+   "warm_ms": {
+    "n": 5,
+    "median": 3.600000001490116,
+    "p95": 4,
+    "min": 3.3000000044703484,
+    "max": 4
+   },
+   "hit_ms": {
+    "n": 5,
+    "median": 10,
+    "p95": 10.5,
+    "min": 9.599999994039536,
+    "max": 10.5
+   },
+   "hits": 22185,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-40x.docx",
+   "format": "docx",
+   "size_kb": 303.2431640625,
+   "open_ms": {
+    "n": 5,
+    "median": 142.59999999403954,
+    "p95": 151.20000000298023,
+    "min": 141.79999999701977,
+    "max": 151.20000000298023
+   },
+   "cold_ms": {
+    "n": 5,
+    "median": 3.899999998509884,
+    "p95": 4.100000001490116,
+    "min": 3.7000000029802322,
+    "max": 4.100000001490116
+   },
+   "warm_ms": {
+    "n": 5,
+    "median": 0.19999999552965164,
+    "p95": 0.20000000298023224,
+    "min": 0.10000000149011612,
+    "max": 0.20000000298023224
+   },
+   "hit_ms": {
+    "n": 5,
+    "median": 0.3999999985098839,
+    "p95": 0.5,
+    "min": 0.3999999985098839,
+    "max": 0.5
+   },
+   "hits": 361,
+   "status": "measured",
+   "error": null
+  }
+ ]
+}

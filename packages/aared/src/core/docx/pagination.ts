@@ -18,20 +18,40 @@ import type {
   FlowNode,
   TextRunModel,
 } from "../model.js";
+import { runsText } from "../search.js";
+import { MINIMUM_LINE_HEIGHT, arabicShare, lineFontSizePt } from "../typography.js";
+import { PX_PER_INCH, ptToPx, twipsToPx } from "../units.js";
 
-const TWIPS_PER_INCH = 1440;
-const PX_PER_INCH = 96;
-const PT_PER_INCH = 72;
 /** Renderer article base font size: block `em` margins resolve against it. */
-const BASE_FONT_PX = 16;
+export const BASE_FONT_PX = 16;
+/** Vertical margin, in `em`, the renderer gives lists, figures and fallback blocks. */
+export const BLOCK_MARGIN_EM = 0.5;
+const BLOCK_MARGIN_PX = BASE_FONT_PX * BLOCK_MARGIN_EM;
 /**
- * Word "single" line box used when a paragraph sets no multiplier. Layout
- * pages paint with this same base (tighter than the flow article's 1.5), so
- * estimates stay self-consistent with the laid-out output.
+ * Word's "single" line box as a multiple of the font size (about 1.15em for
+ * Arial). A paragraph without a multiplier uses it as is, and an authored
+ * `w:line` multiple scales it — not the font size — so 1.25 on 10.5pt Arial is
+ * a 20px line. The renderer paints with the same value (imported from here),
+ * which is what keeps estimates self-consistent with the laid-out output.
  */
-const DEFAULT_LINE_MULTIPLIER = 1.15;
-/** Minimum browser line box; mirrors the renderer's clamp. */
-const MINIMUM_LINE_MULTIPLIER = 1.1;
+export const WORD_SINGLE_LINE = 1.15;
+/**
+ * Average glyph advance per script as a fraction of the font size, used to
+ * guess line wraps without shaping. Calibrated against painted Arial and Arabic
+ * body text: Latin mixes measured ~0.44–0.48em, Arabic ~0.41em (0.5 wrapped
+ * narrow table cells that really fit).
+ */
+const AVERAGE_CHAR_EM = { latin: 0.46, arabic: 0.4 } as const;
+/**
+ * A final line holding less than this share of a line is taken to fit on the
+ * line above: real text varies around the average, and rounding every spill up
+ * would systematically over-count.
+ */
+const WRAP_TOLERANCE_LINES = 0.1;
+
+function averageCharEm(text: string): number {
+  return AVERAGE_CHAR_EM.latin + (AVERAGE_CHAR_EM.arabic - AVERAGE_CHAR_EM.latin) * arabicShare(text);
+}
 /** Footnote separator rule plus its spacing, in pixels. */
 const FOOTNOTE_SEPARATOR_PX = 12;
 
@@ -62,6 +82,13 @@ export interface LayoutPage {
   heightPx: number;
   orientation: "portrait" | "landscape";
   marginsPx: LayoutPageMargins;
+  /**
+   * Where the body actually sits. Word grows a header down from its distance
+   * and starts the body below it when it outgrows the top margin (same at the
+   * bottom for the footer), so these are the authored margins or the header/
+   * footer band, whichever reaches further. `marginsPx` stays as authored.
+   */
+  bodyInsetsPx: { top: number; bottom: number };
   startReason: PageStartReason;
   body: FlowNode[];
   footnotes: DocxFootnoteNode[];
@@ -84,57 +111,57 @@ export interface PaginateOptions {
   softBreaks?: SoftBreakPolicy;
 }
 
-function twipsToPx(twips: number): number {
-  return (twips / TWIPS_PER_INCH) * PX_PER_INCH;
-}
-
-function ptToPx(points: number): number {
-  return (points / PT_PER_INCH) * PX_PER_INCH;
-}
-
 interface EstimateContext {
   bodyWidthPx: number;
 }
 
-function defaultFontSizePt(runs: TextRunModel[]): number {
-  let size = 0;
+/** Word's default text size when neither a paragraph nor a run states one. */
+const FALLBACK_FONT_PT = 11;
+
+/**
+ * The size the text actually wraps at: each run's own size weighted by how much
+ * text it holds, else the paragraph default. A 9pt run in a 10.5pt paragraph
+ * fits more per line than the paragraph default alone would predict.
+ */
+function wrapFontSizePt(runs: TextRunModel[], fallbackPt: number): number {
+  let weighted = 0;
+  let length = 0;
   for (const run of runs) {
-    if (run.fontSizePt !== undefined && run.fontSizePt > size) size = run.fontSizePt;
+    weighted += run.text.length * (run.fontSizePt ?? fallbackPt);
+    length += run.text.length;
   }
-  return size > 0 ? size : 11;
+  return length > 0 ? weighted / length : fallbackPt;
 }
 
-function textBlockHeightPx(
-  text: string,
-  fontSizePt: number,
-  lineSpacing: number | undefined,
-  lineSpacingPt: number | undefined,
-  spaceBeforePt: number | undefined,
-  spaceAfterPt: number | undefined,
-  bodyWidthPx: number,
-): number {
-  if (lineSpacingPt !== undefined) {
-    const lines = Math.max(1, Math.ceil(text.length / Math.max(1, Math.floor(bodyWidthPx / ptToPx(fontSizePt)))));
-    return ptToPx(spaceBeforePt ?? 0) + lines * ptToPx(lineSpacingPt) + ptToPx(spaceAfterPt ?? 0);
-  }
-  const fontPx = ptToPx(fontSizePt);
-  const charsPerLine = Math.max(1, Math.floor(bodyWidthPx / (fontPx * 0.5)));
-  const lines = Math.max(1, Math.ceil(text.length / charsPerLine));
-  const multiplier = Math.max(lineSpacing ?? DEFAULT_LINE_MULTIPLIER, MINIMUM_LINE_MULTIPLIER);
-  return ptToPx(spaceBeforePt ?? 0) + lines * fontPx * multiplier + ptToPx(spaceAfterPt ?? 0);
+interface TextBlockShape {
+  text: string;
+  /** Size that sets the line box (the paragraph's own). */
+  lineFontPt: number;
+  /** Size the glyphs wrap at (see `wrapFontSizePt`). */
+  wrapFontPt: number;
+  lineSpacing?: number;
+  lineSpacingPt?: number;
+  widthPx: number;
+}
+
+function textBlockHeightPx(shape: TextBlockShape): number {
+  const charsPerLine = Math.max(1, Math.floor(shape.widthPx / (ptToPx(shape.wrapFontPt) * averageCharEm(shape.text))));
+  const lines = Math.max(1, Math.ceil(shape.text.length / charsPerLine - WRAP_TOLERANCE_LINES));
+  if (shape.lineSpacingPt !== undefined) return lines * ptToPx(shape.lineSpacingPt);
+  // An authored multiple scales Word's single-line box (see the renderer).
+  const multiple = (shape.lineSpacing ?? 1) * WORD_SINGLE_LINE;
+  return lines * ptToPx(shape.lineFontPt) * Math.max(multiple, MINIMUM_LINE_HEIGHT);
 }
 
 /**
- * Text column available to a paragraph: the body width minus owned indents
- * and left/right border-plus-space, mirroring the painted box.
+ * Text column available to a paragraph: the body width minus its indents.
+ * Side borders hang outside the indent (as in Word), so they take none of it.
  */
 function paragraphTextWidthPx(
   node: { leftIndent?: number; rightIndent?: number; borders?: DocxParagraphBorders },
   ctx: EstimateContext,
 ): number {
-  let width = ctx.bodyWidthPx - (node.leftIndent ?? 0) * PX_PER_INCH - (node.rightIndent ?? 0) * PX_PER_INCH;
-  if (node.borders?.left !== undefined) width -= ptToPx(node.borders.left.widthPt + node.borders.left.spacePt);
-  if (node.borders?.right !== undefined) width -= ptToPx(node.borders.right.widthPt + node.borders.right.spacePt);
+  const width = ctx.bodyWidthPx - (node.leftIndent ?? 0) * PX_PER_INCH - (node.rightIndent ?? 0) * PX_PER_INCH;
   return Math.max(24, width);
 }
 
@@ -150,20 +177,23 @@ function paragraphContentPx(
   },
   ctx: EstimateContext,
 ): number {
-  const text = node.runs.map((run) => run.text).join("");
-  return textBlockHeightPx(
-    text,
-    node.fontSizePt ?? defaultFontSizePt(node.runs),
-    node.lineSpacing,
-    node.lineSpacingPt,
-    undefined,
-    undefined,
-    paragraphTextWidthPx(node, ctx),
-  );
+  const fontSizePt = lineFontSizePt(node.runs, node.fontSizePt) ?? FALLBACK_FONT_PT;
+  const textPx = textBlockHeightPx({
+    text: runsText(node.runs),
+    lineFontPt: fontSizePt,
+    wrapFontPt: wrapFontSizePt(node.runs, fontSizePt),
+    ...(node.lineSpacing === undefined ? {} : { lineSpacing: node.lineSpacing }),
+    ...(node.lineSpacingPt === undefined ? {} : { lineSpacingPt: node.lineSpacingPt }),
+    widthPx: paragraphTextWidthPx(node, ctx),
+  });
+  // An inline picture sits on the baseline, so its line is the picture plus
+  // the descent below it when that outgrows the text line.
+  let imagePx = 0;
+  for (const run of node.runs) {
+    if (run.image !== undefined) imagePx = Math.max(imagePx, run.image.height * PX_PER_INCH);
+  }
+  return imagePx > 0 ? Math.max(textPx, imagePx + ptToPx(fontSizePt) * 0.25) : textPx;
 }
-
-/** Marker column plus gap the renderer reserves before list item text. */
-const LIST_MARKER_PX = 24;
 
 /** Vertical metrics of one block: collapsible margins plus content height. */
 interface BlockMetrics {
@@ -180,19 +210,33 @@ function metrics(topPx: number, contentPx: number, bottomPx: number): BlockMetri
 /**
  * Estimated painted metrics of one flow block in pixels, given the body
  * column width. Margins mirror the renderer's CSS exactly (paragraph
- * `spaceBefore`/`spaceAfter`, `0.5em` list/table/figure margins), so stacked
- * estimates fold with CSS margin-collapsing semantics. Exported for unit
+ * `spaceBefore`/`spaceAfter`, `BLOCK_MARGIN_EM` list and figure margins; tables
+ * paint flush), so stacked estimates fold with CSS margin-collapsing semantics.
+ * Wrap counts are guesses from average glyph widths, not measurements
+ * (`AVERAGE_CHAR_EM`), calibrated against one fixture. Exported for unit
  * tests and estimator calibration; the paginator uses it internally.
  */
 export function estimateBlockHeightPx(block: FlowNode, bodyWidthPx: number): number {
   return measureBlock(block, { bodyWidthPx }).standalone;
 }
 
-function blockHeightPx(block: FlowNode, ctx: EstimateContext): BlockMetrics {
-  return measureBlock(block, ctx);
-}
+/**
+ * Metrics per block and column width. The paginator re-folds a page's whole
+ * body after every placed block, so without this each block would be measured
+ * once per block placed after it. Blocks are immutable while paginating, and
+ * the weak keys let the cache go with the model.
+ */
+const metricsCache = new WeakMap<FlowNode, { widthPx: number; metrics: BlockMetrics }>();
 
 function measureBlock(block: FlowNode, ctx: EstimateContext): BlockMetrics {
+  const cached = metricsCache.get(block);
+  if (cached !== undefined && cached.widthPx === ctx.bodyWidthPx) return cached.metrics;
+  const measured = measureUncached(block, ctx);
+  metricsCache.set(block, { widthPx: ctx.bodyWidthPx, metrics: measured });
+  return measured;
+}
+
+function measureUncached(block: FlowNode, ctx: EstimateContext): BlockMetrics {
   switch (block.type) {
     case "paragraph":
     case "heading": {
@@ -208,25 +252,32 @@ function measureBlock(block: FlowNode, ctx: EstimateContext): BlockMetrics {
       );
     }
     case "list": {
-      // Markers sit beside their item text; item paragraphs fold with the
-      // same collapsing the renderer paints. Each item wraps in the column
-      // left after its numbering indent and the marker column.
+      // A marker is inline at the start of its item's first line, so items
+      // are ordinary paragraphs that fold with the same collapsing the
+      // renderer paints. Each wraps in the column left after its numbering
+      // indent.
       let total = 0;
       let pendingBottom = 0;
       let first = true;
       for (const item of block.items) {
-        const itemCtx: EstimateContext = { bodyWidthPx: Math.max(24, ctx.bodyWidthPx - LIST_MARKER_PX) };
-        const part = measureBlock(item.paragraph, itemCtx);
+        // The marker hangs inside the numbering indent, which the paragraph's
+        // own `leftIndent` already takes off the column.
+        const part = measureBlock(item.paragraph, ctx);
         total += first ? part.topPx : Math.max(pendingBottom, part.topPx);
         total += part.contentPx;
         pendingBottom = part.bottomPx;
         first = false;
       }
       if (!first) total += pendingBottom;
-      return metrics(BASE_FONT_PX / 2, total, BASE_FONT_PX / 2);
+      return metrics(BLOCK_MARGIN_PX, total, BLOCK_MARGIN_PX);
     }
     case "table": {
       let total = 0;
+      // The hairline between rows at its real thickness (0.25pt is 0.33px): the
+      // renderer draws it snapped to a device pixel and takes the difference
+      // back out of the cell padding, so a row is padding plus this.
+      const insideH = block.borders?.insideH;
+      const rowEdgePx = typeof insideH === "object" ? ptToPx(insideH.widthPt) : 0;
       for (const row of block.rows) {
         let rowHeight = 0;
         let column = 0;
@@ -237,8 +288,12 @@ function measureBlock(block: FlowNode, ctx: EstimateContext): BlockMetrics {
             ? ctx.bodyWidthPx
             : block.columns.slice(column, column + span).reduce((sum, width) => sum + width, 0) * PX_PER_INCH;
           column += span;
-          const cellCtx: EstimateContext = { bodyWidthPx: Math.max(24, Math.min(ctx.bodyWidthPx, cellWidthPx)) };
-          const cellHeight = foldBlocksHeightPx(cell.nodes, cellCtx) + 8;
+          const pad = { ...block.cellMargins, ...cell.margins };
+          const padX = ((pad.left ?? 0) + (pad.right ?? 0)) * PX_PER_INCH;
+          const padY = ((pad.top ?? 0) + (pad.bottom ?? 0)) * PX_PER_INCH;
+          const cellCtx: EstimateContext = { bodyWidthPx: Math.max(24, Math.min(ctx.bodyWidthPx, cellWidthPx) - padX) };
+          // A row is its text plus the cell padding plus the hairline between rows.
+          const cellHeight = foldBlocksHeightPx(cell.nodes, cellCtx) + padY + rowEdgePx;
           if (cellHeight > rowHeight) rowHeight = cellHeight;
         }
         if (row.height !== undefined) {
@@ -247,14 +302,15 @@ function measureBlock(block: FlowNode, ctx: EstimateContext): BlockMetrics {
         }
         total += rowHeight;
       }
-      return metrics(BASE_FONT_PX / 2, total, BASE_FONT_PX / 2);
+      // Tables paint flush: Word gives them no margin of their own.
+      return metrics(0, total, 0);
     }
     case "image":
-      return metrics(BASE_FONT_PX / 2, block.height * PX_PER_INCH, BASE_FONT_PX / 2);
+      return metrics(BLOCK_MARGIN_PX, block.height * PX_PER_INCH, BLOCK_MARGIN_PX);
     case "footnote":
       return metrics(0, FOOTNOTE_SEPARATOR_PX + foldBlocksHeightPx(block.nodes, ctx), 0);
     case "unsupported":
-      return metrics(BASE_FONT_PX / 2, 48, BASE_FONT_PX / 2);
+      return metrics(BLOCK_MARGIN_PX, 48, BLOCK_MARGIN_PX);
     case "pageBreak":
       return metrics(0, 0, 0);
   }
@@ -307,12 +363,49 @@ interface PageBox {
   heightPx: number;
 }
 
+interface BodyInsets {
+  top: number;
+  bottom: number;
+}
+
+/** Header/footer bands push the body inward once they outgrow the margins (see `LayoutPage.bodyInsetsPx`). */
+function bodyInsets(section: DocumentSection): BodyInsets {
+  const { margins, widthTwips } = section.properties.page;
+  const ctx: EstimateContext = { bodyWidthPx: twipsToPx(widthTwips - margins.left - margins.right) };
+  const top = twipsToPx(margins.top);
+  const bottom = twipsToPx(margins.bottom);
+  const headerBand = section.header !== undefined && section.header.length > 0
+    ? twipsToPx(margins.header) + foldBlocksHeightPx(section.header, ctx)
+    : 0;
+  const footerBand = section.footer !== undefined && section.footer.length > 0
+    ? twipsToPx(margins.footer) + foldBlocksHeightPx(section.footer, ctx)
+    : 0;
+  return { top: Math.max(top, headerBand), bottom: Math.max(bottom, footerBand) };
+}
+
 function bodyBox(section: DocumentSection): PageBox {
   const { page } = section.properties;
+  const insets = bodyInsets(section);
   return {
     widthPx: twipsToPx(page.widthTwips - page.margins.left - page.margins.right),
-    heightPx: twipsToPx(page.heightTwips - page.margins.top - page.margins.bottom),
+    heightPx: twipsToPx(page.heightTwips) - insets.top - insets.bottom,
   };
+}
+
+/**
+ * Whether a page opens flush against its header band. Word keeps a paragraph's
+ * space-before at the top of a document's or a section's first page, and drops
+ * it on a page that merely continues the flow — after a page break or an
+ * overflow (read from a native export: an appendix heading starting a section
+ * sits its 24px lower than one after a break).
+ */
+export function dropsTopSpacing(reason: PageStartReason): boolean {
+  return reason === "explicit-page-break" || reason === "overflow";
+}
+
+/** Space above a page's first block (see `dropsTopSpacing`). */
+function pageTopGap(reason: PageStartReason, part: BlockMetrics): number {
+  return dropsTopSpacing(reason) ? 0 : part.topPx;
 }
 
 interface OpenPage {
@@ -341,6 +434,7 @@ function newPage(index: number, sectionIndex: number, section: DocumentSection, 
         header: twipsToPx(page.margins.header),
         footer: twipsToPx(page.margins.footer),
       },
+      bodyInsetsPx: bodyInsets(section),
       startReason,
       body: [],
       footnotes: [],
@@ -411,7 +505,7 @@ export function paginate(sections: DocumentSection[], options?: PaginateOptions)
     let empty = true;
     for (const block of current.page.body) {
       const part = measureBlock(block, estimateCtx);
-      total += empty ? part.topPx : Math.max(pendingBottom, part.topPx);
+      total += empty ? pageTopGap(current.page.startReason, part) : Math.max(pendingBottom, part.topPx);
       total += part.contentPx;
       pendingBottom = part.bottomPx;
       empty = false;
@@ -469,7 +563,9 @@ export function paginate(sections: DocumentSection[], options?: PaginateOptions)
       if (current === undefined) openPage(section, "overflow");
       const next = pending[0]!;
       const nextPart = measureBlock(next, estimateCtx);
-      const gap = current!.page.body.length === 0 ? nextPart.topPx : Math.max(current!.prevBottomPx, nextPart.topPx);
+      const gap = current!.page.body.length === 0
+        ? pageTopGap(current!.page.startReason, nextPart)
+        : Math.max(current!.prevBottomPx, nextPart.topPx);
       if (current!.usedPx + gap + nextPart.contentPx > current!.box.heightPx && current!.page.body.length > 0) {
         flushPage();
         continue;

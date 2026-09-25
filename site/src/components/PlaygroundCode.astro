@@ -1,0 +1,21 @@
+---
+/**
+ * The code column of a playground tab: the snippet a developer writes,
+ * per file format (the shared picker shows the one for the chosen format).
+ */
+import CodeBlock from "./CodeBlock.astro";
+import { SNIPPET_FORMATS } from "../lib/playground-snippets.ts";
+import type { PlaygroundSnippet, SnippetFormat } from "../lib/playground-snippets.ts";
+
+interface Props {
+  snippets: Record<SnippetFormat, PlaygroundSnippet>;
+}
+
+const { snippets } = Astro.props;
+---
+
+{SNIPPET_FORMATS.map((format, index) => (
+  <div data-snippet={format} hidden={index !== 0}>
+    <CodeBlock title={snippets[format].title} lang={snippets[format].lang} code={snippets[format].code} />
+  </div>
+))}

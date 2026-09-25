@@ -7,6 +7,18 @@
  * start lazily — a hidden tab costs no Worker until first visible.
  */
 
+const UNIT_NAMES: Record<string, readonly [string, string]> = {
+  pptx: ["slide", "slides"],
+  xlsx: ["sheet", "sheets"],
+  docx: ["document", "documents"],
+};
+
+/** "7 slides", "4 sheets", "1 document": what `info.count` counts, per format. */
+export function describeUnits(format: string, count: number): string {
+  const [one, many] = UNIT_NAMES[format] ?? ["unit", "units"];
+  return `${count} ${count === 1 ? one : many}`;
+}
+
 export interface DemoSummary {
   format: string;
   units: number;
@@ -40,6 +52,7 @@ export function attachDemo(frame: HTMLElement, resolveRunner: ResolveRunner): vo
   let started = false;
 
   const paint = (source: string | File): void => {
+    started = true;
     current = source;
     const run = resolveRunner();
     const gen = ++generation;
@@ -50,7 +63,9 @@ export function attachDemo(frame: HTMLElement, resolveRunner: ResolveRunner): vo
     delete status.dataset.format;
     delete status.dataset.units;
     status.textContent = "Loading…";
-    run(stage, source).then(
+    // A runner that throws before returning its promise must land in the
+    // error branch too, not leave the frame on "Loading…" forever.
+    new Promise<DemoOutcome>((resolve) => resolve(run(stage, source))).then(
       ({ summary, dispose: done }) => {
         if (gen !== generation) {
           done();
@@ -61,7 +76,7 @@ export function attachDemo(frame: HTMLElement, resolveRunner: ResolveRunner): vo
         status.dataset.state = "ready";
         status.dataset.format = summary.format;
         status.dataset.units = String(summary.units);
-        status.textContent = `${summary.format} · ${summary.units} unit${summary.units === 1 ? "" : "s"}`;
+        status.textContent = `${summary.format} · ${describeUnits(summary.format, summary.units)}`;
       },
       (error: unknown) => {
         if (gen !== generation) return;

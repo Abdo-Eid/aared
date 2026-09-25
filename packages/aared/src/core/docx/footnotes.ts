@@ -7,7 +7,7 @@
 
 import { attr, childElements } from "../xml.js";
 import type { XmlElement } from "../xml.js";
-import { throwIfAborted } from "../zip.js";
+import { throwIfAborted } from "../errors.js";
 
 const SEPARATOR_TYPES = new Set(["separator", "continuationSeparator", "continuationNotice"]);
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { storedZip } from "./zip.js";
 import { OpcPackage } from "../src/core/opc.js";
 import { indexDocx, parseDocxSections } from "../src/core/docx/document.js";
 import { headingLevelForStyle, paragraphAncestry, parseStyles } from "../src/core/docx/styles.js";
@@ -6,8 +7,8 @@ import { isOrderedFormat, markerFor, parseNumbering, startFor } from "../src/cor
 import { parseXml } from "../src/core/xml.js";
 import type { DocxParagraphNode, DocumentSection, FlowNode, TextRunModel } from "../src/core/model.js";
 
-const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/arabic-docx-bidi-coverage.docx`;
-const MANIFEST_PATH = `${import.meta.dir}/../../../fixtures/arabic-docx-bidi-coverage.json`;
+const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/docx-coverage.docx`;
+const MANIFEST_PATH = `${import.meta.dir}/../../../fixtures/docx-coverage.json`;
 
 interface CoverageManifest {
   id: string;
@@ -83,76 +84,6 @@ async function findBlock(sections: DocumentSection[], id: string): Promise<FlowN
   );
 }
 
-function crc32(bytes: Uint8Array): number {
-  let table = crc32Table;
-  if (table === undefined) {
-    table = new Uint32Array(256);
-    for (let n = 0; n < 256; n++) {
-      let c = n;
-      for (let k = 0; k < 8; k++) c = c % 2 === 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-      table[n] = c;
-    }
-    crc32Table = table;
-  }
-  let crc = 0xffffffff;
-  for (const byte of bytes) crc = table[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-let crc32Table: Uint32Array | undefined;
-
-/** Minimal stored (uncompressed) ZIP writer: synthetic OPC packages for parser edge cases. */
-function storedZip(files: Record<string, Uint8Array | string>): Uint8Array {
-  const encoder = new TextEncoder();
-  const chunks: Uint8Array[] = [];
-  const central: Uint8Array[] = [];
-  let offset = 0;
-  const push = (target: Uint8Array[], view: DataView | Uint8Array): void => {
-    target.push(view instanceof Uint8Array ? view : new Uint8Array(view.buffer));
-  };
-  for (const [name, content] of Object.entries(files)) {
-    const nameBytes = encoder.encode(name);
-    const data = typeof content === "string" ? encoder.encode(content) : content;
-    const header = new DataView(new ArrayBuffer(30));
-    header.setUint32(0, 0x04034b50, true);
-    header.setUint16(4, 20, true);
-    header.setUint16(6, 0x0800, true);
-    header.setUint16(8, 0, true);
-    header.setUint32(14, crc32(data), true);
-    header.setUint32(18, data.byteLength, true);
-    header.setUint32(22, data.byteLength, true);
-    header.setUint16(26, nameBytes.byteLength, true);
-    push(chunks, header);
-    push(chunks, nameBytes);
-    push(chunks, data);
-    const entry = new DataView(new ArrayBuffer(46));
-    entry.setUint32(0, 0x02014b50, true);
-    entry.setUint16(10, 0, true);
-    entry.setUint32(20, data.byteLength, true);
-    entry.setUint32(24, data.byteLength, true);
-    entry.setUint16(28, nameBytes.byteLength, true);
-    entry.setUint32(42, offset, true);
-    push(central, entry);
-    push(central, nameBytes);
-    offset += 30 + nameBytes.byteLength + data.byteLength;
-  }
-  for (const part of central) chunks.push(part);
-  const centralSize = central.reduce((sum, part) => sum + part.byteLength, 0);
-  const end = new DataView(new ArrayBuffer(22));
-  end.setUint32(0, 0x06054b50, true);
-  end.setUint16(8, Object.keys(files).length, true);
-  end.setUint16(10, Object.keys(files).length, true);
-  end.setUint32(12, centralSize, true);
-  end.setUint32(16, offset, true);
-  push(chunks, end);
-  const out = new Uint8Array(offset + centralSize + 22);
-  let position = 0;
-  for (const part of chunks) {
-    out.set(part, position);
-    position += part.byteLength;
-  }
-  return out;
-}
 
 const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8"?>` +
   `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
@@ -202,7 +133,7 @@ describe("DOCX flow parser", () => {
     expect(sections[0]?.title).toBe("1. Project Overview");
     expect(sections[1]?.title).toBe("Appendix A — Shot List, Episode 04");
     expect(sections[0]?.properties.page).toMatchObject({ widthTwips: 11906, heightTwips: 16838, orientation: "portrait" });
-    expect(sections[0]?.properties.page.margins).toMatchObject({ top: 1100, right: 1160, bottom: 1000, left: 1160 });
+    expect(sections[0]?.properties.page.margins).toMatchObject({ top: 720, right: 720, bottom: 720, left: 1134 });
     expect(sections[1]?.properties.page).toMatchObject({ widthTwips: 16838, heightTwips: 11906, orientation: "landscape" });
     expect(sections[1]?.properties.page.margins).toMatchObject({ top: 900, right: 1000, bottom: 900, left: 1000 });
     const root = allRoot(sections);
@@ -210,10 +141,12 @@ describe("DOCX flow parser", () => {
     // Footnotes resolve onto the last section in reference order; separators never arrive.
     const footnotes = root.filter((node) => node.type === "footnote");
     expect(footnotes.map((node) => (node.type === "footnote" ? node.label : "?"))).toEqual(["1", "2"]);
-    // The single authored page break survives as a mandatory break node.
+    // The single authored page break survives as a mandatory break node; the
+    // three `lastRenderedPageBreak` hints Word saved ride along as soft ones.
     const breaks = root.filter((node) => node.type === "pageBreak");
-    expect(breaks).toHaveLength(1);
-    expect(breaks[0]).toMatchObject({ strength: "mandatory" });
+    expect(breaks).toHaveLength(4);
+    expect(breaks.filter((node) => node.type === "pageBreak" && node.strength === "mandatory")).toHaveLength(1);
+    expect(breaks.filter((node) => node.type === "pageBreak" && node.strength === "preferred")).toHaveLength(3);
     // The pull quote keeps its gold left border from `w:pBdr`.
     const quote = root.find(
       (node): node is DocxParagraphNode =>
@@ -323,7 +256,7 @@ describe("DOCX flow parser", () => {
     const root = allRoot(sections);
     const images = root.filter((node) => node.type === "image");
     expect(images).toHaveLength(2);
-    expect(images[0]).toMatchObject({ mediaId: "word/media/d439a01409e90ec57db9bab183c6bb15b707c2ec.png", contentType: "image/png" });
+    expect(images[0]).toMatchObject({ mediaId: "word/media/image1.png", contentType: "image/png" });
     expect(images[1]).toMatchObject({ contentType: "image/jpeg" });
     for (const image of images) {
       if (image.type !== "image") continue;
@@ -342,19 +275,24 @@ describe("DOCX flow parser", () => {
     expect(marker).toMatchObject({ verticalAlign: "superscript", text: "1" });
     // Each section resolves its own header/footer references. The appendix
     // (last) section keeps the pre-section output: header/footer once, with
-    // the static PAGE/NUMPAGES fiction now marked as live fields.
+    // PAGE/NUMPAGES marked as live fields that keep their cached text.
     const appendix = sections[sections.length - 1]!;
-    expect(appendix.header).toHaveLength(2);
+    // The logo is an inline drawing beside the wordmark, so the header is one
+    // paragraph whose first run carries the picture.
+    expect(appendix.header).toHaveLength(1);
+    const logo = allRuns(appendix.header ?? []).find((run) => run.image !== undefined);
+    expect(logo?.image).toMatchObject({ contentType: "image/png" });
     expect(appendix.footer).toHaveLength(1);
     const headerText = (appendix.header ?? []).map(blockText).join("\n");
     const footerText = (appendix.footer ?? []).map(blockText).join("\n");
     expect(headerText).toContain("NILE FRAME STUDIO");
     expect(footerText).toContain("Internal — Confidential");
-    expect(footerText).toContain("Page 1 of 1");
+    // Flow keeps each field's cached result once ("Page 4 of 4" as last saved).
+    expect(footerText).toContain("Page 4 of 4");
     const fieldRuns = allRuns(appendix.footer ?? []).filter((run) => run.field !== undefined);
     expect(fieldRuns.map((run) => run.field).sort()).toEqual(["NUMPAGES", "PAGE"]);
-    // The front section keeps its own portrait references.
-    expect(sections[0]?.properties.headerRefs).toHaveLength(1);
+    // The front section keeps its own portrait references (even/default/first headers).
+    expect(sections[0]?.properties.headerRefs).toHaveLength(3);
     expect(sections[0]?.properties.footerRefs).toHaveLength(1);
   });
 
@@ -431,6 +369,36 @@ describe("DOCX flow parser", () => {
     const paragraph = root[0];
     if (paragraph?.type !== "paragraph") throw new Error(`expected one paragraph, got ${summaries(sections)}`);
     expect(paragraph.runs.map((run) => run.text).join("")).toBe("kept inserted stayed moved-here");
+  });
+
+  test("keeps a live page field's cached result on the field run, not in the flow", async () => {
+    const field = (instruction: string, cached: string): string =>
+      `<w:r><w:fldChar w:fldCharType="begin"/></w:r>` +
+      `<w:r><w:instrText xml:space="preserve"> ${instruction} </w:instrText></w:r>` +
+      `<w:r><w:fldChar w:fldCharType="separate"/></w:r>` +
+      `<w:r><w:t>${cached}</w:t></w:r>` +
+      `<w:r><w:fldChar w:fldCharType="end"/></w:r>`;
+    const sections = await parseSynthetic(
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+        `<w:document ${WORD_NS}><w:body>` +
+        `<w:p><w:r><w:t xml:space="preserve">Page </w:t></w:r>${field("PAGE", "21")}` +
+        `<w:r><w:t xml:space="preserve"> of </w:t></w:r>${field("NUMPAGES", "42")}` +
+        `<w:r><w:t xml:space="preserve"> / </w:t></w:r>` +
+        `<w:fldSimple w:instr="PAGE"><w:r><w:t>7</w:t></w:r></w:fldSimple></w:p>` +
+        // Only PAGE/NUMPAGES are live: another field's cached result is its content.
+        `<w:p>${field("PAGEREF _Toc1 \\h", "9")}</w:p>` +
+        `</w:body></w:document>`,
+    );
+    const [live, other] = sections[0]?.root ?? [];
+    if (live?.type !== "paragraph" || other?.type !== "paragraph") throw new Error(`expected two paragraphs, got ${summaries(sections)}`);
+    expect(live.runs.map((run) => run.text).join("")).toBe("Page 21 of 42 / 7");
+    expect(live.runs.filter((run) => run.field !== undefined).map((run) => [run.field, run.text])).toEqual([
+      ["PAGE", "21"],
+      ["NUMPAGES", "42"],
+      ["PAGE", "7"],
+    ]);
+    expect(other.runs.map((run) => run.text).join("")).toBe("9");
+    expect(other.runs.every((run) => run.field === undefined)).toBe(true);
   });
 
   test("parses basic floats and adapts charts without a duplicate engine", async () => {
@@ -556,5 +524,266 @@ describe("DOCX flow parser", () => {
       name: "AbortError",
       message: "aared/core: request was cancelled",
     });
+  });
+});
+
+describe("DOCX Word-fidelity parsing", () => {
+  const XML = `<?xml version="1.0" encoding="UTF-8"?>`;
+  const MAIN_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+  const RELATIONSHIP = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const documentOf = (body: string): string => `${XML}<w:document ${WORD_NS}><w:body>${body}</w:body></w:document>`;
+  const stylesOf = (inner: string): string => `${XML}<w:styles xmlns:w="${MAIN_NS}">${inner}</w:styles>`;
+  const STYLES_REL = `<Relationship Id="rIdStyles" Type="${RELATIONSHIP}/styles" Target="styles.xml"/>`;
+  const NUMBERING_REL = `<Relationship Id="rIdNumbering" Type="${RELATIONSHIP}/numbering" Target="numbering.xml"/>`;
+  const paragraphsOf = (sections: DocumentSection[]): DocxParagraphNode[] =>
+    allRoot(sections).filter((node): node is DocxParagraphNode => node.type === "paragraph");
+
+  test("reads left/right as start/end in bidi paragraphs, as Word paints them", async () => {
+    const para = (properties: string): string => `<w:p><w:pPr>${properties}</w:pPr><w:r><w:t>x</w:t></w:r></w:p>`;
+    const sections = await parseSynthetic(documentOf(
+      para(`<w:bidi/><w:jc w:val="right"/>`) +
+        para(`<w:bidi/><w:jc w:val="left"/>`) +
+        para(`<w:bidi/><w:jc w:val="end"/>`) +
+        para(`<w:bidi/><w:jc w:val="start"/>`) +
+        para(`<w:bidi/><w:jc w:val="center"/>`) +
+        para(`<w:jc w:val="right"/>`) +
+        para(`<w:jc w:val="both"/>`) +
+        para(``),
+    ));
+    // Verified against a native Word export: `<w:bidi/><w:jc w:val="right"/>` paints on the left.
+    expect(paragraphsOf(sections).map((node) => node.align)).toEqual([
+      "left", "right", "left", "right", "center", "right", "justify", undefined,
+    ]);
+  });
+
+  test("resolves tab stops through the style chain, honouring clears and leaders", async () => {
+    const sections = await parseSynthetic(
+      documentOf(
+        `<w:p><w:pPr><w:pStyle w:val="Child"/><w:tabs><w:tab w:val="clear" w:pos="720"/><w:tab w:val="center" w:pos="4500"/></w:tabs></w:pPr>` +
+          `<w:r><w:t>x</w:t><w:tab/><w:t>y</w:t></w:r></w:p>`,
+      ),
+      STYLES_REL,
+      {
+        "word/styles.xml": stylesOf(
+          `<w:style w:type="paragraph" w:styleId="Base"><w:pPr><w:tabs>` +
+            `<w:tab w:val="left" w:pos="720"/><w:tab w:val="right" w:leader="dot" w:pos="9000"/>` +
+            `</w:tabs></w:pPr></w:style>` +
+            `<w:style w:type="paragraph" w:styleId="Child"><w:basedOn w:val="Base"/></w:style>`,
+        ),
+      },
+    );
+    // The inherited left stop is cleared, the center stop is added, the leader survives, order ascends.
+    expect(paragraphsOf(sections)[0]?.tabStops).toEqual([
+      { pos: 4500 / 1440, align: "center" },
+      { pos: 9000 / 1440, align: "right", leader: "dot" },
+    ]);
+  });
+
+  test("reads caps and character spacing, with all caps outranking small caps", async () => {
+    const run = (properties: string, text: string): string => `<w:r><w:rPr>${properties}</w:rPr><w:t>${text}</w:t></w:r>`;
+    const sections = await parseSynthetic(documentOf(
+      `<w:p>${run(`<w:caps/><w:spacing w:val="30"/>`, "a")}${run(`<w:smallCaps/>`, "b")}` +
+        `${run(`<w:caps/><w:smallCaps/>`, "c")}${run(`<w:caps w:val="0"/>`, "d")}</w:p>`,
+    ));
+    const runs = paragraphsOf(sections)[0]!.runs;
+    expect(runs.map((item) => item.caps)).toEqual(["all", "small", "all", undefined]);
+    expect(runs[0]?.letterSpacingPt).toBeCloseTo(1.5, 5);
+    expect(runs[1]?.letterSpacingPt).toBeUndefined();
+  });
+
+  test("resolves table width, borders and cell padding, defaulting to Word's Normal Table", async () => {
+    const edge = (name: string, size: number): string => `<w:${name} w:val="single" w:sz="${size}" w:space="0" w:color="D8D3C9"/>`;
+    const sections = await parseSynthetic(documentOf(
+      `<w:tbl><w:tblPr><w:tblW w:w="9120" w:type="dxa"/>` +
+        `<w:tblBorders>${edge("top", 4)}${edge("insideH", 2)}<w:insideV w:val="nil"/></w:tblBorders>` +
+        `<w:tblCellMar><w:left w:w="10" w:type="dxa"/></w:tblCellMar></w:tblPr>` +
+        `<w:tblGrid><w:gridCol w:w="4560"/><w:gridCol w:w="4560"/></w:tblGrid>` +
+        `<w:tr><w:tc><w:tcPr><w:tcW w:w="4560" w:type="dxa"/>` +
+        `<w:tcMar><w:top w:w="80" w:type="dxa"/></w:tcMar><w:tcBorders>${edge("bottom", 8)}</w:tcBorders></w:tcPr>` +
+        `<w:p><w:r><w:t>a</w:t></w:r></w:p></w:tc>` +
+        `<w:tc><w:p><w:r><w:t>b</w:t></w:r></w:p></w:tc></w:tr></w:tbl>`,
+    ));
+    const table = allRoot(sections).find((node) => node.type === "table");
+    if (table?.type !== "table") throw new Error(`expected a table: ${summaries(sections)}`);
+    expect(table.width).toBeCloseTo(9120 / 1440, 5);
+    expect(table.borders?.top).toMatchObject({ color: "#D8D3C9", widthPt: 0.5, style: "solid" });
+    expect(table.borders?.insideH).toMatchObject({ widthPt: 0.25 });
+    // `nil` is an authored "no border", distinct from an unset edge.
+    expect(table.borders?.insideV).toBe("none");
+    expect(table.borders?.bottom).toBeUndefined();
+    // The table padding overrides one side; the rest keep the Normal Table default.
+    expect(table.cellMargins).toEqual({ top: 0, bottom: 0, left: 10 / 1440, right: 108 / 1440 });
+    expect(table.rows[0]?.cells[0]?.margins).toEqual({ top: 80 / 1440 });
+    expect(table.rows[0]?.cells[0]?.borders?.bottom).toMatchObject({ widthPt: 1 });
+    expect(table.rows[0]?.cells[1]?.margins).toBeUndefined();
+  });
+
+  test("carries a list level's marker formatting and suffix onto its items", async () => {
+    const item = (level: number): string =>
+      `<w:p><w:pPr><w:numPr><w:ilvl w:val="${level}"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>item</w:t></w:r></w:p>`;
+    const sections = await parseSynthetic(
+      documentOf(item(0) + item(1)),
+      NUMBERING_REL,
+      {
+        "word/numbering.xml": `${XML}<w:numbering xmlns:w="${MAIN_NS}"><w:abstractNum w:abstractNumId="0">` +
+          `<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="—"/>` +
+          `<w:pPr><w:ind w:left="460" w:hanging="240"/></w:pPr><w:rPr><w:b/><w:color w:val="B87F1E"/></w:rPr></w:lvl>` +
+          `<w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="-"/><w:suff w:val="space"/></w:lvl>` +
+          `</w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>`,
+      },
+    );
+    const list = allRoot(sections).find((node) => node.type === "list");
+    if (list?.type !== "list") throw new Error(`expected a list: ${summaries(sections)}`);
+    const [first, second] = list.items;
+    expect(first?.markerRun).toMatchObject({ text: "—", bold: true, color: "#B87F1E" });
+    expect(first?.markerSuffix).toBeUndefined();
+    // A level with no `w:rPr` follows the paragraph text; only a non-default suffix is recorded.
+    expect(second?.markerRun).toBeUndefined();
+    expect(second?.markerSuffix).toBe("space");
+  });
+
+  test("paints a TOC's own links as plain text but keeps the Hyperlink style elsewhere", async () => {
+    const link = `<w:hyperlink w:anchor="_Toc1"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t>Entry</w:t></w:r></w:hyperlink>`;
+    const sections = await parseSynthetic(
+      documentOf(
+        `<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr>${link}</w:p>` +
+          `<w:p>${link}</w:p>`,
+      ),
+      STYLES_REL,
+      {
+        "word/styles.xml": stylesOf(
+          `<w:style w:type="paragraph" w:styleId="TOC1"><w:name w:val="toc 1"/></w:style>` +
+            `<w:style w:type="character" w:styleId="Hyperlink"><w:rPr><w:color w:val="0563C1"/><w:u w:val="single"/></w:rPr></w:style>`,
+        ),
+      },
+    );
+    const [toc, plain] = paragraphsOf(sections).map((node) => node.runs[0]);
+    expect(toc).toMatchObject({ text: "Entry", hyperlink: "#_Toc1" });
+    expect(toc?.color).toBeUndefined();
+    expect(toc?.underline).toBeUndefined();
+    expect(plain).toMatchObject({ hyperlink: "#_Toc1", color: "#0563C1", underline: true });
+  });
+
+  test("an empty theme complex-script slot resolves to the theme's Arab script font, as Word paints it", async () => {
+    // Ground truth (native Word probe: minor `Arab` = Tahoma, major = Segoe UI): a `w:rtl`
+    // run whose theme `cs` typeface is empty is set in the `Arab` entry; a literal `w:cs` wins.
+    const theme = `${XML}<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:themeElements><a:fontScheme name="probe">` +
+      `<a:majorFont><a:latin typeface="Cambria"/><a:ea typeface=""/><a:cs typeface=""/><a:font script="Arab" typeface="Segoe UI"/></a:majorFont>` +
+      `<a:minorFont><a:latin typeface="Aptos"/><a:ea typeface=""/><a:cs typeface=""/><a:font script="Arab" typeface="Tahoma"/></a:minorFont>` +
+      `</a:fontScheme></a:themeElements></a:theme>`;
+    const contentTypes = CONTENT_TYPES.replace(
+      "</Types>",
+      `<Override PartName="/word/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/></Types>`,
+    );
+    const arabic = "الاسم";
+    const run = (rpr: string, text: string): string => `<w:r><w:rPr>${rpr}</w:rPr><w:t>${text}</w:t></w:r>`;
+    const sections = await parseSynthetic(
+      documentOf(
+        `<w:p>${run(`<w:rFonts w:cstheme="minorBidi"/><w:rtl/>`, arabic)}` +
+          `${run(`<w:rFonts w:cstheme="majorBidi"/><w:rtl/>`, arabic)}` +
+          `${run(`<w:rFonts w:cs="Courier New"/><w:rtl/>`, arabic)}` +
+          `${run(`<w:rFonts w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/>`, "Latin")}</w:p>`,
+      ),
+      `<Relationship Id="rIdTheme" Type="${RELATIONSHIP}/theme" Target="theme/theme1.xml"/>`,
+      { "[Content_Types].xml": contentTypes, "word/theme/theme1.xml": theme },
+    );
+    const runs = paragraphsOf(sections)[0]!.runs;
+    expect(runs.map((item) => item.fontFamily)).toEqual(["Tahoma", "Segoe UI", "Courier New", "Aptos"]);
+    // The resolved complex-script slot is recorded too, so a font resolver can act on it.
+    expect(runs[0]?.complexScriptTypeface).toBe("Tahoma");
+    expect(runs[3]?.complexScriptTypeface).toBeUndefined();
+  });
+
+  test("an authored outline level makes a heading of a paragraph with no heading style", async () => {
+    const sections = await parseSynthetic(documentOf(
+      `<w:p><w:pPr><w:outlineLvl w:val="1"/></w:pPr><w:r><w:t>Second level</w:t></w:r></w:p>` +
+        `<w:p><w:pPr><w:outlineLvl w:val="9"/></w:pPr><w:r><w:t>Body text</w:t></w:r></w:p>` +
+        `<w:p><w:r><w:t>Plain</w:t></w:r></w:p>`,
+    ));
+    const [outlined, body, plain] = allRoot(sections);
+    expect(outlined).toMatchObject({ type: "heading", level: 2, text: "Second level" });
+    // Level 9 is Word's "body text": it names no heading.
+    expect(body?.type).toBe("paragraph");
+    expect(plain?.type).toBe("paragraph");
+  });
+
+  test("the heading rule: style levels, inherited outline levels, and never deleted or field text", async () => {
+    const styles = stylesOf(
+      `<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/></w:style>` +
+        `<w:style w:type="paragraph" w:styleId="Custom"><w:name w:val="Chapter"/><w:pPr><w:outlineLvl w:val="0"/></w:pPr></w:style>`,
+    );
+    const document = documentOf(
+      `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Named heading</w:t></w:r></w:p>` +
+        // Outline level inherited through a style: a heading, though its style id says nothing.
+        `<w:p><w:pPr><w:pStyle w:val="Custom"/></w:pPr><w:r><w:t>Chapter</w:t></w:r></w:p>` +
+        // Level 9 is body text, however authored.
+        `<w:p><w:pPr><w:outlineLvl w:val="9"/></w:pPr><w:r><w:t>Body</w:t></w:r></w:p>` +
+        // Deleted text and a field instruction never reach the title.
+        `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Live</w:t></w:r>` +
+        `<w:del w:id="1"><w:r><w:delText>Gone</w:delText></w:r></w:del>` +
+        `<w:r><w:instrText xml:space="preserve"> PAGEREF _Toc1 </w:instrText></w:r></w:p>` +
+        `<w:sdt><w:sdtContent><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>In a control</w:t></w:r></w:p></w:sdtContent></w:sdt>`,
+    );
+    const pkg = await OpcPackage.open(syntheticDocx(document, STYLES_REL, { "word/styles.xml": styles }).buffer as ArrayBuffer);
+    const index = await indexDocx(pkg);
+    const sections = await parseDocxSections(pkg, index);
+    const parsed = allRoot(sections).filter((node) => node.type === "heading").map((node) => (node.type === "heading" ? node.text : ""));
+    // One rule, read once: the public outline (`document.headings`) is these
+    // nodes, never a second derivation that could disagree.
+    expect(parsed).toEqual(["Named heading", "Chapter", "Live", "In a control"]);
+    // The index names the one unit by the document's title, which this file doesn't set.
+    expect(index.title).toBeUndefined();
+  });
+
+  test("a run inside a content control keeps its own character style", async () => {
+    const sections = await parseSynthetic(
+      documentOf(
+        `<w:p><w:sdt><w:sdtContent><w:r><w:rPr><w:rStyle w:val="Strong"/></w:rPr><w:t>value</w:t></w:r></w:sdtContent></w:sdt></w:p>`,
+      ),
+      STYLES_REL,
+      { "word/styles.xml": stylesOf(`<w:style w:type="character" w:styleId="Strong"><w:rPr><w:b/></w:rPr></w:style>`) },
+    );
+    expect(paragraphsOf(sections)[0]?.runs[0]).toMatchObject({ text: "value", bold: true });
+  });
+
+  test("recognises live page fields whatever their case or switches, and keeps other simple fields' cached text", async () => {
+    const sections = await parseSynthetic(documentOf(
+      `<w:p><w:fldSimple w:instr=" page \\* MERGEFORMAT "><w:r><w:t>7</w:t></w:r></w:fldSimple>` +
+        `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> NUMPAGES </w:instrText></w:r>` +
+        `<w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>9</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>` +
+        `<w:r><w:t xml:space="preserve"> on </w:t></w:r>` +
+        `<w:fldSimple w:instr=" DATE "><w:r><w:t>21 September 2026</w:t></w:r></w:fldSimple></w:p>`,
+    ));
+    const runs = paragraphsOf(sections)[0]!.runs;
+    expect(runs.filter((run) => run.field !== undefined).map((run) => [run.field, run.text])).toEqual([
+      ["PAGE", "7"],
+      ["NUMPAGES", "9"],
+    ]);
+    // A DATE field is not live in a preview, but the date Word cached in it is real text.
+    expect(joined({ runs })).toBe("79 on 21 September 2026");
+  });
+
+  test("keeps a picture on its text line, and a picture-only paragraph as a block", async () => {
+    const drawing = (kind: "inline" | "anchor"): string =>
+      `<w:r><w:drawing><wp:${kind}><wp:extent cx="914400" cy="457200"/><wp:docPr id="1" descr="logo"/>` +
+      `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+      `<pic:pic><pic:blipFill><a:blip r:embed="rIdImage"/></pic:blipFill></pic:pic>` +
+      `</a:graphicData></a:graphic></wp:${kind}></w:drawing></w:r>`;
+    const sections = await parseSynthetic(
+      documentOf(
+        `<w:p>${drawing("inline")}<w:r><w:t xml:space="preserve"> wordmark</w:t></w:r></w:p>` +
+          `<w:p>${drawing("inline")}</w:p>`,
+      ),
+      `<Relationship Id="rIdImage" Type="${RELATIONSHIP}/image" Target="media/art.png"/>`,
+      { "word/media/art.png": PIXEL_PNG },
+    );
+    const root = allRoot(sections);
+    // Text plus a picture: one paragraph whose first run is the picture, sized in inches.
+    const [withText, pictureOnly] = root;
+    if (withText?.type !== "paragraph") throw new Error(`expected a paragraph first: ${summaries(sections)}`);
+    expect(withText.runs[0]).toMatchObject({ text: "", image: { mediaId: "word/media/art.png", width: 1, height: 0.5, alt: "logo" } });
+    expect(joined(withText)).toBe(" wordmark");
+    // A picture alone in its paragraph stays the block image it always was.
+    expect(pictureOnly?.type).toBe("image");
   });
 });

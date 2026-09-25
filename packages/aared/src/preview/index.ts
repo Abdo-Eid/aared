@@ -11,44 +11,71 @@
  *
  * Import-time safe: no DOM or `Worker` globals are touched until `preview()`
  * or `detect()` runs (SSR-safe imports). Live in a separate subpath so
- * one-format consumers (`import { open } from "aared/xlsx"`) never pay for
- * the formats they don't use — bundlers only include the format chunks the
- * dynamic `import()`s below resolve to, and only the detected one loads at
- * runtime.
+ * one-format consumers (`import { open } from "aared/xlsx"`) never include
+ * this facade — bundlers emit the format chunks the dynamic `import()`s
+ * below resolve to, and only the detected one loads at runtime. (The Worker
+ * script carries all three parsers regardless.)
  *
- * `preview()` covers open → render → navigate → destroy. For search, range
- * reads, media access, or per-unit control, build on the headless format
- * entrypoints directly.
+ * The grammar is the format entrypoints': `goTo(i)` switches units (slides,
+ * sheets; a document is one unit), and per-format controls move within the
+ * unit on screen (`xlsx.goToCell`, `docx.goToHeading`/`goToPage`). For
+ * search, range reads, media access, or several units at once, build on the
+ * headless format entrypoints directly.
  */
 
 import type {
   Appearance,
+  CellRef,
   DocumentFormat,
   DocumentInfo,
   FontResolver,
   MediaResolver,
+  OpenOptions,
   Source,
+  WorkerInit,
   ZoomValue,
 } from "../core/index.js";
-import type { SoftBreakPolicy } from "../core/docx/pagination.js";
 import type { PptxDocument } from "../pptx/index.js";
-import type { XlsxDocument } from "../xlsx/index.js";
-import type { DocxDocument } from "../docx/index.js";
+import type { XlsxDocument, XlsxRenderHandle } from "../xlsx/index.js";
+import type { DocxDocument, DocxPageInfo, DocxPagination, DocxRenderHandle, HeadingInfo } from "../docx/index.js";
 import { AaredError } from "../core/index.js";
 import { sourceBytes, WorkerSession } from "../core/session.js";
-import { throwIfAborted } from "../core/zip.js";
+import { throwIfAborted } from "../core/errors.js";
+import { sameZoom } from "../render-handle.js";
+import { DEFAULT_ZOOM, announceUnit, followSheet, forwardRenderEvents, openFormat } from "../format-route.js";
+import type { AnyDocument, RenderHandle } from "../format-route.js";
 
-type AnyDocument = PptxDocument | XlsxDocument | DocxDocument;
+export type { DocxPageInfo, DocxPagination, HeadingInfo, SoftBreakPolicy } from "../docx/index.js";
 
-interface RenderHandle extends EventTarget {
-  destroy(): void;
-  setZoom(zoom: ZoomValue): void;
-  readonly zoom: ZoomValue;
+/**
+ * Moving within the sheet on screen — the places of an XLSX unit. Switching
+ * sheets is the facade's own `goTo(index)`.
+ */
+export interface XlsxPreviewControls {
+  /** The single selected cell, or `null`. */
+  readonly selection: CellRef | null;
+  /** Select one cell, scroll it into view if needed, and focus it. See `XlsxRenderHandle.goToCell`. */
+  goToCell(cell: string): Promise<void>;
+  /** Scroll a cell or range into view without selecting. See `XlsxRenderHandle.scrollTo`. */
+  scrollTo(target: { cell?: string; range?: string; align?: "start" | "center" | "end" }): void;
+  /** Select one cell and focus it without scrolling. */
+  focus(cell: string): void;
 }
 
-/** DOCX-only knobs passed through to `aared/docx` rendering. */
-export interface PreviewDocxOptions {
-  pagination?: { mode?: "flow" | "layout"; softBreaks?: SoftBreakPolicy };
+/**
+ * Moving within the document on screen — the places of DOCX's single unit:
+ * its body headings (both modes) and its laid-out pages (layout mode only).
+ */
+export interface DocxPreviewControls {
+  /** Laid-out pages: `0` and `[]` in flow mode, which has no pages. */
+  readonly pageCount: number;
+  readonly pages: readonly DocxPageInfo[];
+  /** The body heading outline, in document order (`document.headings.list()`). */
+  readonly headings: readonly HeadingInfo[];
+  /** Scroll a heading into view by index or title. See `DocxRenderHandle.goToHeading`. */
+  goToHeading(target: string | number): Promise<void>;
+  /** Scroll a laid-out page into view (layout mode). See `DocxRenderHandle.goToPage`. */
+  goToPage(index: number): Promise<void>;
 }
 
 /** Options for `preview()`. Everything is optional except `source`/`target`. */
@@ -59,17 +86,21 @@ export interface PreviewOptions {
    * error the per-format `open()`s raise.
    */
   type?: DocumentFormat;
-  /** Zero-based initial unit index (slide/sheet; DOCX renders as one unit). */
+  /** Zero-based initial unit index (slide/sheet; a document is one unit). */
   index?: number;
   signal?: AbortSignal;
   /** Opt-in font resolution, forwarded to `open()` (see `aared-fonts`). */
   fontResolver?: FontResolver;
+  /** Override worker construction (see `WorkerInit` for details). */
+  worker?: WorkerInit;
   /** Viewer appearance, forwarded to `render()`. */
   appearance?: Appearance;
+  /** Starting zoom; default per format (`fit-page` slides, `1` sheets, `fit-width` documents). */
+  zoom?: ZoomValue;
   /** Override the default session-backed media resolution. */
   mediaResolver?: MediaResolver;
-  /** DOCX-only rendering knobs (e.g. `pagination: { mode: "layout" }`). */
-  docx?: PreviewDocxOptions;
+  /** DOCX layout (flow or physical pages), forwarded to `render()`; ignored for other formats. */
+  pagination?: DocxPagination;
 }
 
 /** Controller returned by `preview()`: navigation, zoom, events, teardown. */
@@ -80,20 +111,35 @@ export interface PreviewHandle extends EventTarget {
   readonly info: DocumentInfo;
   /** The currently rendered unit index. */
   readonly index: number;
-  /** The active zoom, forwarded from the underlying render handle. */
+  /** The requested zoom. Carried across `goTo()`. */
   readonly zoom: ZoomValue;
+  /** The scale actually painted — the number, or what the fit mode computed. */
+  readonly scale: number;
   /**
    * Render another unit, replacing the current output. Stale navigations
    * lose: only the newest `goTo()` paints. Rejects with a `not-found`
    * `AaredError` outside `0 <= index < info.count`. Emits `indexchange`
-   * plus the format-native sibling (`slidechange` for PPTX,
-   * `sheetchange` for XLSX), mirroring `<aared-viewer>`.
+   * plus the format-native sibling (`slidechange` for PPTX, `sheetchange`
+   * for XLSX, both `{ index, title }`); going to the unit already shown
+   * emits nothing. Zoom and appearance carry over.
    */
   goTo(index: number): Promise<void>;
-  /** Change zoom; emits `zoomchange` (forwarded from the render handle). */
+  /** Change zoom; fires `zoomchange` only when the value changes. Kept across `goTo()`. */
   setZoom(zoom: ZoomValue): void;
+  /** Moving within the sheet on screen; `null` for other formats and before the first render. */
+  readonly xlsx: XlsxPreviewControls | null;
+  /** Moving within the document on screen; `null` for other formats and before the first render. */
+  readonly docx: DocxPreviewControls | null;
   /**
-   * Full teardown: destroy the render output, terminate the Worker session,
+   * Replace the viewer appearance in place without re-opening the document:
+   * forwards to the current render handle, keeping the unit index, zoom,
+   * selection, and Worker session, and applies to every later `goTo()`.
+   * Replaces, never merges. Content stays source-faithful; only the theme
+   * marker and viewer chrome follow the theme.
+   */
+  setAppearance(appearance: Appearance): void;
+  /**
+   * Full teardown: destroy the render output, end the Worker session,
    * and clear what was painted into the target. The handle is inert after.
    * The target element itself stays in the caller's document.
    */
@@ -106,35 +152,24 @@ export interface PreviewHandle extends EventTarget {
  */
 export async function detect(
   source: Source,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; worker?: WorkerInit },
 ): Promise<DocumentFormat> {
   const bytes = await sourceBytes("aared/preview", source, options?.signal);
   throwIfAborted(options?.signal);
-  return WorkerSession.detectFormat("aared/preview", bytes, options?.signal);
+  return WorkerSession.detectFormat("aared/preview", bytes, options);
 }
 
-async function openFormat(
-  format: DocumentFormat,
-  bytes: ArrayBuffer,
-  options?: PreviewOptions,
-): Promise<AnyDocument> {
+/** The `open()` options a preview forwards: only what the caller set. */
+function openOptionsOf(options: PreviewOptions | undefined): OpenOptions | undefined {
   const signal = options?.signal;
-  const openOptions = options?.fontResolver === undefined && signal === undefined
-    ? undefined
-    : {
-      ...(options?.fontResolver === undefined ? {} : { fontResolver: options.fontResolver }),
-      ...(signal === undefined ? {} : { signal }),
-    };
-  if (format === "pptx") {
-    const pptx = await import("../pptx/index.js");
-    return pptx.open(bytes, openOptions);
-  }
-  if (format === "xlsx") {
-    const xlsx = await import("../xlsx/index.js");
-    return xlsx.open(bytes, openOptions);
-  }
-  const docx = await import("../docx/index.js");
-  return docx.open(bytes, openOptions);
+  const worker = options?.worker;
+  const fontResolver = options?.fontResolver;
+  if (fontResolver === undefined && signal === undefined && worker === undefined) return undefined;
+  return {
+    ...(fontResolver === undefined ? {} : { fontResolver }),
+    ...(signal === undefined ? {} : { signal }),
+    ...(worker === undefined ? {} : { worker }),
+  };
 }
 
 function assertIndex(index: number, count: number): void {
@@ -150,17 +185,21 @@ class PreviewViewer extends EventTarget implements PreviewHandle {
   #destroyed = false;
   #generation = 0;
   #index: number;
+  #zoom: ZoomValue | undefined;
   #rendered: RenderHandle | null = null;
+  #xlsx: XlsxPreviewControls | null = null;
+  #docx: DocxPreviewControls | null = null;
   #forwardController: AbortController | null = null;
 
   constructor(
     readonly format: DocumentFormat,
     private readonly document: AnyDocument,
     private readonly target: HTMLElement,
-    private readonly options: PreviewOptions | undefined,
+    private options: PreviewOptions | undefined,
   ) {
     super();
     this.#index = options?.index ?? 0;
+    this.#zoom = options?.zoom;
   }
 
   get info(): DocumentInfo {
@@ -172,15 +211,25 @@ class PreviewViewer extends EventTarget implements PreviewHandle {
   }
 
   get zoom(): ZoomValue {
-    return this.#rendered?.zoom ?? "fit-width";
+    return this.#zoom ?? DEFAULT_ZOOM[this.format];
+  }
+
+  get scale(): number {
+    return this.#rendered?.scale ?? 1;
+  }
+
+  get xlsx(): XlsxPreviewControls | null {
+    return this.#xlsx;
+  }
+
+  get docx(): DocxPreviewControls | null {
+    return this.#docx;
   }
 
   /**
    * Render the initial unit; called once before the handle is returned. No
-   * `indexchange` fires here: listeners can only attach after `preview()`
-   * resolves, so the initial unit (`options.index ?? 0`, readable via
-   * `.index`) is announced by return, not by event. `goTo()` navigations
-   * always emit `indexchange` and the format-native sibling.
+   * `indexchange` fires here: the starting state is reported by `preview()`
+   * resolving (read `.index`), never by an event.
    */
   async mount(signal?: AbortSignal): Promise<void> {
     assertIndex(this.#index, this.document.info.count);
@@ -189,18 +238,26 @@ class PreviewViewer extends EventTarget implements PreviewHandle {
   }
 
   async goTo(index: number): Promise<void> {
-    this.assertUsable();
+    if (this.#destroyed) return;
     assertIndex(index, this.document.info.count);
     if (index === this.#index && this.#rendered !== null) return;
     await this.renderUnit(index);
     if (this.#destroyed) return;
     this.#index = index;
-    this.announce(index);
+    announceUnit(this, this.format, this.document, index);
   }
 
   setZoom(zoom: ZoomValue): void {
-    this.assertUsable();
+    if (this.#destroyed) return;
+    this.#zoom = zoom;
     this.#rendered?.setZoom(zoom);
+  }
+
+  setAppearance(appearance: Appearance): void {
+    if (this.#destroyed) return;
+    if (this.options === undefined) this.options = { appearance };
+    else this.options = { ...this.options, appearance };
+    this.#rendered?.setAppearance(appearance);
   }
 
   destroy(): void {
@@ -211,88 +268,89 @@ class PreviewViewer extends EventTarget implements PreviewHandle {
     this.#forwardController = null;
     this.#rendered?.destroy();
     this.#rendered = null;
+    this.#xlsx = null;
+    this.#docx = null;
     this.document.close();
     this.target.replaceChildren();
-  }
-
-  private assertUsable(): void {
-    if (this.#destroyed) throw new AaredError("aborted", "aared/preview: this preview is destroyed");
-  }
-
-  /** `indexchange` always fires; format-native siblings fire when they apply. */
-  private announce(index: number): void {
-    this.dispatchEvent(new CustomEvent("indexchange", { detail: { index } }));
-    if (this.format === "pptx") {
-      this.dispatchEvent(new CustomEvent("slidechange", { detail: { slide: index } }));
-    } else if (this.format === "xlsx") {
-      const name = (this.document as XlsxDocument).sheets.list()[index]?.info.name;
-      this.dispatchEvent(new CustomEvent("sheetchange", { detail: { sheet: name ?? index } }));
-    }
   }
 
   private async renderUnit(index: number): Promise<void> {
     const generation = ++this.#generation;
     const stale = (): boolean => this.#destroyed || generation !== this.#generation;
-    const explicitMedia = this.options?.mediaResolver;
-    const appearance = this.options?.appearance;
+    const { appearance, mediaResolver } = this.options ?? {};
+    // Only what the caller set: each format's `render()` owns its defaults
+    // (session media — PPTX routes shared layout pictures through one cache —
+    // and its default zoom).
+    const common = {
+      target: this.target,
+      ...(appearance === undefined ? {} : { appearance }),
+      ...(mediaResolver === undefined ? {} : { mediaResolver }),
+      ...(this.#zoom === undefined ? {} : { zoom: this.#zoom }),
+    };
     let next: RenderHandle;
     if (this.format === "pptx") {
       const renderer = await import("../pptx/index.js");
       if (stale()) return;
-      const slide = (this.document as PptxDocument).slides.get(index);
-      const mediaResolver: MediaResolver = explicitMedia ?? ((mediaId: string) => slide.media(mediaId));
-      next = await renderer.render({
-        slide,
-        target: this.target,
-        ...(appearance === undefined ? {} : { appearance }),
-        mediaResolver,
-      });
+      next = await renderer.render({ ...common, slide: (this.document as PptxDocument).slides.get(index) });
     } else if (this.format === "xlsx") {
       const renderer = await import("../xlsx/index.js");
       if (stale()) return;
-      const sheet = (this.document as XlsxDocument).sheets.get(index);
-      const mediaResolver: MediaResolver = explicitMedia ?? ((mediaId: string) => sheet.media(mediaId));
-      next = await renderer.render({
-        sheet,
-        target: this.target,
-        ...(appearance === undefined ? {} : { appearance }),
-        mediaResolver,
-      });
+      next = await renderer.render({ ...common, sheet: (this.document as XlsxDocument).sheets.get(index) });
     } else {
       const renderer = await import("../docx/index.js");
       if (stale()) return;
-      const document = this.document as DocxDocument;
-      const pagination = this.options?.docx?.pagination;
-      // Passing the document (not bare sections) defaults mediaResolver to
-      // the owning session — the same rule as PPTX/XLSX handle inputs.
+      const pagination = this.options?.pagination;
       next = await renderer.render({
-        document,
-        target: this.target,
-        ...(explicitMedia === undefined ? {} : { mediaResolver: explicitMedia }),
+        ...common,
+        document: this.document as DocxDocument,
         ...(pagination === undefined ? {} : { pagination }),
-        ...(appearance === undefined ? {} : { appearance }),
       });
     }
     if (stale()) {
       next.destroy();
       return;
     }
+    // A zoom set while this unit was rendering was announced by the old
+    // handle; apply it before forwarding is attached so it isn't announced twice.
+    if (this.#zoom !== undefined && !sameZoom(next.zoom, this.#zoom)) next.setZoom(this.#zoom);
     this.#rendered?.destroy();
     this.#rendered = next;
-    this.forwardRenderEvents(next);
-  }
-
-  private forwardRenderEvents(handle: RenderHandle): void {
+    this.#xlsx = this.format === "xlsx" ? xlsxControls(next as unknown as XlsxRenderHandle) : null;
+    this.#docx = this.format === "docx" ? docxControls(next as unknown as DocxRenderHandle, this.document as DocxDocument) : null;
     this.#forwardController?.abort();
-    const controller = new AbortController();
-    this.#forwardController = controller;
-    const signal = controller.signal;
-    for (const type of ["zoomchange", "linkactivate", "cellactivate", "selectionchange", "sheetchange"]) {
-      handle.addEventListener(type, (event) => {
-        this.dispatchEvent(new CustomEvent(type, { detail: (event as CustomEvent).detail }));
-      }, { signal });
-    }
+    this.#forwardController = new AbortController();
+    forwardRenderEvents(next, this, this.#forwardController.signal);
+    // A sheet-tab click switches sheets inside the handle: follow it, so
+    // `index` stays true and the switch is announced like any `goTo()`.
+    followSheet(next, this.#forwardController.signal, (sheet) => {
+      if (this.#destroyed || sheet === this.#index) return;
+      this.#index = sheet;
+      announceUnit(this, this.format, this.document, sheet);
+    });
   }
+}
+
+/** One stable controls object per rendered sheet, delegating to its handle. */
+function xlsxControls(handle: XlsxRenderHandle): XlsxPreviewControls {
+  return {
+    get selection() {
+      return handle.selection;
+    },
+    goToCell: (cell) => handle.goToCell(cell),
+    scrollTo: (target) => handle.scrollTo(target),
+    focus: (cell) => handle.focus(cell),
+  };
+}
+
+/** One stable controls object per rendered document, delegating to its handle. */
+function docxControls(handle: DocxRenderHandle, document: DocxDocument): DocxPreviewControls {
+  return {
+    pageCount: handle.pageCount,
+    pages: handle.pages,
+    headings: document.headings.list(),
+    goToHeading: (target) => handle.goToHeading(target),
+    goToPage: (index) => handle.goToPage(index),
+  };
 }
 
 /**
@@ -311,9 +369,12 @@ export async function preview(
   throwIfAborted(signal);
   // An asserted type skips detection: the per-format `open()` below raises
   // the typed `unsupported-format` mismatch itself, naming what it found.
-  const format = options?.type ?? await WorkerSession.detectFormat("aared/preview", bytes, signal);
+  const format = options?.type ?? await WorkerSession.detectFormat("aared/preview", bytes, {
+    ...(signal === undefined ? {} : { signal }),
+    ...(options?.worker === undefined ? {} : { worker: options.worker }),
+  });
   throwIfAborted(signal);
-  const document = await openFormat(format, bytes, options);
+  const document = await openFormat(format, bytes, openOptionsOf(options));
   const viewer: PreviewViewer = new PreviewViewer(format, document, target, options);
   try {
     if (document.info.count === 0) {

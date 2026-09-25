@@ -1,0 +1,213 @@
+---
+/**
+ * Horizontal bars, one group per format (or per file), drawn as plain HTML and
+ * CSS. Each group scales to its own largest value, so bars compare within a
+ * group; every value is also written out, never colour alone. aared's bar is
+ * the accent red. The section's script grows the bars when the chart scrolls into view.
+ */
+import type { BarGroup } from "../lib/benchmarks.ts";
+
+interface Props {
+  groups: BarGroup[];
+  format: (value: number) => string;
+  label: string;
+}
+
+const { groups, format, label } = Astro.props;
+const hasSplit = groups.some((group) => group.bars.some((bar) => bar.split !== undefined));
+---
+
+<div class="bc" role="group" aria-label={label}>
+  {hasSplit && (
+    <p class="bc-legend" aria-hidden="true">
+      <span><i class="bc-key" />page</span>
+      <span><i class="bc-key worker" />Workers</span>
+      <span class="bc-hint">hover a bar for the breakdown</span>
+    </p>
+  )}
+  {groups.map((group) => {
+    const max = Math.max(...group.bars.map((bar) => bar.value), 0.0001);
+    return (
+      <div class="bc-group">
+        {groups.length > 1 && <h4>{group.title}</h4>}
+        <ul>
+          {group.bars.map((bar, index) => (
+            <li
+              class:list={["bc-row", { ours: bar.ours, split: bar.split !== undefined }]}
+              style={`--w:${Math.max(1.5, (bar.value / max) * 100).toFixed(1)}%;--i:${index};--page:${(100 * (1 - (bar.split ?? 0))).toFixed(1)}%`}
+              data-tip={bar.tooltip}
+              tabindex={bar.tooltip === undefined ? undefined : 0}
+            >
+              <span class="bc-label">{bar.label}</span>
+              <span class="bc-track" aria-hidden="true"><span class="bc-bar" /></span>
+              <span class="bc-value">
+                {format(bar.value)}
+                {bar.note !== undefined && <small>{bar.note}</small>}
+                {bar.tooltip !== undefined && <span class="bc-sr">({bar.tooltip})</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  })}
+</div>
+
+<style>
+  .bc {
+    display: grid;
+    gap: 1rem;
+  }
+  .bc-group h4 {
+    margin: 0 0 0.35rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--lt-ink-soft);
+  }
+  .bc-group ul {
+    display: grid;
+    gap: 0.3rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .bc-row {
+    display: grid;
+    grid-template-columns: minmax(5.5rem, 9.5rem) minmax(0, 1fr) minmax(4.5rem, auto);
+    align-items: center;
+    gap: 0.6rem;
+    font-family: var(--lt-font-mono, ui-monospace, monospace);
+    font-size: 0.76rem;
+  }
+  .bc-label {
+    overflow-wrap: anywhere;
+    color: var(--lt-ink-soft);
+  }
+  .bc-row.ours .bc-label {
+    color: var(--lt-ink);
+    font-weight: 600;
+  }
+  .bc-track {
+    height: 0.7rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--lt-ink) 8%, transparent);
+    overflow: hidden;
+  }
+  .bc-bar {
+    display: block;
+    width: var(--w);
+    height: 100%;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--lt-ink) 42%, var(--lt-mount));
+    transition: width 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+    transition-delay: calc(var(--i) * 70ms);
+  }
+  .bc-row.ours .bc-bar {
+    background: var(--lt-accent);
+  }
+  /* Two colours: the page's share, then the Workers' share in a lighter tone. */
+  .bc-row.split .bc-bar {
+    background: linear-gradient(
+      to right,
+      color-mix(in srgb, var(--lt-ink) 42%, var(--lt-mount)) var(--page),
+      color-mix(in srgb, var(--lt-ink) 20%, var(--lt-mount)) var(--page)
+    );
+  }
+  .bc-row.ours.split .bc-bar {
+    background: linear-gradient(
+      to right,
+      var(--lt-accent) var(--page),
+      color-mix(in srgb, var(--lt-accent) 45%, var(--lt-mount)) var(--page)
+    );
+  }
+  /* The breakdown, drawn on hover or keyboard focus (a native title is slow and not shown everywhere). */
+  .bc-row[data-tip] {
+    position: relative;
+    border-radius: 4px;
+  }
+  .bc-row[data-tip]:focus-visible {
+    outline: 2px solid var(--lt-accent);
+    outline-offset: 2px;
+  }
+  .bc-row[data-tip]::after {
+    content: attr(data-tip);
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 0.35rem);
+    z-index: 2;
+    max-width: 22rem;
+    padding: 0.35rem 0.55rem;
+    border-radius: 6px;
+    background: var(--lt-ink);
+    color: var(--lt-mount);
+    font-size: 0.7rem;
+    line-height: 1.4;
+    white-space: normal;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(3px);
+    transition: opacity 0.12s ease, transform 0.12s ease;
+  }
+  .bc-row[data-tip]:hover::after,
+  .bc-row[data-tip]:focus-visible::after {
+    opacity: 1;
+    transform: none;
+  }
+  .bc-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.9rem;
+    margin: 0;
+    font-size: 0.7rem;
+    color: var(--lt-ink-soft);
+  }
+  .bc-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .bc-key {
+    display: inline-block;
+    width: 0.8rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--lt-accent);
+  }
+  .bc-key.worker {
+    background: color-mix(in srgb, var(--lt-accent) 45%, var(--lt-mount));
+  }
+  .bc-hint {
+    font-style: italic;
+  }
+  .bc-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .bc-value {
+    text-align: right;
+    color: var(--lt-ink);
+    white-space: nowrap;
+  }
+  .bc-value small {
+    margin-left: 0.35rem;
+    font-size: 0.68rem;
+    color: var(--lt-ink-soft);
+  }
+  @media (max-width: 30rem) {
+    .bc-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      row-gap: 0.15rem;
+    }
+    .bc-track {
+      grid-column: 1 / -1;
+      order: 3;
+    }
+  }
+</style>
