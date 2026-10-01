@@ -204,3 +204,127 @@ visual("visual DOM output: fills that cannot paint are marked, never silently dr
     server.stop();
   }
 });
+
+// Slide 11 (appended through PowerPoint): lines and connectors are `p:cxnSp`.
+// Each paints as a stroked path, dashes as authored; a zero-width or
+// zero-height box still shows its line.
+visual("visual DOM output: connector and line shapes paint with their dash styles", async () => {
+  const pkg = await OpcPackage.open(await Bun.file(FIXTURE_PATH).arrayBuffer());
+  const deck = await indexPptx(pkg);
+  const slides = await Promise.all(deck.slideParts.map((_, index) => parsePptxSlide(pkg, deck, index)));
+  const { slide } = await findCoverageSlide(slides, "lines");
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      if (new URL(request.url).pathname === "/pptx.mjs") {
+        return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
+      }
+      return new Response(`<!doctype html><style>html,body{margin:0}#host{width:1280px;height:720px}</style><main id="host"></main><script type="module">
+        import { render } from "/pptx.mjs";
+        window.probe = async (model) => {
+          await render({ slide: model, target: document.querySelector("#host") });
+          const out = {};
+          for (const shape of model.elements.filter((element) => element.kind === "shape" && element.stroke !== undefined)) {
+            const host = document.querySelector('[data-aared-shape-id="' + shape.id + '"]');
+            const path = host?.querySelector('svg[data-aared-element="shape-geometry"] > path');
+            const box = host?.getBoundingClientRect();
+            out[shape.name] = {
+              stroke: path?.getAttribute("stroke") ?? null,
+              fill: path?.getAttribute("fill") ?? null,
+              dash: path?.getAttribute("stroke-dasharray") ?? null,
+              span: box === undefined ? 0 : Math.max(box.width, box.height),
+            };
+          }
+          // "2.1%" is an en-US run in a right-to-left paragraph: "%" right of the digits.
+          const span = [...document.querySelectorAll("span")].find((el) => el.textContent === "2.1%");
+          const glyph = (index) => { const range = document.createRange(); range.setStart(span.firstChild, index); range.setEnd(span.firstChild, index + 1); return range.getBoundingClientRect().left; };
+          window.ltrRun = { mark: getComputedStyle(span, "::before").content, percentRightOfDigits: glyph(3) > glyph(0) };
+          // The same box is spaced exactly 30pt and mixes a Calibri run into
+          // the Arabic: its one line keeps the pitch (offsetHeight is layout
+          // pixels, before the slide's scale).
+          const line = span.closest("p");
+          const runs = [...line.querySelectorAll("span:not([data-aared-element])")];
+          window.exactPitch = {
+            lineHeight: getComputedStyle(line).lineHeight,
+            height: line.offsetHeight,
+            fonts: new Set(runs.map((run) => getComputedStyle(run).fontFamily)).size,
+            runLineHeights: [...new Set(runs.map((run) => getComputedStyle(run).lineHeight))],
+          };
+          return out;
+        };
+      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
+    },
+  });
+  try {
+    await using view = new Bun.WebView({ width: 1280, height: 720 });
+    await view.navigate(server.url.href);
+    const lines = await view.evaluate(`probe(${JSON.stringify(slide)})`) as Record<string, { stroke: string | null; fill: string | null; dash: string | null; span: number }>;
+    expect(await view.evaluate("window.ltrRun") as unknown).toEqual({ mark: '"‎"', percentRightOfDigits: true });
+    expect(await view.evaluate("window.exactPitch") as unknown).toEqual({ lineHeight: "40px", height: 40, fonts: 2, runLineHeights: ["0px"] });
+    expect(Object.keys(lines).sort()).toEqual(["Diagonal", "Dotted", "Timeline", "Today"]);
+    for (const line of Object.values(lines)) {
+      expect(line.fill).toBe("none");
+      expect(line.span).toBeGreaterThan(100);
+    }
+    expect(lines.Timeline!.stroke).toBe("#1E3A5A");
+    expect(lines.Timeline!.dash).toBeNull();
+    expect(lines.Today!.stroke).toBe("#F59B1E");
+    expect(lines.Today!.dash).not.toBeNull();
+    expect(lines.Dotted!.dash).not.toBeNull();
+    const [dotOn, dotOff] = lines.Dotted!.dash!.split(" ").map(Number);
+    const [dashOn, dashOff] = lines.Today!.dash!.split(" ").map(Number);
+    expect(dotOn).toBe(dotOff);
+    expect(dashOn! / dashOff!).toBeCloseTo(4 / 3, 5);
+  } finally {
+    server.stop();
+  }
+}, 30000);
+
+/**
+ * `PptxRenderHandle.warnings` names a family that painted with nothing of
+ * its own, the same signal DOCX exposes (DECISION_LOG §45).
+ */
+visual("visual DOM output: PptxRenderHandle.warnings names fonts that painted with the generic fallback", async () => {
+  const NONEXISTENT_FAMILY = "Definitely Not A Real Font Zzqx";
+  const slideWith = (family: string): SlideModel => ({
+    part: "ppt/slides/slide1.xml",
+    size: { width: 10, height: 7.5 },
+    elements: [{
+      kind: "shape",
+      id: "1",
+      name: "Box",
+      bounds: { x: 1, y: 1, width: 6, height: 2 },
+      text: { paragraphs: [{ runs: [{ text: "Some text", fontFamily: family }] }] },
+    } satisfies ShapeModel],
+  });
+  const renderer = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const page = `<!doctype html><style>html,body{margin:0}#host{width:800px;height:600px}</style><main id="host"></main><script type="module">
+        import { render } from "/pptx.mjs";
+        window.renderSlide = async (model) => {
+          window.handle?.destroy();
+          window.handle = await render({ slide: model, target: document.querySelector("#host") });
+          return window.handle.warnings;
+        };
+      </script>`;
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      const url = new URL(request.url);
+      if (url.pathname === "/pptx.mjs") return new Response(renderer, { headers: { "content-type": "text/javascript; charset=utf-8" } });
+      return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
+    },
+  });
+  try {
+    await using view = new Bun.WebView({ width: 800, height: 600 });
+    await view.navigate(server.url.href);
+    const realWarnings = (await view.evaluate(`renderSlide(${JSON.stringify(slideWith("Calibri"))})`)) as Array<{ code: string }>;
+    expect(realWarnings.filter((w) => w.code === "font-unavailable")).toEqual([]);
+    const missingWarnings = (await view.evaluate(`renderSlide(${JSON.stringify(slideWith(NONEXISTENT_FAMILY))})`)) as Array<{ code: string; message: string }>;
+    const missing = missingWarnings.find((w) => w.code === "font-unavailable");
+    expect(missing).toBeDefined();
+    expect(missing!.message).toContain(NONEXISTENT_FAMILY);
+  } finally {
+    server.stop();
+  }
+}, 30000);

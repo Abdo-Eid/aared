@@ -11,6 +11,9 @@ import { openSilurusPptx } from "./silurus-pptx";
 import { openXlscalcXlsx } from "./xlscalc";
 import { openSpreadsheetPreview } from "./spreadsheet-preview";
 import { openOmniDocx, openOmniPptx, openOmniXlsx } from "./omni";
+import { openApolloDocx } from "./apollo";
+import { openExtendDocx, openExtendPptx, openExtendXlsx } from "./extend";
+import { openPptxBrowser } from "./pptx-browser";
 
 /**
  * Per-format renderer registry. `ADAPTERS` stays the legacy single-baseline
@@ -24,6 +27,8 @@ export const BASELINES: Record<Format, Record<string, OpenAdapter>> = {
   docx: {
     "docx-preview": openDocx,
     "docx-renderer": openDocxRenderer,
+    apollo: openApolloDocx,
+    extend: openExtendDocx,
     omni: openOmniDocx,
   },
   pptx: {
@@ -31,12 +36,15 @@ export const BASELINES: Record<Format, Record<string, OpenAdapter>> = {
     silurus: openSilurusPptx,
     aiden0z: openAiden0zPptx,
     mdurbar: openMdurbarPptx,
+    "pptx-browser": openPptxBrowser,
+    extend: openExtendPptx,
     omni: openOmniPptx,
   },
   xlsx: {
     sheetjs: openXlsx,
     xlscalc: openXlscalcXlsx,
     "spreadsheet-preview": openSpreadsheetPreview,
+    extend: openExtendXlsx,
     omni: openOmniXlsx,
   },
 };

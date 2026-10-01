@@ -7,16 +7,16 @@
  */
 
 import { BULLET } from "./chars.js";
-import { attr, childElements, firstChild, numberAttr, parseNumber, textContent } from "./xml.js";
+import { attr, childElements, firstChild, numberAttr, parseNumber, parseXml, textContent } from "./xml.js";
 import type { XmlElement } from "./xml.js";
 import { guessMediaContentType } from "./opc.js";
 import type { OpcPackage } from "./opc.js";
 import { EMU_PER_PT, emuToInches, emuToPt } from "./units.js";
 import { parseHexColor, relativeLuminance } from "./color.js";
 import { readDrawingTheme, resolveDrawingColor, resolveThemeTypeface } from "./theme.js";
-import { usesArabic } from "./typography.js";
+import { arabicPunctuationPieces, isLtrRunInRtl, usesArabic } from "./typography.js";
 import type { DrawingTheme } from "./theme.js";
-import { AaredError, throwIfAborted } from "./errors.js";
+import { AaredError, damagedDocument, throwIfAborted } from "./errors.js";
 import { parseChartGraphic } from "./chart.js";
 import type {
   BoundsModel,
@@ -40,9 +40,16 @@ import type {
   TextRunModel,
 } from "./model.js";
 import { geometryForPreset, unresolvedGeometry } from "./drawingml-shape.js";
+import { symbolFontStandIn } from "./symbol-fonts.js";
 
 /** `a:ln` width PowerPoint paints when the line states none: one point. */
 const DEFAULT_LINE_WIDTH_EMU = EMU_PER_PT;
+/** DrawingML's default text-frame and cell insets, in inches (91440 / 45720 EMU). */
+const DEFAULT_INSET_X = 0.1;
+const DEFAULT_INSET_Y = 0.05;
+
+/** Right-to-left language tags: Arabic, Hebrew, Persian, Urdu, Yiddish and their variants. */
+const RTL_LANGUAGE = /^(ar|he|iw|fa|ur|yi|ps|sd|ug|ku-arab|dv)(-|$)/i;
 
 /** Cheap deck index: presentation metadata only, no slide XML inflated yet. */
 export interface PptxDeck {
@@ -91,9 +98,11 @@ function onOff(element: XmlElement, name: string): boolean | undefined {
   if (value === undefined) return undefined;
   if (value === "1" || value === "true" || value === "on") return true;
   if (value === "0" || value === "false" || value === "off") return false;
-  throw new Error(`aared/core: invalid ${name}="${value}" on <${element.name}>`);
+  // An unknown spelling reads as unset: one odd attribute does not cost the slide.
+  return undefined;
 }
 
+/** PowerPoint's paragraph alignments; an unknown value paints as the default (left), not a failed slide. */
 function align(value: string | undefined): TextParagraphModel["align"] {
   switch (value) {
     case "l":
@@ -105,24 +114,20 @@ function align(value: string | undefined): TextParagraphModel["align"] {
     case "just":
     case "dist":
       return "justify";
-    case undefined:
-      return undefined;
     default:
-      throw new Error(`aared/core: unsupported paragraph alignment "${value}"`);
+      return undefined;
   }
 }
 
+/** A table cell's vertical anchor; an unknown value paints as the default (top). */
 function verticalAlign(value: string | undefined): TableCellModel["verticalAlign"] {
   switch (value) {
-    case "t":
-    case undefined:
-      return undefined;
     case "ctr":
       return "middle";
     case "b":
       return "bottom";
     default:
-      throw new Error(`aared/core: unsupported table-cell vertical alignment "${value}"`);
+      return undefined;
   }
 }
 
@@ -330,8 +335,10 @@ function lineDash(prstDash: XmlElement | undefined): StrokeModel["dash"] {
 }
 
 /**
- * Line width PowerPoint's default themes give `a:lnRef idx="1|2|3"` (the
- * theme's `a:lnStyleLst`, which aared does not read yet): 0.5, 1 and 1.5 pt.
+ * Line width `a:lnRef idx="1|2|3"` draws at when the theme states none (the
+ * theme's `a:lnStyleLst` wins): 0.5, 1 and 1.5 pt, the 2013-era Office theme.
+ * The newer Office (Aptos) theme states 1, 1.5 and 2 pt, so widths depend on
+ * the theme's version and must be read, not assumed.
  */
 const THEME_LINE_WIDTHS_EMU = [6350, 12700, 19050];
 
@@ -359,7 +366,8 @@ function parseTableEdge(edge: XmlElement | undefined, theme: DrawingTheme): Stro
   if (index <= 0) return null;
   const color = resolveDrawingColor(lnRef, theme);
   if (color === undefined) return undefined;
-  return { color, width: emuToInches(THEME_LINE_WIDTHS_EMU[Math.min(index, 3) - 1]!) };
+  const slot = Math.min(index, 3) - 1;
+  return { color, width: emuToInches(theme.lineWidths?.[slot] ?? THEME_LINE_WIDTHS_EMU[slot]!) };
 }
 
 function readTableStyleRegion(region: XmlElement | undefined, theme: DrawingTheme): TableStyleRegion | undefined {
@@ -492,6 +500,60 @@ function resolveTableStyleCell(
     if (borders.tr2bl !== undefined) out.edges.diagonalUp = borders.tr2bl;
   }
   return out;
+}
+
+/**
+ * PowerPoint's built-in Medium Style 2 family by style id: `accent` is the
+ * theme slot the style is built on. PowerPoint writes the styles a deck uses
+ * into `tableStyles.xml`, but other generators (python-pptx, PptxGenJS) only
+ * reference the id, and PowerPoint then draws the style from its own copy.
+ */
+const BUILTIN_MEDIUM_STYLE_2: Record<string, string> = {
+  "{073A0DAA-6AF3-43AB-8588-CEC1D06C72B9}": "dk1",
+  "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}": "accent1",
+  "{21E4AEA4-8DFA-4A89-87EB-49C32662AFE0}": "accent2",
+  "{F5AB1C69-6EDB-4FF4-983F-18BD219EF322}": "accent3",
+  "{00A15C55-8517-42AA-B614-E9B94910E393}": "accent4",
+  "{7DF18680-E054-41AD-8BC1-D1AEF772440D}": "accent5",
+  "{93296810-A885-4BE3-A3E7-6D5BEEA58F35}": "accent6",
+};
+
+/** Medium Style 2 as PowerPoint stores it (the `pptx-coverage.pptx` definition), on one accent slot. */
+function mediumStyle2Xml(accent: string): string {
+  const white = `<a:solidFill><a:schemeClr val="lt1"/></a:solidFill>`;
+  const edge = (side: string, width: number): string => `<a:${side}><a:ln w="${width}" cmpd="sng">${white}</a:ln></a:${side}>`;
+  const tint = (amount: number): string => `<a:fill><a:solidFill><a:schemeClr val="${accent}"><a:tint val="${amount}"/></a:schemeClr></a:solidFill></a:fill>`;
+  const solid = `<a:fill><a:solidFill><a:schemeClr val="${accent}"/></a:solidFill></a:fill>`;
+  const text = (bold: boolean, color: string): string => `<a:tcTxStyle${bold ? ` b="on"` : ""}><a:fontRef idx="minor"><a:prstClr val="black"/></a:fontRef><a:schemeClr val="${color}"/></a:tcTxStyle>`;
+  const accented = (border: string): string => `${text(true, "lt1")}<a:tcStyle><a:tcBdr>${border}</a:tcBdr>${solid}</a:tcStyle>`;
+  return `<a:tblStyle xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">`
+    + `<a:wholeTbl>${text(false, "dk1")}<a:tcStyle><a:tcBdr>${["left", "right", "top", "bottom", "insideH", "insideV"].map((side) => edge(side, 12700)).join("")}</a:tcBdr>${tint(20000)}</a:tcStyle></a:wholeTbl>`
+    + `<a:band1H><a:tcStyle><a:tcBdr/>${tint(40000)}</a:tcStyle></a:band1H>`
+    + `<a:band1V><a:tcStyle><a:tcBdr/>${tint(40000)}</a:tcStyle></a:band1V>`
+    + `<a:lastCol>${accented("")}</a:lastCol><a:firstCol>${accented("")}</a:firstCol>`
+    + `<a:lastRow>${accented(edge("top", 38100))}</a:lastRow><a:firstRow>${accented(edge("bottom", 38100))}</a:firstRow>`
+    + `</a:tblStyle>`;
+}
+
+/**
+ * The style a table's `a:tableStyleId` names: the deck's own definition, else
+ * a built-in one built on first use and kept in `styles`. Any other missing
+ * style paints unstyled (PowerPoint draws those from its own copy).
+ */
+function tableStyleFor(styleId: string | undefined, styles: Map<string, PptxTableStyle>, theme: DrawingTheme): PptxTableStyle | undefined {
+  if (styleId === undefined) return undefined;
+  const known = styles.get(styleId);
+  if (known !== undefined) return known;
+  const accent = BUILTIN_MEDIUM_STYLE_2[styleId];
+  if (accent === undefined) return undefined;
+  const root = parseXml(mediumStyle2Xml(accent));
+  const built: PptxTableStyle = {};
+  for (const name of TABLE_STYLE_REGIONS) {
+    const region = readTableStyleRegion(firstChild(root, name), theme);
+    if (region !== undefined) built[name] = region;
+  }
+  styles.set(styleId, built);
+  return built;
 }
 
 async function readTableStyles(pkg: OpcPackage, theme: DrawingTheme, signal?: AbortSignal): Promise<Map<string, PptxTableStyle>> {
@@ -885,6 +947,20 @@ export function parseTextBody(txBody: XmlElement, theme: DrawingTheme, inheritan
     .filter((properties): properties is XmlElement => properties !== undefined);
   const paragraphElements = childElements(txBody, "p");
   const autoNumCounters = new Map<string, number>();
+  // PowerPoint's editor measures the overflow and stores the outcome on the
+  // shape's own `a:normAutofit`; opening a file never re-measures, and a bare
+  // `<a:normAutofit/>` paints at 100% (probe `line-spacing-units`). So the
+  // stored scale is the only shrink there is: each painted size is the
+  // authored size times `fontScale`, rounded to a whole point, and each line
+  // step loses `lnSpcReduction` of its line spacing. Space in points is left
+  // alone. A layout's or master's `normAutofit` never carries a slide's scale.
+  const ownBodyProperties = firstChild(txBody, "bodyPr");
+  const storedAutofit = ownBodyProperties === undefined ? undefined : firstChild(ownBodyProperties, "normAutofit");
+  const storedScale = storedAutofit === undefined ? undefined : numberAttr(storedAutofit, "fontScale", "a:normAutofit");
+  const storedReduction = storedAutofit === undefined ? undefined : numberAttr(storedAutofit, "lnSpcReduction", "a:normAutofit");
+  const fontScale = storedScale !== undefined && storedScale > 0 && storedScale < 100000 ? storedScale / 100000 : undefined;
+  const lineSpacingReduction = storedReduction !== undefined && storedReduction > 0 ? storedReduction / 100000 : undefined;
+  const scaleSize = (size: number): number => (fontScale === undefined ? size : Math.max(1, Math.round(size * fontScale)));
   const out: TextBodyModel = {
     paragraphs: paragraphElements.map((paragraph): TextParagraphModel => {
       const properties = paragraphProperties(paragraph, bodies, inheritance?.masterStyle);
@@ -920,6 +996,27 @@ export function parseTextBody(txBody: XmlElement, theme: DrawingTheme, inheritan
       }
       const rtl = rtlElement === undefined ? undefined : onOff(rtlElement, "rtl");
       if (rtl !== undefined) out.direction = rtl ? "rtl" : "ltr";
+      // PowerPoint has no run direction: a run in a left-to-right `lang`
+      // keeps its numbers and punctuation together left to right inside a
+      // right-to-left paragraph (probe run-direction). Unlabelled runs follow
+      // the Unicode bidi algorithm alone.
+      if (rtl === true) {
+        for (const run of out.runs) {
+          if (run.language !== undefined && isLtrRunInRtl(run.text, true, RTL_LANGUAGE.test(run.language))) run.ltrRun = true;
+        }
+      } else {
+        // The mirror case, in a left-to-right paragraph: a run in a
+        // left-to-right `lang` holding Arabic words keeps them in written
+        // order around ASCII punctuation (probe en-us-arabic-run).
+        out.runs = out.runs.flatMap((run) => {
+          const pieces = run.language === undefined || RTL_LANGUAGE.test(run.language) || run.field !== undefined
+            ? undefined
+            : arabicPunctuationPieces(run.text);
+          return pieces === undefined
+            ? [run]
+            : pieces.map((piece) => ({ ...run, text: piece.text, ...(piece.punctuation ? { ltrRun: true } : {}) }));
+        });
+      }
       if (alignment !== undefined) out.align = alignment;
       if (level !== undefined) out.level = level;
       if (leftIndent !== undefined) out.leftIndent = emuToInches(leftIndent);
@@ -930,8 +1027,17 @@ export function parseTextBody(txBody: XmlElement, theme: DrawingTheme, inheritan
       const spaceAfter = spacingValue(properties, "spcAft");
       if (lineSpacing?.percent !== undefined) out.lineSpacing = lineSpacing.percent;
       if (lineSpacing?.points !== undefined) out.lineSpacingPt = lineSpacing.points;
+      else if (lineSpacingReduction !== undefined) out.lineSpacing = Math.max(0, (lineSpacing?.percent ?? 1) - lineSpacingReduction);
+      if (fontScale !== undefined) {
+        if (out.fontSizePt !== undefined) out.fontSizePt = scaleSize(out.fontSizePt);
+        for (const run of out.runs) if (run.fontSizePt !== undefined) run.fontSizePt = scaleSize(run.fontSizePt);
+      }
       if (spaceBefore?.points !== undefined) out.spaceBeforePt = spaceBefore.points;
       if (spaceAfter?.points !== undefined) out.spaceAfterPt = spaceAfter.points;
+      // `a:spcPct` spacing counts in lines of 1.2 x the paragraph's largest run
+      // size, whatever the font or the line spacing (probe `line-spacing-units`).
+      if (spaceBefore?.percent !== undefined) out.spaceBeforeLines = spaceBefore.percent;
+      if (spaceAfter?.percent !== undefined) out.spaceAfterLines = spaceAfter.percent;
       const bulletProperties = properties.find((property) => firstChild(property, "buNone") !== undefined
         || firstChild(property, "buChar") !== undefined || firstChild(property, "buAutoNum") !== undefined
         || firstChild(property, "buBlip") !== undefined);
@@ -984,9 +1090,11 @@ export function parseTextBody(txBody: XmlElement, theme: DrawingTheme, inheritan
           if (Number.isFinite(keyLevel) && keyLevel > paragraphLevel) autoNumCounters.delete(key);
         }
         const buFontForNum = firstElement(properties, "buFont");
-        const numTypeface = buFontForNum === undefined ? undefined : attr(buFontForNum, "typeface");
+        const numberText = formatAutoNum(autoNumType, count);
+        // A theme token (`+mj-lt`, the heading font) resolves like a run's.
+        const numTypeface = buFontForNum === undefined ? undefined : resolveThemeTypeface(attr(buFontForNum, "typeface"), numberText, theme);
         out.bullet = {
-          char: formatAutoNum(autoNumType, count),
+          char: numberText,
           ...(numTypeface === undefined ? {} : { typeface: numTypeface }),
           ...bulletExtras,
         };
@@ -1009,8 +1117,13 @@ export function parseTextBody(txBody: XmlElement, theme: DrawingTheme, inheritan
         if (out.bullet !== undefined && Object.keys(out.bullet).length === 0) out.bullet = { char: BULLET };
       } else {
         const buFont = buChar === undefined ? undefined : firstElement(properties, "buFont");
-        const char = buChar === undefined ? undefined : attr(buChar, "char");
-        const typeface = buFont === undefined ? undefined : attr(buFont, "typeface");
+        const authoredChar = buChar === undefined ? undefined : attr(buChar, "char");
+        const authoredTypeface = buFont === undefined ? undefined : resolveThemeTypeface(attr(buFont, "typeface"), authoredChar ?? "", theme);
+        // A Wingdings or Symbol bullet becomes its Unicode shape, painted in
+        // any font that has it, not a letter on a device without Office.
+        const standIn = authoredChar === undefined ? undefined : symbolFontStandIn(authoredTypeface, authoredChar);
+        const char = standIn ?? authoredChar;
+        const typeface = standIn === undefined ? authoredTypeface : undefined;
         if (char !== undefined || typeface !== undefined || Object.keys(bulletExtras).length > 0) {
           out.bullet = {
             ...(char === undefined ? {} : { char }),
@@ -1028,15 +1141,19 @@ export function parseTextBody(txBody: XmlElement, theme: DrawingTheme, inheritan
     top: firstAttribute(bodyPropertySources, "tIns"),
     bottom: firstAttribute(bodyPropertySources, "bIns"),
   };
-  if (Object.values(insets).some((value) => value !== undefined)) {
-    out.insets = {
-      ...(insets.left === undefined ? {} : { left: emuToInches(parseNumber(insets.left, "lIns", "a:bodyPr")) }),
-      ...(insets.right === undefined ? {} : { right: emuToInches(parseNumber(insets.right, "rIns", "a:bodyPr")) }),
-      ...(insets.top === undefined ? {} : { top: emuToInches(parseNumber(insets.top, "tIns", "a:bodyPr")) }),
-      ...(insets.bottom === undefined ? {} : { bottom: emuToInches(parseNumber(insets.bottom, "bIns", "a:bodyPr")) }),
-    };
-  }
-  switch (firstAttribute(bodyProperties === undefined ? [] : [bodyProperties], "anchor")) {
+  // A side no `a:bodyPr` in the chain states takes DrawingML's default (0.1in
+  // left/right, 0.05in top/bottom), which is what an `AddTextbox` box, whose
+  // bodyPr authors no insets, paints in PowerPoint.
+  out.insets = {
+    left: insets.left === undefined ? DEFAULT_INSET_X : emuToInches(parseNumber(insets.left, "lIns", "a:bodyPr")),
+    right: insets.right === undefined ? DEFAULT_INSET_X : emuToInches(parseNumber(insets.right, "rIns", "a:bodyPr")),
+    top: insets.top === undefined ? DEFAULT_INSET_Y : emuToInches(parseNumber(insets.top, "tIns", "a:bodyPr")),
+    bottom: insets.bottom === undefined ? DEFAULT_INSET_Y : emuToInches(parseNumber(insets.bottom, "bIns", "a:bodyPr")),
+  };
+  // Attributes cascade one by one, nearest first: a slide's `bodyPr` that only
+  // carries `a:normAutofit` still takes the master's `anchor` (slide 2 of
+  // `pptx-coverage.pptx`: a centred title).
+  switch (firstAttribute(bodyPropertySources, "anchor")) {
     case "t":
       out.verticalAlign = "top";
       break;
@@ -1053,7 +1170,7 @@ export function parseTextBody(txBody: XmlElement, theme: DrawingTheme, inheritan
       out.verticalAlign = "distributed";
       break;
   }
-  switch (firstAttribute(bodyProperties === undefined ? [] : [bodyProperties], "wrap")) {
+  switch (firstAttribute(bodyPropertySources, "wrap")) {
     case "none":
       out.wrapping = "none";
       break;
@@ -1067,6 +1184,8 @@ export function parseTextBody(txBody: XmlElement, theme: DrawingTheme, inheritan
     else if (firstChild(bodyProperties, "normAutofit") !== undefined) out.autofit = "shrinkText";
     else out.autofit = "resizeShape";
   }
+  if (fontScale !== undefined) out.fontScale = fontScale;
+  if (lineSpacingReduction !== undefined) out.lineSpacingReduction = lineSpacingReduction;
   // WordArt preset warp lives on the body's own properties (whole-body
   // transform). Painted unwarped and marked — see `TextBodyModel.textWarp`.
   if (bodyProperties !== undefined) {
@@ -1077,13 +1196,18 @@ export function parseTextBody(txBody: XmlElement, theme: DrawingTheme, inheritan
   return out;
 }
 
+/** A shape's non-visual properties: `p:nvSpPr`, or `p:nvCxnSpPr` on a connector. */
+function nonVisualProps(shape: XmlElement): XmlElement | undefined {
+  return firstChild(shape, "nvSpPr") ?? firstChild(shape, "nvCxnSpPr");
+}
+
 function shapeIdentity(shape: XmlElement): { id: string; name: string; placeholder?: NonNullable<ShapeModel["placeholder"]> } {
-  const nvSpPr = firstChild(shape, "nvSpPr");
+  const nvSpPr = nonVisualProps(shape);
   const cNvPr = nvSpPr === undefined ? undefined : firstChild(nvSpPr, "cNvPr");
   const nvPr = nvSpPr === undefined ? undefined : firstChild(nvSpPr, "nvPr");
   const ph = nvPr === undefined ? undefined : firstChild(nvPr, "ph");
   const id = cNvPr === undefined ? undefined : attr(cNvPr, "id");
-  if (id === undefined) throw new Error("aared/core: a shape is missing p:cNvPr/@id");
+  if (id === undefined) throw damagedDocument("a shape is missing p:cNvPr/@id");
   const out: { id: string; name: string; placeholder?: NonNullable<ShapeModel["placeholder"]> } = {
     id,
     name: cNvPr === undefined ? "" : attr(cNvPr, "name") ?? "",
@@ -1179,9 +1303,11 @@ interface PlaceholderInheritance {
 function masterTextStyle(master: XmlElement, placeholder: NonNullable<ShapeModel["placeholder"]>): XmlElement | undefined {
   const styles = firstChild(master, "txStyles");
   if (styles === undefined) return undefined;
-  switch (placeholder.type) {
+  // Same mapping as the master placeholder lookup: a subtitle or content
+  // placeholder takes the master's body style (its 90% line spacing and 10 pt
+  // space before), and only date/footer/slide-number take `otherStyle`.
+  switch (masterPlaceholderType(placeholder.type)) {
     case "title":
-    case "ctrTitle":
       return firstChild(styles, "titleStyle");
     case "body":
       return firstChild(styles, "bodyStyle");
@@ -1284,7 +1410,7 @@ async function parseShape(
     : (Object.keys(extra).length === 0 ? base : { ...base, ...extra });
   // Whole-shape links (`p:cNvPr/a:hlinkClick`) make the entire shape
   // clickable; run-level links still win for their own runs at paint time.
-  const nvSpPr = firstChild(shape, "nvSpPr");
+  const nvSpPr = nonVisualProps(shape);
   const cNvPr = nvSpPr === undefined ? undefined : firstChild(nvSpPr, "cNvPr");
   const shapeHlink = cNvPr === undefined ? undefined : firstChild(cNvPr, "hlinkClick");
   const shapeRid = shapeHlink === undefined ? undefined : attr(shapeHlink, "id");
@@ -1314,6 +1440,8 @@ async function parseShape(
   if (strokeColor !== undefined) {
     const strokeWidth = line === undefined ? undefined : numberAttr(line, "w", "a:ln");
     out.stroke = { color: strokeColor, width: emuToInches(strokeWidth ?? DEFAULT_LINE_WIDTH_EMU) };
+    const dash = lineDash(line === undefined ? undefined : firstChild(line, "prstDash"));
+    if (dash !== undefined) out.stroke.dash = dash;
   }
   if (xfrm !== undefined) {
     const rotation = numberAttr(xfrm, "rot", "a:xfrm");
@@ -1371,7 +1499,7 @@ export function parsePicture(
   const nvPicPr = firstChild(pic, "nvPicPr");
   const cNvPr = nvPicPr === undefined ? undefined : firstChild(nvPicPr, "cNvPr");
   const id = cNvPr === undefined ? undefined : attr(cNvPr, "id");
-  if (id === undefined) throw new Error("aared/core: a picture is missing p:cNvPr/@id");
+  if (id === undefined) throw damagedDocument("a picture is missing p:cNvPr/@id");
   const name = cNvPr === undefined ? "" : attr(cNvPr, "name") ?? "";
   const blipFill = firstChild(pic, "blipFill");
   const blip = blipFill === undefined ? undefined : firstChild(blipFill, "blip");
@@ -1472,7 +1600,7 @@ async function parseChartFrame(
   const chartRef = graphicData === undefined ? undefined : firstChild(graphicData, "chart");
   if (chartRef === undefined) return undefined;
   const id = cNvPr === undefined ? undefined : attr(cNvPr, "id");
-  if (id === undefined) throw new Error("aared/core: a chart is missing p:cNvPr/@id");
+  if (id === undefined) throw damagedDocument("a chart is missing p:cNvPr/@id");
   const name = cNvPr === undefined ? "" : attr(cNvPr, "name") ?? "";
   const xfrm = firstChild(frame, "xfrm");
   const bounds = parseBounds(xfrm);
@@ -1508,9 +1636,11 @@ async function parseChartFrame(
  * PowerPoint paints for a cell that states none.
  */
 function parseCellMargins(tcPr: XmlElement | undefined): InsetsModel {
-  const side = (name: string, fallback: number): number =>
-    emuToInches((tcPr === undefined ? undefined : numberAttr(tcPr, name, "a:tcPr")) ?? fallback);
-  return { left: side("marL", 91440), right: side("marR", 91440), top: side("marT", 45720), bottom: side("marB", 45720) };
+  const side = (name: string, fallback: number): number => {
+    const emu = tcPr === undefined ? undefined : numberAttr(tcPr, name, "a:tcPr");
+    return emu === undefined ? fallback : emuToInches(emu);
+  };
+  return { left: side("marL", DEFAULT_INSET_X), right: side("marR", DEFAULT_INSET_X), top: side("marT", DEFAULT_INSET_Y), bottom: side("marB", DEFAULT_INSET_Y) };
 }
 
 /** A cell's edges: each side the direct `a:tcPr` line when authored (an `a:noFill` one clears it), else the table style's. */
@@ -1549,12 +1679,12 @@ export function parseTable(
   const table = graphicData === undefined ? undefined : firstChild(graphicData, "tbl");
   if (table === undefined) return undefined;
   const id = cNvPr === undefined ? undefined : attr(cNvPr, "id");
-  if (id === undefined) throw new Error("aared/core: a table is missing p:cNvPr/@id");
+  if (id === undefined) throw damagedDocument("a table is missing p:cNvPr/@id");
   const tblPr = firstChild(table, "tblPr");
   const grid = firstChild(table, "tblGrid");
   const styleIdElement = tblPr === undefined ? undefined : firstChild(tblPr, "tableStyleId");
   const styleId = styleIdElement === undefined ? undefined : textContent(styleIdElement);
-  const style = styleId === undefined ? undefined : styles.get(styleId);
+  const style = tableStyleFor(styleId, styles, theme);
   const flag = (name: string): boolean => tblPr === undefined ? false : onOff(tblPr, name) ?? false;
   const rtl = flag("rtl");
   const rowElements = childElements(table, "tr");
@@ -1592,7 +1722,7 @@ export function parseTable(
         continue;
       }
       const body = firstChild(cell, "txBody");
-      if (body === undefined) throw new Error("aared/core: a table cell is missing a:txBody");
+      if (body === undefined) throw damagedDocument("a table cell is missing a:txBody");
       const lastRowIndex = rowIndex + (rowSpan !== undefined && rowSpan > 1 ? rowSpan : 1) - 1;
       const lastColumnIndex = columnIndex + (gridSpan !== undefined && gridSpan > 1 ? gridSpan : 1) - 1;
       const styled = resolveTableStyleCell(style, shape, rowIndex, lastRowIndex, columnIndex, lastColumnIndex, rtl);
@@ -1690,7 +1820,7 @@ async function slideParts(pkg: OpcPackage, presentationPart: string, signal?: Ab
     const id = attr(slide, "r:id");
     const relationship = relationships.find((candidate) => candidate.id === id && candidate.type.endsWith("/slide"));
     if (relationship === undefined || relationship.targetMode === "External") {
-      throw new Error(`aared/core: presentation slide relationship "${id ?? "missing"}" is invalid`);
+      throw damagedDocument(`presentation slide relationship "${id ?? "missing"}" is invalid`);
     }
     return relationship.target;
   });
@@ -1701,7 +1831,7 @@ async function slideParts(pkg: OpcPackage, presentationPart: string, signal?: Ab
  * points at theme slots (`lt1`, `dk1`, …); dark-master decks swap them. The
  * default map is Office's light one.
  */
-function themeForColorMap(theme: DrawingTheme, clrMap: XmlElement | undefined): DrawingTheme {
+export function themeForColorMap(theme: DrawingTheme, clrMap: XmlElement | undefined): DrawingTheme {
   const slot = (name: string, fallback: string): string | undefined => theme.colors[(clrMap === undefined ? undefined : attr(clrMap, name)) ?? fallback];
   const mapped: Record<string, string> = {};
   for (const [name, fallback] of [["bg1", "lt1"], ["bg2", "lt2"], ["tx1", "dk1"], ["tx2", "dk2"]] as const) {
@@ -1751,6 +1881,16 @@ function readBackgroundFill(
 }
 
 /**
+ * A slide's or layout's own colour map: `p:clrMapOvr/a:overrideClrMapping`
+ * carries a full replacement map, while `a:masterClrMapping` (or no element)
+ * keeps the one above it. Slide beats layout beats master.
+ */
+export function overrideColorMap(root: XmlElement): XmlElement | undefined {
+  const override = firstChild(root, "clrMapOvr");
+  return override === undefined ? undefined : firstChild(override, "overrideClrMapping");
+}
+
+/**
  * What a slide inherits through its layout and that layout's master. Shared
  * by every slide on the layout, so it is read once per package and reused.
  */
@@ -1761,7 +1901,7 @@ interface LayoutChain {
   masterPart?: string;
   masterRoot?: XmlElement;
   masterRelationships?: PartRelationships;
-  /** The master's `p:clrMap` (slide-level colour names -> theme slots). */
+  /** The colour map the layout paints with: its own override, else the master's `p:clrMap` (slide-level colour names -> theme slots). */
   clrMap?: XmlElement;
   /** The layout's `p:bg`, else the master's. */
   bg?: XmlElement;
@@ -1795,7 +1935,7 @@ async function layoutChain(pkg: OpcPackage, layoutPart: string, signal?: AbortSi
   const layoutBg = backgroundOf(layoutRoot);
   const bg = layoutBg ?? (masterRoot === undefined ? undefined : backgroundOf(masterRoot));
   const bgRelationships = layoutBg === undefined ? masterRelationships : layoutRelationships;
-  const clrMap = masterRoot === undefined ? undefined : firstChild(masterRoot, "clrMap");
+  const clrMap = overrideColorMap(layoutRoot) ?? (masterRoot === undefined ? undefined : firstChild(masterRoot, "clrMap"));
   const chain: LayoutChain = {
     layoutPart,
     layoutRoot,
@@ -1838,7 +1978,9 @@ async function parseShapeTree(
       const picture = parsePicture(pic, relationships, pkg);
       if (picture !== undefined) target.push(picture);
     };
-    if (child.local === "sp") {
+    // A connector (`p:cxnSp`) is a shape without text: same spPr geometry
+    // and line, so it paints through the shape path.
+    if (child.local === "sp" || child.local === "cxnSp") {
       if (isPlaceholder(child)) return;
       target.push(await parseShape(pkg, part, child, theme, signal, relationships, options.autoColor, deck.defaultTextSizes));
       throwIfAborted(signal);
@@ -1996,7 +2138,7 @@ export async function indexPptx(pkg: OpcPackage, signal?: AbortSignal): Promise<
   const sldSz = firstChild(presentation, "sldSz");
   const width = sldSz === undefined ? undefined : numberAttr(sldSz, "cx", "p:sldSz");
   const height = sldSz === undefined ? undefined : numberAttr(sldSz, "cy", "p:sldSz");
-  if (width === undefined || height === undefined) throw new Error("aared/core: PPTX is missing p:sldSz");
+  if (width === undefined || height === undefined) throw damagedDocument("the presentation is missing p:sldSz");
   const theme = await readDrawingTheme(pkg, signal);
   throwIfAborted(signal);
   const parts = await slideParts(pkg, presentationPart, signal);
@@ -2031,14 +2173,15 @@ export async function parsePptxSlide(pkg: OpcPackage, deck: PptxDeck, index: num
   const root = await pkg.readXml(part, signal);
   const cSld = firstChild(root, "cSld");
   const tree = cSld === undefined ? undefined : firstChild(cSld, "spTree");
-  if (tree === undefined) throw new Error(`aared/core: slide "${part}" is missing p:spTree`);
+  if (tree === undefined) throw damagedDocument(`slide "${part}" is missing p:spTree`);
   const relationships = await pkg.relationships(part, signal);
   throwIfAborted(signal);
   const layoutRel = relationships.find((relationship) => relationship.type.endsWith("/slideLayout"));
   const chain = layoutRel === undefined ? undefined : await layoutChain(pkg, layoutRel.target, signal);
   throwIfAborted(signal);
-  // Colours resolve through this slide's master colour map, not the bare theme.
-  const theme = themeForColorMap(deck.theme, chain?.clrMap);
+  // Colours resolve through this slide's colour map (its own override, else
+  // its layout's, else the master's), not the bare theme.
+  const theme = themeForColorMap(deck.theme, overrideColorMap(root) ?? chain?.clrMap);
   // Background first: fill-less runs take PowerPoint "Automatic" contrast
   // against it (white on dark), never CSS inheritance from embedding chrome.
   const background = resolveSlideBackground(pkg, cSld, relationships, chain, theme);

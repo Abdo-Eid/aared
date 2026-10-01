@@ -5,6 +5,7 @@
  */
 
 import type { ChartGraphicPrimitive } from "./core/model.js";
+import { cssFontFamily } from "./core/typography.js";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
@@ -39,7 +40,10 @@ export function appendChartPrimitive(svg: SVGSVGElement, primitive: ChartGraphic
       set("y", primitive.y);
       node.textContent = primitive.text;
       set("font-size", primitive.fontSize);
-      set("font-family", primitive.fontFamily);
+      // The same stack every run paints with: the family, a delivered
+      // substitute's alias, then a generic. A bare family the reader lacks
+      // (Aptos, the default theme's) fell to the SVG default serif.
+      set("font-family", primitive.fontFamily === undefined ? undefined : cssFontFamily(primitive.fontFamily));
       set("font-weight", primitive.fontWeight);
       set("text-anchor", primitive.textAnchor);
       break;

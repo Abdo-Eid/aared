@@ -12,6 +12,12 @@
       "runtimeExecutable": "bun",
       "runtimeArgs": ["run", "dev"],
       "port": 5173
+    },
+    {
+      "name": "bench-lan",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--cwd", "bench", "--no-orphans", "dev", "--host"],
+      "port": 5173
     }
   ]
 }

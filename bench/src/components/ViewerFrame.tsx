@@ -307,11 +307,13 @@ export function useViewerFrame(args: {
  * renderer behind it is interchangeable — baseline library or aared — which
  * is the whole point of the bench.
  */
-export function ViewerFrame({ doc, renderer, onClose, controller }: {
+export function ViewerFrame({ doc, renderer, onClose, controller, notice }: {
   doc: DocMeta;
   renderer: Renderer;
   onClose: () => void;
   controller: ViewerController;
+  /** A failure that leaves the view usable (a page that could not be shown): a bar above the stage, never the error screen. */
+  notice?: string | null;
 }) {
   const {
     status,
@@ -408,6 +410,16 @@ export function ViewerFrame({ doc, renderer, onClose, controller }: {
               {name}
             </button>
           ))}
+        </div>
+      ) : null}
+
+      {notice ? (
+        <div
+          role="status"
+          className="flex shrink-0 items-center gap-2 border-b border-border/60 bg-card px-[0.9375rem] py-1.5 text-xs text-muted-foreground"
+        >
+          <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
+          <p className="min-w-0 truncate" title={notice}>{notice}</p>
         </div>
       ) : null}
 

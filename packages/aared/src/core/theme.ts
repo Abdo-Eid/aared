@@ -15,6 +15,12 @@ export interface DrawingTheme {
    * style's `phClr` placeholder.
    */
   backgroundFills?: XmlElement[];
+  /**
+   * The theme's line style widths (`a:lnStyleLst/a:ln/@w`), in EMU, in order:
+   * what `a:lnRef idx="1|2|3"` draws at. Absent widths are left out, so read
+   * with a fallback.
+   */
+  lineWidths?: Array<number | undefined>;
   fonts: {
     major: { latin: string; complexScript: string; scripts: Record<string, string> };
     minor: { latin: string; complexScript: string; scripts: Record<string, string> };
@@ -66,8 +72,14 @@ export async function readDrawingTheme(pkg: OpcPackage, signal?: AbortSignal): P
   }
   const formats = elements === undefined ? undefined : firstChild(elements, "fmtScheme");
   const backgroundStyles = formats === undefined ? undefined : firstChild(formats, "bgFillStyleLst");
+  const lineStyles = formats === undefined ? undefined : firstChild(formats, "lnStyleLst");
+  const lineWidths = lineStyles === undefined ? [] : lineStyles.children.map((line) => {
+    const width = Number(attr(line, "w"));
+    return Number.isFinite(width) ? width : undefined;
+  });
   return {
     colors,
+    ...(lineWidths.some((width) => width !== undefined) ? { lineWidths } : {}),
     // Kept for the session: owned copies, so the theme part's text can be collected.
     ...(backgroundStyles === undefined ? {} : { backgroundFills: backgroundStyles.children.map(ownTree) }),
     fonts: {
@@ -149,7 +161,8 @@ export function resolveDrawingColor(element: XmlElement | undefined, theme: Draw
     const rawValue = attr(transform, "val");
     if (rawValue === undefined) continue;
     const numeric = Number(rawValue);
-    if (!Number.isFinite(numeric)) throw new Error(`aared/core: invalid val="${rawValue}" on a:${transform.local}`);
+    // A modifier that is not a number is skipped: one odd value does not cost the colour.
+    if (!Number.isFinite(numeric)) continue;
     const ratio = Math.min(Math.max(numeric / 100000, 0), 1);
     switch (transform.local) {
       case "tint":

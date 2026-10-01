@@ -11,8 +11,6 @@ RTL content shapes the way the browser shapes it.
 
 ```bash
 npm install @aared/viewer
-# optional — bundled OFL fonts for Office faces nobody has installed locally
-npm install @aared/fonts
 ```
 
 > **Not released yet** — this is the target install. `@aared/viewer` is
@@ -102,7 +100,7 @@ Whichever layer you pick, the shared types — `Source`, `OpenOptions`,
 | Package | Purpose |
 |---|---|
 | `aared` | Everything below — shared core, per-format entrypoints (lazy-loaded), and `<aared-viewer>` |
-| `aared-fonts` | Optional. OFL font files + a CDN-backed default font resolver, for Office fonts nobody has installed locally |
+| `aared-fonts` | Frozen, not published. Calibrated OFL look-alikes behind a CDN-backed `fontResolver`, for an app that needs Office's line breaks exactly. Without it the browser's own fonts paint, which a real phone showed to be faster and easier to read ([Sources and options](#sources-and-options)) |
 
 `aared` exposes its surface through subpath exports so a consumer only
 loads the code of the formats they actually use — on the main thread *and*
@@ -202,10 +200,12 @@ class AaredViewer extends HTMLElement {
 
 Failures are `AaredError`s with the same codes `preview()` uses for the same
 situation: `unsupported-format` (a bad `type`, or one that doesn't match the
-file), `not-found` (no `src`/`file`, or an index outside
-`0 <= index < info.count`), `network-error` (the fetch failed),
-`invalid-document` (nothing to show). Each fires `error` once with the error
-as `detail.cause`; `open()` and `goTo()` also reject with that same instance.
+file), `invalid-state` (`open()` with no `src`/`file`), `not-found` (an index
+outside `0 <= index < info.count`), `invalid-argument` (an index that is not
+a whole number), `network-error` (the fetch failed), `invalid-document`
+(nothing to show). Each fires `error` once with the error as `detail.cause`;
+`open()` and `goTo()` also reject with that same instance. An `open()` that a
+newer one replaced rejects with `aborted` and fires nothing.
 
 ### Styling
 
@@ -330,7 +330,12 @@ Behavior notes:
   never returns a handle over an empty document.
 - `goTo()` validates `0 <= index < info.count` with a `not-found`
   `AaredError`; stale navigations lose (newest wins, like the element's
-  generation guards). Events report changes: the initial unit emits no
+  generation guards): an overtaken `goTo()` resolves having changed nothing,
+  and only the newest moves `index` and announces. A failed `goTo()` rejects
+  and also fires `error` (`{ message, cause }`, the element's shape), so
+  whoever holds the handle hears it even when the caller dropped the
+  promise; the unit on screen stays. After `destroy()` it rejects with
+  `closed`. Events report changes: the initial unit emits no
   `indexchange` (read `.index` once `preview()` resolves), and going to the
   unit already shown emits nothing.
 - Zoom belongs to the handle: `setZoom()` before a `goTo()` still applies
@@ -354,13 +359,14 @@ Behavior notes:
 import { usePptx } from "aared/react";
 
 function SlidePreview({ file }: { file: File }) {
-  const { ref, status, info, index, error, goTo, retry } = usePptx({ source: file });
+  const { ref, status, info, index, error, navigationError, goTo, retry } = usePptx({ source: file });
   return (
     <>
       <div ref={ref} />
       {status === "loading" && <p>Loading…</p>}
       {status === "error" && <p>{String((error as Error)?.message)} <button onClick={retry}>Retry</button></p>}
-      {status === "ready" && <p>{info.titles[index]} <button onClick={() => goTo(index + 1)}>Next</button></p>}
+      {status === "ready" && <p>{info.titles[index]} <button onClick={() => void goTo(index + 1).catch(() => {})}>Next</button></p>}
+      {navigationError !== null && <p>That slide could not be shown.</p>}
     </>
   );
 }
@@ -392,8 +398,9 @@ interface UsePreviewResult {
   info: DocumentInfo | null;
   index: number;                          // mirrored from `indexchange`
   zoom: ZoomValue;                        // mirrored from `zoomchange`
-  error: unknown;                         // set when `status` is "error"
-  goTo: (index: number) => Promise<void>; // silent no-op before mount
+  error: unknown;                         // set when `status` is "error" (the mount failed)
+  navigationError: unknown;               // the last failed unit change (the handle's `error`); the page stays
+  goTo: (index: number) => Promise<void>; // rejects `invalid-state` before mount
   setZoom: (zoom: ZoomValue) => void;     // silent no-op before mount
   setAppearance: (appearance: Appearance) => void;  // replaces, in place, no remount
   retry: () => void;                      // re-run the mount
@@ -409,6 +416,14 @@ Behavior notes:
 - The hook owns the host element's contents while mounted and clears them
   on teardown; the element itself stays yours. Aborted mounts never reach
   `error` state — swapping `source` mid-flight cancels the stale mount.
+- Failures land in state, never only in a promise nobody awaits. A failed
+  mount sets `status: "error"` and `error`. A failed unit change sets
+  `navigationError` from the handle's `error` event, so it lands whether
+  `goTo()` came from the hook or from `viewer.goTo()`, while `status` stays
+  `"ready"` and the unit on screen stays shown: a host says "that page could
+  not be shown" without losing the view. A unit change and every mount clear
+  it; a cancelled or overtaken `goTo()` never sets it. Navigation inside a
+  unit (`viewer.xlsx`, `viewer.docx`) reports through its own promises.
 - Plain-data mount options (`type`, `index`, `zoom`, `pagination`) are keyed
   by value, so inline literals don't remount. `appearance` is live: changing
   it forwards via `setAppearance()` without re-opening, so the unit index,
@@ -465,7 +480,8 @@ in every format and every layer:
    unit is `goTo<Place>()`: XLSX `goToCell`, DOCX `goToHeading` and
    `goToPage`. See [Navigation](#navigation).
 2. **Every `goTo…` returns `Promise<void>`** and rejects with a `not-found`
-   `AaredError` when the target doesn't exist.
+   `AaredError` when the target doesn't exist (`invalid-argument` when the
+   index is not a whole number).
 3. **A unit reference is `{ index, title }`** (`UnitRef`): `index` is the
    `goTo` key, `title` the label. Slide and sheet info, unit events and search
    matches all use it.
@@ -597,9 +613,15 @@ interface PptxRenderHandle extends EventTarget {
   readonly zoom: ZoomValue;
   readonly scale: number;
   readonly destroyed: boolean;
+  readonly warnings: readonly RenderWarning[];  // font fidelity only, for PPTX
   setZoom(zoom: ZoomValue): void;
   setAppearance(appearance: Appearance): void;
   destroy(): void;
+}
+
+interface RenderWarning {
+  code: string;     // e.g. "font-unavailable"; stable, safe to switch on
+  message: string;  // for a human
 }
 
 const viewer = await render({ slide, target: container });
@@ -608,11 +630,23 @@ viewer.setAppearance({ theme: "dark" });  // theme marker only; slides stay sour
 viewer.destroy();
 ```
 
+`viewer.warnings` lists non-fatal things this render noticed about its own
+output — currently a font this render couldn't actually paint with (neither
+the requested family nor a delivered substitute answered, so text painted
+with the browser's own unrelated fallback). A working substitution is not a
+warning: it is the expected outcome for a font nobody has installed. Empty
+unless something is off. The slide is on screen as soon as it is painted;
+`render()` then waits (at most two seconds) for the fonts it paints with to
+arrive before it reads them and resolves, since a delivered substitute
+downloads only once text needs it.
+
 `render()` accepts a handle (read from the Worker on demand, with picture
 media defaulting to the owning session) or an already-resolved model.
 `paintSlide(input)` is the underlying synchronous paint primitive for
 callers that already hold a model — the same object form as `render()`,
-with the model in place of the handle:
+with the model in place of the handle. Being synchronous, it reads
+`warnings` against whatever fonts have arrived at that moment, so a
+substitute still downloading reports as unavailable:
 
 ```ts
 interface PaintSlideInput {
@@ -769,6 +803,17 @@ read as empty, exactly like sparse authored rows. The Worker caches the
 parsed sheet per session, so repeated windows slice without re-parsing;
 stale window requests cancel via `AbortSignal`.
 
+**Sizing a sheet to a container.** Pass `zoom: "fit-width"` (or
+`"fit-page"`) to `render()`: the viewer fits the sheet's used area and
+re-fits when the container resizes; the handle's `scale` is the ratio it
+chose. To size it yourself, read the model: `extent` is the used range as
+`{ cols, rows }` (the worksheet's saved `dimension`, or derived from the
+cells when it is missing), `columnWidths` are inches per column,
+`defaultRowHeight` is inches and a row's own height, when it has one, is
+`rows[n].height` (inches). Multiply inches by 96 for CSS pixels. There is no
+single content-size getter, and the numbers exclude the viewer's own chrome
+(row numbers, column letters, sheet tabs).
+
 ```ts
 interface SheetRangeModel extends SheetModel {
   range: CellRange;   // the window that was read, zero-based inclusive
@@ -792,6 +837,7 @@ interface XlsxRenderHandle extends EventTarget {
   readonly zoom: ZoomValue;
   readonly scale: number;
   readonly destroyed: boolean;
+  readonly warnings: readonly RenderWarning[];  // font fidelity only, as for PPTX
   setZoom(zoom: ZoomValue): void;
   setAppearance(appearance: Appearance): void;
   goToCell(cell: string): Promise<void>;
@@ -972,6 +1018,7 @@ interface DocxRenderHandle extends EventTarget {
   readonly zoom: ZoomValue;
   readonly scale: number;
   readonly destroyed: boolean;
+  readonly warnings: readonly RenderWarning[];  // layout-mode pagination edge cases, plus font fidelity in either mode
   setZoom(zoom: ZoomValue): void;
   setAppearance(appearance: Appearance): void;
   goToHeading(target: string | number): Promise<void>;
@@ -1101,6 +1148,9 @@ interface MediaOptions {
 type FontResolver = (requestedFamily: string) => Promise<FontFace> | undefined;
 type MediaResolver = (mediaId: string) => Promise<ArrayBuffer>;
 
+/** The name a `FontResolver` must register a delivered substitute under (see below). */
+function fontAlias(family: string): string;
+
 /** A unit — slide, sheet — by position and label. */
 interface UnitRef {
   index: number;   // zero-based; the goTo() key
@@ -1117,16 +1167,48 @@ interface CellRef {
 
 `fontResolver` is main-thread-only: `open()` receives it, but it is never
 posted to the Worker. After the Worker produces a model that names required
-families, the main-thread session invokes the resolver. `aared-fonts`'s
-`defaultResolver` maps common Office families to metric-compatible OFL
-alternatives and lazily registers faces on the main thread. It resolves
-`undefined` when a family is unknown, allowing normal browser fallback.
+families, the main-thread session invokes the resolver. Without one — the
+default, and the recommended setup — nothing downloads: a family the reader
+lacks paints in the browser's own fonts, which on a phone load faster and
+read better than any substitute, at the cost of some lines breaking a word
+differently from Office. A resolver that throws or rejects never fails a
+read or a render: that family paints in the browser's fallback, the render
+handle's `warnings` names it (`font-unavailable`), and the next read asks the
+resolver again.
+
+The repo's `aared-fonts` package is such a resolver, frozen and not
+published: its `defaultResolver` maps Office families to open substitutes
+(metric clones for Calibri, Cambria, Arial, Times New Roman and Courier New;
+calibrated look-alikes for Aptos, Aptos Display and Aptos Narrow; calibrated
+Naskh faces for Arabic), registers them for the browser to fetch as text
+needs them, and resolves `undefined` for a family it doesn't know. On a real
+phone it made the first slide about 7 s slower, and its Arabic harder to read
+than the phone's own (DECISION_LOG §53). Pass it only when matching Office's
+line breaks matters more than both:
 
 ```ts
 import { open } from "aared/pptx";
-import { defaultResolver } from "aared-fonts";
+import { defaultResolver } from "aared-fonts"; // from the repo; not on npm
 
 const deck = await open(file, { fontResolver: defaultResolver });
+```
+
+A custom resolver must register its delivered `FontFace` under
+`fontAlias(requestedFamily)`, never the bare requested name and never the
+substitute's own name: the renderer's CSS always lists the requested family,
+then its alias, then a generic fallback, so registering under anything else
+either shadows a reader who genuinely has the requested font installed, or
+is never selected at all.
+
+```ts
+import { fontAlias } from "aared/core";
+
+const resolver: FontResolver = async (requestedFamily) => {
+  if (requestedFamily !== "Calibri") return undefined;
+  const face = new FontFace(fontAlias(requestedFamily), "url(/fonts/carlito.woff2)");
+  document.fonts.add(face);
+  return face.load();
+};
 ```
 
 ### Worker override
@@ -1136,7 +1218,32 @@ bundled `worker.mjs` file, which is self-contained — deploy it wherever the
 rest of `dist/core/` lands and it needs nothing else. No consumer-side
 worker config is needed.
 
-The default path works for standard Vite/webpack setups but breaks for
+The default path works with Vite, webpack 5 (no loader) and Next.js 16
+(Turbopack or webpack): production builds, dev servers, Next.js server
+rendering, and deployments under a sub-path (webpack `publicPath`, Next.js
+`basePath`). aared can be imported at the top of a Next.js client component.
+
+**Scripts on a CDN.** A browser never starts a Worker from a script on
+another origin, CORS or not, so with webpack `publicPath` or Next.js
+`assetPrefix` on another host the default path fails: `open()` rejects with
+`worker-error`, naming the cause. Start the Worker from a same-origin Blob
+that imports aared's self-contained worker file from the CDN (the CDN must
+send `Access-Control-Allow-Origin`, as for any module script):
+
+```ts
+// The bundler emits the worker file with the other assets (on the CDN).
+const workerUrl = new URL("aared/worker", import.meta.url);
+const worker = () => new Worker(
+  URL.createObjectURL(new Blob([`import ${JSON.stringify(workerUrl.href)};`], { type: "text/javascript" })),
+  { type: "module" },
+);
+const deck = await open(file, { worker });
+```
+
+Checked with webpack 5 and Next.js 16 (Turbopack and webpack). The default
+Worker chunk is still emitted beside it and never loaded.
+
+The default path also breaks for
 single-file bundles (`vite-plugin-singlefile`), strict CSP
 environments, SSR/Node, and bundler-specific Worker constructors.
 
@@ -1308,6 +1415,7 @@ One error model across all entrypoints:
 ```ts
 class AaredError extends Error {
   code: AaredErrorCode;
+  cause?: unknown;   // the underlying error, when there is one (see below)
 }
 
 type AaredErrorCode =
@@ -1317,17 +1425,65 @@ type AaredErrorCode =
   | "unsupported-feature"
   | "network-error"
   | "media-error"
-  | "font-error"
   | "not-found"
   | "invalid-range"
+  | "invalid-argument"
+  | "invalid-state"
   | "worker-error"
-  | "aborted"
-  | "closed";
+  | "internal"
+  | "closed"
+  | "aborted";
 
 function isAaredError(error: unknown): error is AaredError;
 function isAbort(error: unknown): error is Error;
 function messageFor(error: unknown): string;
 ```
+
+Every failure a public API reports is an `AaredError`. What each code means,
+and where it comes from:
+
+| Code | Meaning | Raised by |
+|---|---|---|
+| `invalid-document` | The file is not a readable document: not a ZIP, past the ZIP safety limits, not an Office package, malformed XML, a required part or element missing, an empty document | `open()`, `read()`, `search()`, `detect()`, `preview()`, the element |
+| `encrypted-document` | Password-protected (an OLE container, not a ZIP) | `open()`, `detect()`, `preview()`, the element |
+| `unsupported-format` | Not the format this entrypoint (or `type`) opens | `open()`, `preview()`, the element |
+| `unsupported-feature` | A call this format, mode or input does not have: a range read outside XLSX, `goToPage()` in flow mode, `goToSheet()` on a sheet rendered from a bare model, no `Worker` in the environment | `read()`, `goToPage()`, `goToSheet()`, `open()` |
+| `network-error` | A URL source failed to fetch, returned a non-2xx status, or stopped partway | `open()`, `detect()`, `preview()`, the element |
+| `media-error` | `media.get()` for a part the document does not have | `media.get()` |
+| `not-found` | A whole-number index, title, heading or layout that does not exist | `get()`, `goTo()`, `goToHeading()`, `goToPage()` |
+| `invalid-range` | A malformed A1 range, cell or sheet window | `sheet.read({ range })`, `goToCell()`, `scrollTo()`, `focus()` |
+| `invalid-argument` | A value that is not what the call takes (an index that is not a whole number) | `get()`, `goTo()`, `goToPage()`, the element's `index` |
+| `invalid-state` | A call the viewer is not ready for: the element's `open()` with no source, the hook's `goTo()` before mount | the element, `usePreview()` |
+| `worker-error` | The Worker failed to start (including a browser refusing a Worker script from another origin), stopped, or a request could not be posted; every later call on that document reports it too | any call that reaches the Worker |
+| `internal` | aared failed on this file: a defect in the viewer, not in the file. `cause` is the original error with its stack: include it in a bug report | any call that reaches the Worker |
+| `closed` | Called after `close()` or `destroy()` | everything on a closed document or destroyed handle |
+| `aborted` | Cancelled by your signal, or superseded by a newer call | anything that takes a `signal`; a replaced `open()` or `goTo()` |
+
+**Messages.** `message` starts with the entrypoint you called
+(`aared/pptx: …`, `aared/preview: …`), says what failed, and says what to do
+when you can do something (an `invalid-document` from a damaged file
+suggests re-saving it in Office; a refused Worker names the `worker`
+option). The one exception is cancellation, which always reads
+`aared/core: request was cancelled`. Messages are English and meant for
+developers and logs; their wording may change, `code` does not.
+`messageFor()` gives one short, generic English sentence per code for a UI
+that wants it; it leaves out the detail `message` carries and is not
+localized, so a host that shows errors in another language maps `code` to
+its own strings.
+
+**`cause`.** Set when there is an underlying error: the browser's event for a
+Worker that died or was refused, the platform error behind a `network-error`,
+and for `internal`, the Worker's original error rebuilt with its name and
+stack.
+
+**Embed layers.** The format entrypoints reject. `preview()`'s handle and
+`<aared-viewer>` also fire `error` (`detail: { message, cause }`, where
+`cause` is the same `AaredError` instance the call rejects with) for failures
+the caller may not be awaiting: a failed open (element), a failed `goTo()`,
+or a failed move inside the unit (`viewer.xlsx`, `viewer.docx`). Listen to
+the event or catch the promise: each failure arrives on both, so handling
+both handles it twice. `usePreview()` turns them into state: `error` for the
+mount, `navigationError` for any later navigation.
 
 ```ts
 try {
@@ -1345,21 +1501,19 @@ representing cancellation: `DOMException` `AbortError`, typed
 instead of `error instanceof DOMException && error.name === "AbortError"`,
 which misses typed aborts on the main thread.
 
-`messageFor()` maps an `AaredError` code to a human-readable string for
-UI display. Returns a fallback for unknown errors.
-
 Cancellation surfaces as an `AaredError` with `code: "aborted"` and
-`name: "AbortError"` naming, so existing `AbortSignal` handling keeps
-working while gaining a typed code. A dead worker is deliberately *not* an
-abort: boot failure and mid-session worker death report `code:
-"worker-error"`, so abort checks never swallow a broken worker into a
-silent loading state. Nor is a closed document: `read()`, `search()` and
-`media.get()` after `close()` reject with `code: "closed"`, which `isAbort()`
-does not match — a call on a closed document is a bug to surface, not a
-cancellation to ignore.
-Password-protected (OLE compound, not ZIP) files report
-`encrypted-document` instead of a confusing ZIP error. ZIP/decompression
-safety limits (entry count, per-entry bytes) report `invalid-document`.
+`name: "AbortError"`, so existing `AbortSignal` handling keeps working while
+gaining a typed code. Every other `AaredError` is named `"AaredError"`: branch
+on `code` (or `isAbort()`), not on `name`. A dead worker is deliberately *not*
+an abort: boot failure and mid-session worker death report
+`worker-error`, so abort checks never swallow a broken worker into a silent
+loading state. Nor is a closed document: a call after `close()` rejects
+with `closed`, which `isAbort()` does not match — a call on a closed
+document is a bug to surface, not a cancellation to ignore.
+
+An unknown value inside an otherwise readable file (an alignment PowerPoint
+never writes, an on/off spelling it does not use) does not fail the read:
+it falls back to the default, the way Office shows it.
 
 ### Cancellation
 
@@ -1484,6 +1638,14 @@ typed drawing primitives only — no raw SVG or HTML markup is accepted.
   `CellModel` is the canonical readonly cell: cached `value`, `formatted`
   display string, `type`, optional `formula` source (never evaluated),
   `hyperlink`, authored `style`, and resolved `conditional` overlay.
+  `SheetModel.unsupported` lists what the preview does not show, one entry
+  per `kind`: a feature aared does not model (`pivot`, `macro`, `sparkline`,
+  `data-validation`, `comment`, `conditional-format`, `drawing`, `other`), or
+  `damaged`: the file itself is broken (cells, hyperlinks, merges or
+  conditional-format ranges with an unreadable address, a drawing anchor or a
+  picture or chart pointing at a missing part). Damaged items are counted per
+  kind ("2 cells could not be read and were skipped; the file may be
+  damaged"); everything readable around them still shows.
 - DOCX: `DocumentSection`, `SectionProperties`, `SectionPageGeometry`,
   `SectionPageMargins`, `SectionBreakType`, `FlowNode`,
   `DocxParagraphNode`, `DocxHeadingNode`, `DocxTableNode`,
@@ -1493,6 +1655,14 @@ typed drawing primitives only — no raw SVG or HTML markup is accepted.
   `DocxParagraphBorders`, `DocxTabStop`, `DocxInlineImage`, `DocxTableEdge`,
   `DocxTableBorders`. Paragraph alignment is `TextAlign` and cell padding is
   `InsetsModel`, both listed above with the PPTX text model.
+  A picture anchored in a paragraph (`wp:anchor`) is not a flow node: the
+  paragraph or heading carries it in `floats`, each a `DocxImageNode` whose
+  `anchor` (`DocxImageAnchor`, with a `DocxAnchorPosition` per axis) holds
+  what Word saved: the wrap type (`square`, `tight`, `through`,
+  `topAndBottom`, or `none` for text running over it), `behind`, which side
+  text may use, the position (an alignment or an offset from a named edge),
+  the four text distances in inches, and for tight and through wrapping the
+  polygon as fractions of the picture. An inline picture has no `anchor`.
 
 The current PPTX parser emits text shapes and tables, including supported
 text run styles with direct, inherited, or theme-default browser families;
@@ -1530,7 +1700,13 @@ For relative DrawingML line spacing, `TextParagraphModel.lineSpacing`
 preserves the authored multiplier. The DOM renderer uses a minimum `1.1`
 browser line box so a single Arabic line cannot crop its glyph ink; it
 exposes the authored value as `data-aared-line-spacing` on the rendered
-paragraph for diagnostics.
+paragraph for diagnostics. Paragraph spacing is either points
+(`spaceBeforePt`/`spaceAfterPt`, from `a:spcPts`) or lines
+(`spaceBeforeLines`/`spaceAfterLines`, from `a:spcPct`, 1 = 100%). As in
+PowerPoint, a line of spacing is 1.2 × the paragraph's largest run size,
+whatever its line spacing. The renderer drops space before a text body's
+first paragraph and after its last, and adds one paragraph's space after to
+the next one's space before.
 
 ## Dark mode
 

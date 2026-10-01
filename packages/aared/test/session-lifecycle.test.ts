@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { AaredError, isAaredError, isAbort } from "../src/core/index.js";
+import { drainWorkerPool } from "../src/core/session.js";
 import { open } from "../src/pptx/index.js";
 import { rejection } from "./harness.js";
 
@@ -162,6 +163,140 @@ test("resolves each requested font family once on the main side", async () => {
   }
 });
 
+test("a failing font resolver never fails a read, and is asked again next time", async () => {
+  // A font is cosmetic: the family falls back (and the render's warnings name it).
+  const calls: string[] = [];
+  let attempt = 0;
+  const deck = await open(await Bun.file(ARABIC_FIXTURE).arrayBuffer(), {
+    fontResolver: (family: string) => {
+      calls.push(family);
+      if (family !== "Arial") return undefined;
+      attempt++;
+      if (attempt === 1) throw new Error("resolver threw");
+      return Promise.reject(new Error("resolver rejected"));
+    },
+  });
+  try {
+    const first = await deck.slides.get(1).read();
+    expect(first.elements.length).toBeGreaterThan(0);
+    // A rejection is not cached either: the second read asks for Arial again, and still succeeds.
+    await deck.slides.get(1).read();
+    expect(calls.filter((family) => family === "Arial")).toHaveLength(2);
+    // Families that resolved (here to `undefined`) stay cached: asked once each.
+    const others = calls.filter((family) => family !== "Arial");
+    expect(new Set(others).size).toBe(others.length);
+  } finally {
+    deck.close();
+  }
+});
+
+/** A stub Worker that boots, opens a one-slide deck, and answers `unit` with `unitReply`. */
+function stubWorker(unitReply: (message: { sessionId: number; requestId: number }) => unknown): {
+  Worker: unknown;
+  crash: (message: string) => void;
+} {
+  let current: { message: ((event: MessageEvent<unknown>) => void) | null; error: ((event: ErrorEvent) => void) | null } | null = null;
+  class StubWorker {
+    private message: ((event: MessageEvent<unknown>) => void) | null = null;
+    private error: ((event: ErrorEvent) => void) | null = null;
+    constructor() {
+      current = this as unknown as typeof current;
+    }
+    set onmessage(handler: ((event: MessageEvent<unknown>) => void) | null) {
+      this.message = handler;
+      queueMicrotask(() => this.message?.({ data: { type: "ready" } } as MessageEvent<unknown>));
+    }
+    set onerror(handler: ((event: ErrorEvent) => void) | null) {
+      this.error = handler;
+    }
+    postMessage(message: { type: string; sessionId: number; requestId: number }): void {
+      const reply = message.type === "open"
+        ? { ok: true, result: { format: "pptx", count: 1, titles: ["Slide 1"], sizes: [{ width: 10, height: 7.5 }], theme: { colors: {}, fonts: { major: "", minor: "" } } } }
+        : message.type === "unit" ? unitReply(message) : undefined;
+      if (reply === undefined) return;
+      queueMicrotask(() => this.message?.({ data: { type: "response", sessionId: message.sessionId, requestId: message.requestId, ...(reply as object) } } as MessageEvent<unknown>));
+    }
+    terminate(): void {}
+  }
+  return {
+    Worker: StubWorker,
+    crash: (message) => current?.error?.({ message } as ErrorEvent),
+  };
+}
+
+async function withWorker(stub: unknown, run: () => Promise<void>): Promise<void> {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "Worker");
+  Object.defineProperty(globalThis, "Worker", { configurable: true, value: stub });
+  try {
+    await run();
+  } finally {
+    if (original === undefined) delete (globalThis as { Worker?: typeof Worker }).Worker;
+    else Object.defineProperty(globalThis, "Worker", original);
+    drainWorkerPool();
+  }
+}
+
+test("after the Worker crashes, later calls report the crash, never `closed`", async () => {
+  const stub = stubWorker(() => undefined);
+  await withWorker(stub.Worker, async () => {
+    const deck = await open(new ArrayBuffer(8));
+    const pending = deck.slides.get(0).read();
+    stub.crash("Uncaught RangeError: out of memory.");
+    const inFlight = await rejection(pending);
+    expect(inFlight).toMatchObject({ code: "worker-error" });
+    expect(inFlight.message).toBe("aared/pptx: worker failed to start or stopped unexpectedly (Uncaught RangeError: out of memory)");
+    expect((inFlight as AaredError).cause).toMatchObject({ message: "Uncaught RangeError: out of memory." });
+    // The next call on the same document: still the crash, not a use-after-close bug.
+    const later = await rejection(deck.slides.get(0).read());
+    expect(later).toMatchObject({ code: "worker-error" });
+    deck.close();
+  });
+});
+
+test("an internal Worker failure arrives with its original error as `cause`, in the caller's scope", async () => {
+  const stub = stubWorker(() => ({
+    ok: false,
+    error: {
+      name: "AaredError",
+      code: "internal",
+      message: "aared/core: the viewer failed while reading this file (TypeError: x is undefined)",
+      cause: { name: "TypeError", message: "x is undefined", stack: "TypeError: x is undefined\n    at parse (pptx.ts:1:1)" },
+    },
+  }));
+  await withWorker(stub.Worker, async () => {
+    const deck = await open(new ArrayBuffer(8));
+    const error = await rejection(deck.slides.get(0).read());
+    expect(error).toBeInstanceOf(AaredError);
+    expect(error).toMatchObject({ code: "internal", message: "aared/pptx: the viewer failed while reading this file (TypeError: x is undefined)" });
+    const cause = (error as AaredError).cause as Error;
+    expect(cause).toBeInstanceOf(Error);
+    expect(cause.name).toBe("TypeError");
+    expect(cause.stack).toContain("at parse (pptx.ts:1:1)");
+    deck.close();
+  });
+});
+
+test("a download that drops partway is a network-error, not the platform's raw TypeError", async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    value: async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([0x50, 0x4b]));
+        controller.error(new TypeError("network connection was lost"));
+      },
+    })),
+  });
+  try {
+    const error = await rejection(open("https://example.test/deck.pptx"));
+    expect(error).toMatchObject({ code: "network-error" });
+    expect(error.message).toBe('aared/pptx: the download of "https://example.test/deck.pptx" stopped partway: network connection was lost');
+  } finally {
+    if (original === undefined) delete (globalThis as { fetch?: typeof fetch }).fetch;
+    else Object.defineProperty(globalThis, "fetch", original);
+  }
+});
+
 test("closing rejects an in-flight slide read", async () => {
   const deck = await open(await Bun.file(ARABIC_FIXTURE).arrayBuffer());
   const read = deck.slides.get(0).read();
@@ -227,5 +362,32 @@ test("reports worker boot failure as worker-error, never as aborted", async () =
   } finally {
     if (original === undefined) delete (globalThis as { Worker?: typeof Worker }).Worker;
     else Object.defineProperty(globalThis, "Worker", original);
+  }
+});
+
+test("reports a Worker the browser refuses to construct as a typed worker-error", async () => {
+  // Scripts on another origin (a CDN) make `new Worker()` throw a
+  // SecurityError synchronously, before any `onerror`; it used to escape raw.
+  const original = Object.getOwnPropertyDescriptor(globalThis, "Worker");
+  const refusal = new Error("Failed to construct 'Worker': Script at 'https://cdn.example/worker.js' cannot be accessed from origin 'https://app.example'.");
+  refusal.name = "SecurityError";
+  class RefusedWorker {
+    constructor() {
+      throw refusal;
+    }
+  }
+  Object.defineProperty(globalThis, "Worker", { configurable: true, value: RefusedWorker });
+  try {
+    const error = await rejection(open(await Bun.file(ARABIC_FIXTURE).arrayBuffer()));
+    expect(error).toBeInstanceOf(AaredError);
+    expect(error).toMatchObject({ code: "worker-error", cause: refusal });
+    const message = (error as AaredError).message;
+    expect(message.startsWith("aared/pptx: the browser refused to start the Worker (Failed to construct 'Worker'")).toBe(true);
+    expect(message).toContain('"worker" option');
+    expect(isAbort(error)).toBe(false);
+  } finally {
+    if (original === undefined) delete (globalThis as { Worker?: typeof Worker }).Worker;
+    else Object.defineProperty(globalThis, "Worker", original);
+    drainWorkerPool();
   }
 });

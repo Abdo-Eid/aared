@@ -12,7 +12,10 @@ bun tools/word-render/capture.ts fixtures/docx-coverage.docx \
 The first command writes `word-page-N.png` (96 dpi, so CSS pixels),
 `word-spans.json` and `word-export.json` into the gitignored `out/` directory.
 The second writes `aared-page-N.png` beside them; review each pair
-side by side. Requires Windows, Word, PowerShell 7 and Python with PyMuPDF
+side by side. Add `--absent-fonts` to the second to write
+`aared-absent-page-N.png` instead: the document as a device without Office's
+fonts paints it, through the real `aared-fonts` resolver (network;
+DECISION_LOG §51). Requires Windows, Word, PowerShell 7 and Python with PyMuPDF
 (`pip install "PyMuPDF==1.27.2"`).
 
 ## Method

@@ -1,8 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { usePreview } from "aared/react";
+import { defaultResolver } from "aared-fonts";
 import type { BenchTheme } from "../adapters";
 import type { DocMeta } from "../lib/doc";
 import { ViewerFrame, useViewerFrame, type Status } from "./ViewerFrame";
+
+/**
+ * `?fonts=aared` passes aared-fonts' resolver, so a device without Office's
+ * fonts (a phone) paints the calibrated substitutes. Off by default: the
+ * bench's timings stay free of font downloads. Module-level, so the hook
+ * sees one stable resolver.
+ */
+const FONT_RESOLVER = new URLSearchParams(location.search).get("fonts") === "aared" ? defaultResolver : undefined;
 
 /** What the pager's "100%" means per format: the zoom each format opens at. */
 const PAGER_DEFAULT_ZOOM = { pptx: "fit-page", docx: "fit-width", xlsx: 1 } as const;
@@ -31,17 +40,10 @@ export function AaredViewerCard({ doc, theme, onClose }: {
     source: buffer,
     appearance: { theme },
     pagination: { mode: "layout" },
+    ...(FONT_RESOLVER === undefined ? {} : { fontResolver: FONT_RESOLVER }),
   });
 
-  const [tabError, setTabError] = useState<{ message: string; ms: number } | null>(null);
-
-  // Fresh bytes restart per-tab error state alongside the hook's own reset.
-  useEffect(() => {
-    setTabError(null);
-  }, [buffer]);
-
   const status: Status = useMemo(() => {
-    if (tabError !== null) return { state: "error", message: tabError.message, ms: tabError.ms };
     if (hook.status === "loading" || hook.status === "idle") return { state: "loading" };
     if (hook.status === "error") {
       const ms = Math.round(performance.now() - t0);
@@ -92,13 +94,14 @@ export function AaredViewerCard({ doc, theme, onClose }: {
         outline: docx.headings.map((heading) => ({
           level: heading.level,
           text: heading.title,
-          onSelect: () => void docx.goToHeading(heading.index),
+          // A failure fires the viewer's `error` (the notice); the rejection itself needs no handling here.
+          onSelect: () => void docx.goToHeading(heading.index).catch(() => {}),
         })),
         paperWidth: pages.length > 0 ? Math.max(...pages.map((page) => page.width)) : 0,
         destroy: () => viewer.destroy(),
       },
     };
-  }, [hook.status, hook.viewer, hook.info, hook.error, tabError, t0]);
+  }, [hook.status, hook.viewer, hook.info, hook.error, t0]);
 
   const firedKey = useRef<string | null>(null);
   useEffect(() => {
@@ -121,9 +124,15 @@ export function AaredViewerCard({ doc, theme, onClose }: {
     }
   }, [status, doc]);
 
-  const reportError = useCallback((message: string, ms: number) => {
-    setTabError({ message, ms });
-  }, []);
+  // A slide or sheet that cannot be shown: the frame logs the rejected
+  // `goTo()` and reports it here, but the handle's `error` event has already
+  // put it in `hook.navigationError` (the notice below), and the unit on screen
+  // stays. So this reports nothing more, and never swaps in the error screen.
+  const reportError = useCallback(() => {}, []);
+  const navigationError = hook.navigationError;
+  const notice = navigationError === null
+    ? null
+    : `Could not go there: ${navigationError instanceof Error ? navigationError.message : String(navigationError)}`;
 
   const controller = useViewerFrame({
     doc,
@@ -161,5 +170,5 @@ export function AaredViewerCard({ doc, theme, onClose }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hook.index, hook.viewer, controller.setActiveSheet]);
 
-  return <ViewerFrame doc={doc} renderer="aared" onClose={onClose} controller={controller} />;
+  return <ViewerFrame doc={doc} renderer="aared" onClose={onClose} controller={controller} notice={notice} />;
 }

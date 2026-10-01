@@ -10,6 +10,8 @@
     "shape-fills": { "hasText": "تعبئة الأشكال" },
     "pattern-background": { "hasText": "خلفية بنقش" },
     "tiled-background": { "hasText": "خلفية مبلطة" },
-    "table-fills": { "hasText": "جدول بتعبئة" }
+    "table-fills": { "hasText": "جدول بتعبئة" },
+    "lines": { "hasText": "خطوط وموصلات" },
+    "paragraph-spacing": { "hasText": "تباعد الفقرات" }
   }
 }

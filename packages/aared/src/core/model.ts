@@ -21,6 +21,20 @@ export interface LocalViewBoxModel {
   height: number;
 }
 
+/**
+ * One non-fatal thing a render noticed about its own output: a DOCX
+ * paginator block that couldn't fit a page even alone, a footnote that ran
+ * past its page, a font this render couldn't actually paint with (see
+ * `font-fidelity.ts`'s `detectFontFidelity`). `code` is a stable, format- and
+ * source-specific slug an embedder can switch on; `message` is for a human.
+ * Shared by every format's render handle (`RenderHandleBase.warnings`,
+ * `render-handle.ts`) so an embedder reads one shape regardless of source.
+ */
+export interface RenderWarning {
+  code: string;
+  message: string;
+}
+
 export type TextDirection = "ltr" | "rtl";
 
 /** Paragraph alignment in physical terms; a bidi paragraph's start/end resolve to left/right before they reach the model. */
@@ -33,9 +47,11 @@ export type TextWrappingMode = "none" | "square";
 export type TextAutofitMode = "none" | "shrinkText" | "resizeShape";
 
 /**
- * Box insets in inches, every side optional (absent: not authored). The one
- * shape behind a text body's insets (`a:bodyPr`), a PPTX cell's margins
- * (`a:tcPr`) and a Word cell's padding (`w:tblCellMar` / `w:tcMar`).
+ * Box insets in inches, every side optional. The one shape behind a text
+ * body's insets (`a:bodyPr`), a PPTX cell's margins (`a:tcPr`) and a Word
+ * cell's padding (`w:tblCellMar` / `w:tcMar`). A PPTX text body and cell always
+ * carry all four sides, DrawingML's defaults filled in for any none states;
+ * a Word cell's absent side means Word's own default was not overridden.
  */
 export interface InsetsModel {
   left?: number;
@@ -51,6 +67,14 @@ export interface TextRunModel {
   /** Points, matching DrawingML text sizing. */
   fontSizePt?: number;
   language?: string;
+  /**
+   * A left-to-right run (DOCX without `w:rtl`, PPTX in a left-to-right
+   * `lang`) with no right-to-left letters, inside a right-to-left paragraph.
+   * Word and PowerPoint keep it together left to right: "71%" and
+   * "15 Oct 2026" stay as written, where the Unicode bidi algorithm alone
+   * would show "%71" and "Oct 2026 15" (probe run-direction).
+   */
+  ltrRun?: true;
   latinTypeface?: string;
   complexScriptTypeface?: string;
   /** East Asian (`a:ea`) and symbol (`a:sym`) typeface slots; families resolve like latin/cs. */
@@ -164,11 +188,22 @@ export interface TextParagraphModel {
   firstLineIndent?: number;
   /** Line height as a multiple of the paragraph font size. */
   lineSpacing?: number;
-  /** Explicit line height in points when the source does not use a percentage. */
+  /**
+   * Explicit line height in points when the source does not use a
+   * percentage: an exact pitch, whatever the runs on the line are set in.
+   */
   lineSpacingPt?: number;
-  /** Space before and after the paragraph, in points. */
+  /** Space before and after the paragraph, in points (`a:spcPts`). */
   spaceBeforePt?: number;
   spaceAfterPt?: number;
+  /**
+   * Space before and after the paragraph in lines (`a:spcPct`, 1 = 100%),
+   * set instead of the points field. A PowerPoint line here is always 1.2 ×
+   * the paragraph's largest run size, whatever the font or the paragraph's
+   * own line spacing.
+   */
+  spaceBeforeLines?: number;
+  spaceAfterLines?: number;
 }
 
 export interface TextBodyModel {
@@ -178,9 +213,23 @@ export interface TextBodyModel {
   wrapping?: TextWrappingMode;
   autofit?: TextAutofitMode;
   /**
+   * The type scale PowerPoint stored with `a:normAutofit/@fontScale` (1 = 100%,
+   * 0.925 = 92.5%), already applied to every resolved run and paragraph size
+   * (each rounded to a whole point, as PowerPoint paints it). Absent when the
+   * file stores none: PowerPoint does not shrink on open, so neither does aared.
+   */
+  fontScale?: number;
+  /**
+   * The line-spacing cut PowerPoint stored with `a:normAutofit/@lnSpcReduction`
+   * (0.1 = 10 percentage points off each paragraph's line spacing), already
+   * applied to `lineSpacing`.
+   */
+  lineSpacingReduction?: number;
+  /**
    * WordArt preset warp (`a:bodyPr/a:prstTxWarp/@prst`, e.g. `textArchUp`).
-   * Painted unwarped and marked — true glyph warping needs per-glyph path
-   * morphing and is explicitly out of scope.
+   * Painted unwarped and marked. Most presets are free-form envelopes with no
+   * DOM form; the arch and circle ones could follow an SVG `textPath`
+   * (docs/ROADMAP.md open gaps).
    */
   textWarp?: string;
 }
@@ -586,6 +635,10 @@ export interface SlideModel {
   layout?: SlideLayoutModel;
   /** The slide hides background graphics (`showMasterSp="0"`). */
   hideBackgroundGraphics?: boolean;
+  /**
+   * The slide's speaker notes as plain text (the notes page's body
+   * placeholder). Read only: no renderer paints it and search skips it.
+   */
   notes?: string;
 }
 
@@ -712,9 +765,15 @@ export interface SheetChartModel {
 
 export type SheetDrawingModel = SheetPictureModel | SheetChartModel;
 
-/** Visible, non-silent record of content the previewer deliberately does not model. */
+/**
+ * Visible, non-silent record of content the preview does not show. Every kind
+ * but `damaged` is a feature the previewer deliberately does not model;
+ * `damaged` is the file itself at fault (an unreadable cell address, a
+ * drawing pointing at a missing part), which Excel never writes, so a reader
+ * can be told the file may be damaged rather than that a feature is missing.
+ */
 export interface SheetUnsupportedModel {
-  kind: "pivot" | "macro" | "sparkline" | "data-validation" | "comment" | "conditional-format" | "drawing" | "other";
+  kind: "pivot" | "macro" | "sparkline" | "data-validation" | "comment" | "conditional-format" | "drawing" | "damaged" | "other";
   detail: string;
   range?: CellRange;
 }
@@ -824,12 +883,29 @@ export interface DocxParagraphLayout
     | "rightIndent"
     | "firstLineIndent"
   > {
+  /**
+   * `w:lineRule="atLeast"`: `lineSpacingPt` is a floor a taller run grows its
+   * line past. Absent, `lineSpacingPt` is Word's `exact` pitch, which no run
+   * on the line changes — the same meaning PowerPoint's points spacing has.
+   */
+  lineSpacingAtLeast?: true;
+  /**
+   * A justified paragraph Word lays out with its 2013 engine
+   * (`compatibilityMode` 15), which takes back part of each space to fit one
+   * more word on a line rather than breaking before it.
+   */
+  justifyShrink?: true;
   /** Custom tab stops in ascending position; text tabs past the last stop use the default grid. */
   tabStops?: DocxTabStop[];
   /** Resolved CSS paragraph shading (`w:shd`). */
   shading?: string;
   /** Resolved paragraph borders (`w:pBdr`), per side. */
   borders?: DocxParagraphBorders;
+  /**
+   * `w:keepNext`: layout mode keeps this paragraph on the page of the block
+   * after it; a table row whose paragraphs all keep with next never ends a page.
+   */
+  keepNext?: true;
 }
 
 export interface DocxParagraphNode extends DocxParagraphLayout {
@@ -839,10 +915,14 @@ export interface DocxParagraphNode extends DocxParagraphLayout {
   direction: TextDirection;
   /** Source paragraph style id, for diagnostics only. */
   styleId?: string;
+  /** Pictures anchored in this paragraph (`wp:anchor`), placed relative to it; text wraps or runs over them. */
+  floats?: DocxImageNode[];
 }
 
 export interface DocxHeadingNode extends DocxParagraphLayout {
   type: "heading";
+  /** Pictures anchored in this heading, as `DocxParagraphNode.floats`. */
+  floats?: DocxImageNode[];
   /** Word outline level 1–9 (`Heading 1`–`Heading 9` styles or `w:outlineLvl`). */
   level: number;
   /** Joined run text, for heading outlines and document titles. */
@@ -885,11 +965,25 @@ export interface DocxTableRowNode {
   height?: number;
   /** Logical XML cell order, regardless of table display direction. */
   cells: DocxTableCellNode[];
+  /**
+   * Word's own saved layout put a page break right before this row
+   * (`w:lastRenderedPageBreak` leading the first cell's first paragraph).
+   * Tables break between rows only, so this is the one place that hint can
+   * still land. Read only, never authored: pagination treats it as a
+   * `"preferred"` break the same way a paragraph-level hint is
+   * (`SoftBreakPolicy`), not a forced one.
+   */
+  pageBreakBefore?: true;
 }
 
 export interface DocxTableNode {
   type: "table";
-  /** Table display direction (`w:tblBidiVisual`); never reorders logical cells. */
+  /**
+   * Table display direction (`w:bidiVisual`); never reorders logical cells.
+   * In a right-to-left table, `left`/`right` borders are the start/end sides
+   * (Word paints a `w:left` border on the right), while cell margins keep
+   * their physical sides.
+   */
   direction: TextDirection;
   /** Column widths in inches, in logical XML order. */
   columns: number[];
@@ -900,6 +994,11 @@ export interface DocxTableNode {
   borders?: DocxTableBorders;
   /** Default cell padding (`w:tblCellMar`, else the Normal Table default). */
   cellMargins?: InsetsModel;
+  /**
+   * Indent in inches from the start side (`w:tblInd` in dxa): the left of a
+   * left-to-right table, the right of a right-to-left one. May be negative.
+   */
+  indent?: number;
 }
 
 export interface DocxImageNode {
@@ -912,14 +1011,52 @@ export interface DocxImageNode {
   width: number;
   height: number;
   alt?: string;
-  /** Basic `wp:anchor` float; absent means inline flow. */
-  float?: "left" | "right";
+  /**
+   * Where an anchored picture (`wp:anchor`) sits and how text wraps around it.
+   * Absent for an inline picture, which flows like a glyph. An anchored picture
+   * is carried by its anchor paragraph (`floats`), not placed in the flow.
+   */
+  anchor?: DocxImageAnchor;
   /**
    * Host paragraph alignment for inline images (`w:jc`); centered source
    * paragraphs center their image. Absent when unauthored — and never set
-   * for floats, which paragraph alignment does not position.
+   * for anchored pictures, which paragraph alignment does not position.
    */
   align?: TextAlign;
+}
+
+/**
+ * The placement Word saves on a `wp:anchor`: one wrap type, whether the
+ * picture sits behind the text, a horizontal and a vertical position, the
+ * distance text keeps from each side, and for tight and through wrapping the
+ * polygon text follows. All lengths are inches.
+ */
+export interface DocxImageAnchor {
+  /**
+   * `square` follows the picture's box, `tight` and `through` its polygon,
+   * `topAndBottom` leaves the lines beside it empty, `none` lets text run
+   * over it (`wp:wrapNone`: behind or in front of the text, see `behind`).
+   */
+  wrap: "square" | "tight" | "through" | "topAndBottom" | "none";
+  /** `behindDoc`: painted under the text. Independent of `wrap`: Word saves a tight wrap with it set. */
+  behind: boolean;
+  /** `wrapText`: which side of the picture text may use. */
+  wrapText: "bothSides" | "left" | "right" | "largest";
+  horizontal: DocxAnchorPosition<"left" | "center" | "right" | "inside" | "outside">;
+  vertical: DocxAnchorPosition<"top" | "center" | "bottom" | "inside" | "outside">;
+  /** Space text keeps from each side, from `distT`/`distB`/`distL`/`distR`. */
+  distance: { top: number; bottom: number; left: number; right: number };
+  /** Tight and through only: points as fractions (0-1) of the picture's width and height, from Word's 21600-unit square. */
+  polygon?: Array<[x: number, y: number]>;
+}
+
+/** One axis of an anchor: the edge it is measured from, and either an alignment or an offset. */
+export interface DocxAnchorPosition<Align extends string> {
+  /** `relativeFrom`: `column`, `margin`, `page`, `paragraph`, `line`, `character` or a margin/page part. */
+  from: string;
+  align?: Align;
+  /** `wp:posOffset` in inches from the `from` edge; may be negative. */
+  offset?: number;
 }
 
 export interface DocxListItemNode {

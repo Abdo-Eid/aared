@@ -90,11 +90,14 @@ describe("PPTX bullets (coverage slide 5)", () => {
     expect(plain?.bullet).toMatchObject({ char: "•" });
     expect(plain?.bullet?.color).toBeUndefined();
     expect(plain?.bullet?.sizePct).toBeUndefined();
-    // Customized: red 150% markers, Wingdings chars in their own typeface.
+    // Customized: red 150% markers. The Wingdings square ("q") and check mark
+    // ("ü") arrive as their Unicode shapes with no symbol font, so a device
+    // without Wingdings paints the shape, not the letter.
     const red = bullets.find((p) => p.runs.some((r) => r.text.includes("حمراء")));
     expect(red?.bullet).toMatchObject({ color: "#FF0000", sizePct: 150 });
-    const wingdings = bullets.filter((p) => p.bullet?.typeface === "Wingdings");
-    expect(wingdings.map((p) => p.bullet?.char).sort()).toEqual(["q", "ü", "ü"]);
+    expect(bullets.some((p) => p.bullet?.typeface === "Wingdings")).toBe(false);
+    const shapes = bullets.map((p) => p.bullet?.char).filter((char) => char === "❑" || char === "✓");
+    expect(shapes.sort()).toEqual(["✓", "✓", "❑"]);
   });
 
   test("numbering restarts per type and picture bullets resolve media", async () => {

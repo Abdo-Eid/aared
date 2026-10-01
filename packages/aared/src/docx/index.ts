@@ -33,7 +33,9 @@ import type {
   DocxTableNode,
   DocxUnsupportedNode,
   DocumentSection,
+  DocxTableRowNode,
   FlowNode,
+  RenderWarning,
   TextDirection,
   TextRunModel,
 } from "../core/model.js";
@@ -52,14 +54,18 @@ import { AaredError } from "../core/index.js";
 import { RETURN_ARROW } from "../core/chars.js";
 import { SessionMedia, WorkerSession } from "../core/session.js";
 import { itemAt, throwIfAborted } from "../core/errors.js";
-import { BASE_FONT_PX, BLOCK_MARGIN_EM, WORD_SINGLE_LINE, dropsTopSpacing, paginate } from "../core/docx/pagination.js";
+import { BASE_FONT_PX, BLOCK_MARGIN_EM, WORD_SINGLE_LINE, dropsTopSpacing, paginate, sectionBodyWidthPx } from "../core/docx/pagination.js";
+import { planFloat } from "./float-layout.js";
+import type { AnchorFrame } from "./float-layout.js";
+import { registerSplit, settleSplitWraps, splittable } from "./split-wrap.js";
 import { cssFontFamily, lineFontSizePt } from "../core/typography.js";
-import type { LayoutPage, SoftBreakPolicy } from "../core/docx/pagination.js";
+import type { LayoutPage, MeasuredFlow, SoftBreakPolicy } from "../core/docx/pagination.js";
 import { automaticInk, paintTokens, resolveTheme } from "../appearance.js";
 import { MediaUrls } from "../media-url.js";
 import { RenderHandleBase, fitScale, measureFitRoom, safeScale } from "../render-handle.js";
 import { createTableCell, createTableGrid } from "../table-dom.js";
-import { applyParagraphBox, applyRunBase, roundPt } from "../text-style.js";
+import { applyParagraphBox, applyRunBase, exactLinePitch, roundPt } from "../text-style.js";
+import { awaitDocumentFonts, fontFidelityWarnings } from "../font-fidelity.js";
 import { PX_PER_INCH, inchesToCss, ptToPx, twipsToInches } from "../core/units.js";
 import { fillRunText, lazyPagePaint, markTabs, settlePageTabStops, settleTabStops } from "./tabs.js";
 import { adoptClassSheet, cssClass, type ClassSheetScope } from "../class-sheet.js";
@@ -78,13 +84,29 @@ const DEFAULT_HANGING_IN = 0.25;
 // the render root's one adopted sheet (class-sheet.ts); inline style keeps
 // only what a node authors (its margins, indents, alignment, runs).
 /** A paragraph or heading block: authored spacing and indents override the zero margin inline. */
-const BLOCK = cssClass("margin:0;min-width:0;white-space:pre-wrap");
+// Headings paint as <h1>-<h6> for outline semantics, so the class also resets
+// the browser's heading bold and 2em size: weight and size come from runs, as
+// in Word (a Heading 1 without `w:b` is not bold).
+const BLOCK = cssClass("margin:0;min-width:0;white-space:pre-wrap;font-weight:normal;font-size:inherit");
+/**
+ * A justified paragraph Word lays out with its 2013 engine (`justifyShrink`).
+ * Word fits one more word on a line by taking back part of each space, up to
+ * about a quarter of a space and a third of the word it fits (probe
+ * docx-justify). CSS breaks lines at fixed widths, so its spaces break a
+ * little narrower here, and justification stretches every full line back to
+ * the margin. The amount stays under both of Word's limits for a line of up
+ * to about twenty spaces, so a word Word pushes to the next line is never
+ * pulled back; it covers the near misses where a line runs a pixel or less
+ * over (a justified Arabic cell broke "تيار" to a fourth line for 0.6px).
+ * Only the last line keeps the slightly narrower spaces.
+ */
+const JUSTIFY_SHRINK = cssClass("word-spacing:-0.01em");
 const MARKER = cssClass("text-indent:0");
 /** A list marker followed by a tab to the text indent: it owns the hanging width (`min-width`, inline). */
 const MARKER_TAB = cssClass("text-indent:0;display:inline-block;text-align:start");
 /** A laid-out page; its size and padding stay inline. */
 const PAGE = cssClass(
-  `flex-shrink:0;box-sizing:border-box;position:relative;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);font-family:system-ui, sans-serif;font-size:${BASE_FONT_PX}px;line-height:${WORD_SINGLE_LINE}`,
+  `flex-shrink:0;box-sizing:border-box;position:relative;isolation:isolate;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);font-family:system-ui, sans-serif;font-size:${BASE_FONT_PX}px;line-height:${WORD_SINGLE_LINE}`,
 );
 const PAGE_LAZY = cssClass("content-visibility:auto");
 
@@ -281,6 +303,7 @@ export async function open(source: Source, options?: OpenOptions): Promise<DocxD
  */
 function applyParagraphLayout(line: HTMLElement, node: DocxParagraphLayout & { direction: TextDirection; runs: readonly TextRunModel[] }): void {
   applyParagraphBox(line, node, { singleLine: WORD_SINGLE_LINE });
+  if (node.justifyShrink === true) line.classList.add(JUSTIFY_SHRINK);
   // The line box follows the runs on it, not the paragraph default (see `lineFontSizePt`).
   const lineFontPt = lineFontSizePt(node.runs, node.fontSizePt);
   if (lineFontPt !== undefined) line.style.fontSize = `${lineFontPt}pt`;
@@ -367,8 +390,8 @@ function applyParagraphBorders(line: HTMLElement, layout: DocxParagraphLayout): 
 }
 
 /** Paint a run's character formatting onto its span; shared by text runs and list markers. */
-function applyRunStyle(span: HTMLElement, run: TextRunModel): void {
-  applyRunBase(span, run);
+function applyRunStyle(span: HTMLElement, run: TextRunModel, exactPitch: boolean): void {
+  applyRunBase(span, run, exactPitch);
   if (run.shading !== undefined && run.highlight === undefined) span.style.backgroundColor = run.shading;
   // Only text with no colour of its own follows its fill (see `paintAutomaticInk`).
   const fill = run.highlight ?? run.shading;
@@ -396,7 +419,7 @@ function applyScript(element: HTMLElement, kind: "superscript" | "subscript", ba
     : basePt === undefined ? "super" : `${roundPt(basePt * SUPERSCRIPT_RAISE)}pt`;
 }
 
-function appendRunText(host: HTMLElement, run: TextRunModel, wiring: ImageWiring, direction: "ltr" | "rtl"): void {
+function appendRunText(host: HTMLElement, run: TextRunModel, wiring: ImageWiring, direction: "ltr" | "rtl", exactPitch: boolean): void {
   if (run.image !== undefined) {
     appendInlineImage(host, run.image, run.hyperlink, wiring);
     return;
@@ -411,7 +434,7 @@ function appendRunText(host: HTMLElement, run: TextRunModel, wiring: ImageWiring
       : run.text;
   const span = document.createElement("span");
   fillRunText(span, text, direction);
-  applyRunStyle(span, run);
+  applyRunStyle(span, run, exactPitch);
   if (run.hyperlink !== undefined) {
     const link = document.createElement("a");
     link.href = run.hyperlink;
@@ -449,6 +472,8 @@ function appendParagraph(host: HTMLElement, paragraph: DocxParagraphNode, wiring
   line.setAttribute("data-aared-element", "paragraph");
   line.setAttribute("class", BLOCK);
   applyParagraphLayout(line, paragraph);
+  const exactPitch = exactLinePitch(paragraph);
+  if (paragraph.floats !== undefined) appendFloats(line, paragraph.floats, paragraph, wiring);
   if (marker !== undefined) {
     // The marker is the first thing on the line in the paragraph's own
     // direction, so an RTL item carries it on the right and the line packs
@@ -463,13 +488,15 @@ function appendParagraph(host: HTMLElement, paragraph: DocxParagraphNode, wiring
     // text. Left to inherit the paragraph's physical `text-align` it would sit
     // against the text in an RTL item, whose alignment is swapped.
     mark.setAttribute("class", marker.suffix === undefined ? MARKER_TAB : MARKER);
-    if (marker.run !== undefined) applyRunStyle(mark, marker.run);
+    if (marker.run !== undefined) applyRunStyle(mark, marker.run, exactPitch);
     if (marker.suffix === undefined) mark.style.minWidth = `${marker.hangingPx}px`;
     line.append(mark);
     if (marker.suffix === "space") line.append(document.createTextNode(" "));
   }
   // Runs go straight into the paragraph: no wrapper, one element fewer per paragraph.
-  for (const run of paragraph.runs) appendRunText(line, run, wiring, paragraph.direction);
+  for (const run of paragraph.runs) appendRunText(line, run, wiring, paragraph.direction, exactPitch);
+  // A paragraph holding only pictures is still one line tall in Word.
+  if (paragraph.runs.length === 0 && paragraph.floats !== undefined) line.append(document.createElement("br"));
   markTabs(line, paragraph.tabStops);
   host.append(line);
   return line;
@@ -490,7 +517,9 @@ function appendHeading(host: HTMLElement, heading: DocxHeadingNode, wiring: Imag
   }
   element.setAttribute("class", BLOCK);
   applyParagraphLayout(element, heading);
-  for (const run of heading.runs) appendRunText(element, run, wiring, heading.direction);
+  const exactPitch = exactLinePitch(heading);
+  if (heading.floats !== undefined) appendFloats(element, heading.floats, heading, wiring);
+  for (const run of heading.runs) appendRunText(element, run, wiring, heading.direction, exactPitch);
   markTabs(element, heading.tabStops);
   host.append(element);
 }
@@ -503,8 +532,23 @@ function appendHeading(host: HTMLElement, heading: DocxHeadingNode, wiring: Imag
  */
 function borderSnapSlackPx(edge: DocxTableEdge | undefined): number {
   if (edge === undefined || edge === "none") return 0;
+  return paintedBorderPx(edge) - ptToPx(edge.widthPt);
+}
+
+/** The width a table edge paints at: its authored width, at least one pixel. */
+function paintedBorderPx(edge: DocxTableEdge | undefined): number {
+  if (edge === undefined || edge === "none") return 0;
   const exact = ptToPx(edge.widthPt);
-  return exact > 0 ? Math.max(1, Math.floor(exact)) - exact : 0;
+  return exact > 0 ? Math.max(1, Math.floor(exact)) : 0;
+}
+
+/**
+ * A cell's side padding in pixels: Word's margin (inches) plus the half of
+ * `edge` that falls inside the cell, less the border this cell paints there.
+ */
+function sideInsetPx(marginIn: number, edge: DocxTableEdge | undefined, painted: DocxTableEdge | undefined): number {
+  const half = edge === undefined || edge === "none" ? 0 : ptToPx(edge.widthPt) / 2;
+  return Math.max(0, marginIn * PX_PER_INCH + half - paintedBorderPx(painted));
 }
 
 function appendTable(host: HTMLElement, table: DocxTableNode, wiring: ImageWiring): void {
@@ -516,6 +560,9 @@ function appendTable(host: HTMLElement, table: DocxTableNode, wiring: ImageWirin
   const authoredWidth = table.width ?? (totalColumnWidth > 0 ? totalColumnWidth : undefined);
   grid.style.width = authoredWidth === undefined ? "100%" : inchesToCss(authoredWidth);
   grid.style.maxWidth = "100%";
+  // The grid carries the table's direction, so inline-start is the side
+  // Word measures `w:tblInd` from.
+  if (table.indent !== undefined) grid.style.marginInlineStart = inchesToCss(table.indent);
   const columnCount = table.columns.length > 0
     ? table.columns.length
     : Math.max(1, ...table.rows.map((row) => row.cells.reduce((sum, cell) => sum + (cell.columnSpan ?? 1), 0)));
@@ -533,6 +580,7 @@ function appendTable(host: HTMLElement, table: DocxTableNode, wiring: ImageWirin
       const lastColumn = column + columnSpan >= columnCount;
       const firstRow = rowIndex === 0;
       const touchesBottom = rowIndex + rowSpan - 1 >= lastRow;
+      const spannedIn = table.columns.slice(column, column + columnSpan).reduce((sum, width) => sum + width, 0);
       for (let offset = 0; offset < columnSpan; offset++) busy[column + offset] = rowSpan;
       column += columnSpan;
 
@@ -550,13 +598,33 @@ function appendTable(host: HTMLElement, table: DocxTableNode, wiring: ImageWirin
       const pad = { ...margins, ...cellModel.margins };
       cell.style.paddingTop = `${Math.max(0, (pad.top ?? 0) * PX_PER_INCH - borderSnapSlackPx(top))}px`;
       cell.style.paddingBottom = `${Math.max(0, (pad.bottom ?? 0) * PX_PER_INCH - borderSnapSlackPx(bottom))}px`;
-      cell.style.paddingInlineStart = inchesToCss(pad.left ?? 0);
-      cell.style.paddingInlineEnd = inchesToCss(pad.right ?? 0);
+      // Borders above follow the table direction; cell margins do not: Word
+      // keeps a `w:left` margin on the left even in a right-to-left table.
+      // Word centres a side border on its grid line and keeps the text a
+      // margin beyond the half inside the cell (probe docx-cell-border: a
+      // 0.5pt, 3pt and 6pt border move the text 0.3, 1.4 and 2.45pt). The
+      // browser paints the whole border inside the cell that draws it, so the
+      // padding is the margin plus half the edge, less what is painted here;
+      // an inside divider drawn by the next cell still keeps this cell's text
+      // half its width away.
+      const shared = lastColumn ? undefined : borders?.insideV;
+      const [left, right] = table.direction === "rtl"
+        ? [{ edge: end ?? shared, painted: end }, { edge: start, painted: start }]
+        : [{ edge: start, painted: start }, { edge: end ?? shared, painted: end }];
+      cell.style.paddingLeft = `${sideInsetPx(pad.left ?? 0, left.edge, left.painted)}px`;
+      cell.style.paddingRight = `${sideInsetPx(pad.right ?? 0, right.edge, right.painted)}px`;
       if (cellModel.shading !== undefined) {
         cell.style.backgroundColor = cellModel.shading;
         cell.dataset.aaredShade = cellModel.shading;
       }
+      // A picture anchored in the cell is placed against the cell's text width, not the page's column.
+      const outer = wiring.frame;
+      if (spannedIn > 0) {
+        const insetPx = Number.parseFloat(cell.style.paddingLeft) + Number.parseFloat(cell.style.paddingRight);
+        wiring.frame = { columnPx: Math.max(0, spannedIn * PX_PER_INCH - insetPx), columnLeftPx: 0 };
+      }
       for (const node of cellModel.nodes) appendFlowNode(cell, node, wiring);
+      wiring.frame = outer;
       grid.append(cell);
     }
     for (let index = 0; index < busy.length; index++) if ((busy[index] ?? 0) > 0) busy[index] = (busy[index] ?? 0) - 1;
@@ -620,6 +688,170 @@ interface ImageWiring {
   /** Layout page fields; absent in flow mode (runs keep their static text). */
   pageNumber?: number;
   pageTotal?: number;
+  /** The column and page an anchored picture is placed in; set by whoever paints a container, before painting it. */
+  frame?: AnchorFrame | undefined;
+  /** Run on destroy: observers and listeners a render started (the split wrap's resize observer). */
+  cleanups: Array<() => void>;
+}
+
+/** A US Letter text column (8.5in less two one-inch margins), for a picture painted before any container set the frame. */
+const DEFAULT_FRAME: AnchorFrame = { columnPx: 6.5 * PX_PER_INCH, columnLeftPx: 0 };
+
+// Anchored pictures' constant styles (what varies per picture stays inline).
+/**
+ * A picture's holder. The plan is in physical pixels from the left: in a
+ * right-to-left paragraph a fixed-width block would sit at the right edge and
+ * its left margin be recomputed, so the holder always lays out left to right.
+ */
+const ANCHOR_HOLDER = cssClass("display:block;box-sizing:content-box;direction:ltr");
+/** A zero-size anchor at the paragraph's top-left an overlay is measured from; the auto right margin keeps it left in a right-to-left paragraph. */
+const ANCHOR_POINT = cssClass("position:relative;width:0;height:0;margin-left:0;margin-right:auto");
+/**
+ * A float text wraps around. The room kept around the picture is padding inside
+ * the border box and the exclusion is that border box, so a vertical offset (a
+ * margin, outside it) leaves the lines above the picture free.
+ */
+const ANCHOR_FLOAT = cssClass("shape-outside:border-box");
+/** Top and bottom: a float the full width of the column, so no line runs beside it. */
+const ANCHOR_BAND = cssClass("float:left;width:100%;box-sizing:border-box");
+/** The picture itself. Stated so a host reset such as Tailwind's `img { display: block; max-width: 100% }` does not matter. */
+const ANCHOR_PICTURE = cssClass("display:block;max-width:none");
+const ANCHOR_OVERLAY = cssClass("position:absolute");
+
+/** The data attributes every anchored picture carries, on whichever element is its outermost. */
+function markAnchored(element: HTMLElement, image: DocxImageNode, placement: string): void {
+  element.dataset.aaredElement = "anchored-image";
+  element.dataset.aaredMediaId = image.mediaId;
+  element.dataset.aaredWrap = image.anchor!.wrap;
+  element.dataset.aaredPlacement = placement;
+}
+
+/**
+ * Pictures anchored in a paragraph (`wp:anchor`), painted as its first
+ * children so they take part in its line layout. `planFloat` decides the kind:
+ * a CSS float text wraps around on one side (square, tight, through), a
+ * full-width band (top and bottom, and the wraps a float cannot do), or an
+ * absolutely positioned overlay (behind or in front of the text), or, for
+ * text down both sides of the picture, a split paragraph that `split-wrap.ts`
+ * lays out once it is on the page. Everything here is real DOM text.
+ */
+function appendFloats(
+  line: HTMLElement,
+  floats: readonly DocxImageNode[],
+  paragraph: { leftIndent?: number; rightIndent?: number; runs: readonly TextRunModel[] },
+  wiring: ImageWiring,
+): void {
+  const frame = wiring.frame ?? DEFAULT_FRAME;
+  const indentPx = (paragraph.leftIndent ?? 0) * PX_PER_INCH;
+  const placed: HTMLElement[] = [];
+  let splitHere = false;
+  for (const image of floats) {
+    const anchor = image.anchor;
+    if (anchor === undefined) continue;
+    let plan = planFloat(image, frame, indentPx);
+    const width = image.width * PX_PER_INCH;
+    const height = image.height * PX_PER_INCH;
+    if (plan.kind === "split") {
+      // One split per paragraph, and only text a split can move between slots
+      // (no pictures, links, notes, tabs or line breaks in it): otherwise a band.
+      if (!splitHere && splittable(paragraph.runs)) {
+        splitHere = true;
+        const picture = anchoredPicture(image, width, height, wiring);
+        markAnchored(picture, image, "split");
+        picture.style.position = "absolute";
+        registerSplit(line, {
+          image,
+          frame,
+          leftIndentPx: indentPx,
+          rightIndentPx: (paragraph.rightIndent ?? 0) * PX_PER_INCH,
+          picture,
+        });
+        placed.push(picture);
+        continue;
+      }
+      plan = { kind: "band", leftPx: plan.leftPx, topPx: plan.topPx };
+    }
+    const dist = {
+      top: anchor.distance.top * PX_PER_INCH,
+      bottom: anchor.distance.bottom * PX_PER_INCH,
+      left: anchor.distance.left * PX_PER_INCH,
+      right: anchor.distance.right * PX_PER_INCH,
+    };
+    const picture = anchoredPicture(image, width, height, wiring);
+    if (plan.kind === "overlay") {
+      picture.classList.add(ANCHOR_OVERLAY);
+      picture.style.left = `${plan.leftPx}px`;
+      picture.style.top = `${plan.topPx}px`;
+      picture.style.zIndex = plan.behind ? "-1" : "1";
+      picture.dataset.aaredLayer = plan.behind ? "behind" : "front";
+      if (plan.to === "paragraph") {
+        // Measured from the paragraph: a zero-size anchor at its top-left, taking no room in the text.
+        const point = document.createElement("span");
+        point.setAttribute("class", `${ANCHOR_HOLDER} ${ANCHOR_POINT}`);
+        markAnchored(point, image, "overlay");
+        point.append(picture);
+        placed.push(point);
+      } else {
+        // Measured from the page (or header): no positioned wrapper, so the
+        // nearest positioned ancestor is the page itself.
+        markAnchored(picture, image, "overlay");
+        placed.push(picture);
+      }
+      continue;
+    }
+    const holder = document.createElement("span");
+    markAnchored(holder, image, plan.kind);
+    holder.setAttribute("class", `${ANCHOR_HOLDER} ${ANCHOR_FLOAT}${plan.kind === "band" ? ` ${ANCHOR_BAND}` : ""}`);
+    const padTop = Math.min(dist.top, plan.topPx);
+    holder.style.paddingTop = `${padTop}px`;
+    holder.style.paddingBottom = `${dist.bottom}px`;
+    holder.style.marginTop = `${plan.topPx - padTop}px`;
+    if (plan.kind === "band") {
+      picture.style.marginLeft = `${plan.leftPx - indentPx}px`;
+    } else {
+      const near = plan.side === "left" ? dist.left : dist.right;
+      const facing = plan.side === "left" ? dist.right : dist.left;
+      const padNear = Math.min(near, plan.edgePx);
+      holder.style.float = plan.side;
+      holder.style.width = `${width}px`;
+      holder.style.height = `${height}px`;
+      holder.style.paddingLeft = `${plan.side === "left" ? padNear : facing}px`;
+      holder.style.paddingRight = `${plan.side === "left" ? facing : padNear}px`;
+      const outside = plan.edgePx - padNear - (plan.side === "left" ? indentPx : 0);
+      if (plan.side === "left") holder.style.marginLeft = `${outside}px`;
+      else holder.style.marginRight = `${outside}px`;
+      const polygon = anchor.polygon;
+      if (polygon !== undefined && (anchor.wrap === "tight" || anchor.wrap === "through")) {
+        // Word's polygon is a share of the picture; the border box adds the padding around it.
+        const left = Number.parseFloat(holder.style.paddingLeft);
+        const points = polygon.map(([x, y]) => `${Math.round((left + x * width) * 100) / 100}px ${Math.round((padTop + y * height) * 100) / 100}px`);
+        holder.style.setProperty("shape-outside", `polygon(${points.join(", ")}) border-box`);
+        holder.style.setProperty("shape-margin", `${Math.max(dist.left, dist.right)}px`);
+      }
+    }
+    holder.append(picture);
+    placed.push(holder);
+  }
+  line.prepend(...placed);
+}
+
+/** The picture of an anchored image: its box while loading, then the media. */
+function anchoredPicture(image: DocxImageNode, width: number, height: number, wiring: ImageWiring): HTMLElement {
+  if (wiring.urls === undefined) {
+    const pending = document.createElement("span");
+    pending.dataset.aaredImagePending = "true";
+    pending.setAttribute("class", ANCHOR_PICTURE);
+    pending.style.width = `${width}px`;
+    pending.style.height = `${height}px`;
+    return pending;
+  }
+  const element = document.createElement("img");
+  element.alt = image.alt ?? "";
+  element.setAttribute("class", ANCHOR_PICTURE);
+  element.style.width = `${width}px`;
+  element.style.height = `${height}px`;
+  wireImageMedia(element, image, wiring.urls, wiring);
+  return element;
 }
 
 function footnoteMarker(host: HTMLElement, run: TextRunModel, inner: HTMLElement, wiring: ImageWiring): void {
@@ -703,11 +935,6 @@ function appendImage(host: HTMLElement, image: DocxImageNode, wiring: ImageWirin
   figure.style.margin = `${BLOCK_MARGIN_EM}em 0`;
   figure.style.minWidth = "0";
   figure.style.maxWidth = "100%";
-  if (image.float === "left" || image.float === "right") {
-    figure.style.float = image.float;
-    figure.style.marginInlineEnd = image.float === "left" ? "1em" : "0";
-    figure.style.marginInlineStart = image.float === "right" ? "1em" : "0";
-  }
   if (wiring.urls !== undefined) {
     const element = document.createElement("img");
     element.alt = image.alt ?? "";
@@ -717,10 +944,10 @@ function appendImage(host: HTMLElement, image: DocxImageNode, wiring: ImageWirin
     element.style.width = inchesToCss(image.width);
     // Auto margins center a fixed-width block, so they sit on the `<img>`
     // itself: the `<figure>` fills its container, collapsing them to zero.
-    if (image.float === undefined && image.align === "center") {
+    if (image.align === "center") {
       element.style.marginLeft = "auto";
       element.style.marginRight = "auto";
-    } else if (image.float === undefined && image.align === "right") {
+    } else if (image.align === "right") {
       element.style.marginLeft = "auto";
     }
     figure.append(element);
@@ -914,6 +1141,13 @@ export interface DocxRenderHandle extends EventTarget {
   readonly pageCount: number;
   readonly pages: readonly DocxPageInfo[];
   /**
+   * Non-fatal things this render noticed about its own output: layout mode's
+   * pagination edge cases (an oversize block, a footnote that overran its
+   * page), plus a font this render couldn't actually paint with in either
+   * mode. See `RenderWarning`.
+   */
+  readonly warnings: readonly RenderWarning[];
+  /**
    * Scroll a body heading into view: a number is its `document.headings`
    * index; a string is its title (exact, then ignoring case — never a
    * substring). Rejects `not-found` when nothing matches.
@@ -1050,6 +1284,7 @@ function createWiring(options: RenderOptions): ImageWiring {
     destroyed: false,
     outline: options.outline,
     refAnchors: new Map<string, string>(),
+    cleanups: [],
   };
 }
 
@@ -1061,6 +1296,7 @@ function destroyWiring(wiring: ImageWiring): () => void {
     wiring.destroyed = true;
     wiring.urls?.close();
     wiring.urls = undefined;
+    for (const cleanup of wiring.cleanups.splice(0)) cleanup();
   };
 }
 
@@ -1093,18 +1329,22 @@ export async function render(input: DocxRenderInput): Promise<DocxRenderHandle> 
     outline: outline.indexOf,
   };
   if (options.pagination?.mode === "layout") {
-    return renderLayout(sections, input.target, options, outline.list);
+    return await renderLayout(sections, input.target, options, outline.list);
   }
-  return renderFlow(sections, input.target, options, outline.list);
+  return await renderFlow(sections, input.target, options, outline.list);
 }
 
-function renderFlow(
+async function renderFlow(
   sections: DocumentSection[],
   container: HTMLElement,
   options: RenderOptions,
   outline: readonly HeadingInfo[],
-): DocxRenderHandle {
+): Promise<DocxRenderHandle> {
   const wiring = createWiring(options);
+  // Flow mode paints no matter what — an unloaded font just reflows once its
+  // face arrives, the same as any web page — but the fidelity warnings below
+  // read whichever font actually ends up painting, so they wait first too.
+  await awaitDocumentFonts(sections);
   // The shared defaults must be in the container's root before anything is attached or measured.
   const classSheet = adoptClassSheet(container);
   const article = document.createElement("article");
@@ -1115,12 +1355,16 @@ function renderFlow(
   article.style.boxSizing = "border-box";
   article.style.fontFamily = "system-ui, sans-serif";
   article.style.lineHeight = "1.5";
+  // A picture behind the text stays above the article's own background.
+  article.style.isolation = "isolate";
   paintAppearanceRoot(article, isDark(options.appearance));
 
   // Flow mode keeps the pre-pagination contract: one article, the last
   // section's header/footer (the final `sectPr` references, as before), every
   // section's root concatenated in document order.
   const last = sections[sections.length - 1];
+  // Anchored pictures are placed against the section's text column; there is no page.
+  if (last !== undefined) wiring.frame = { columnPx: sectionBodyWidthPx(last), columnLeftPx: 0 };
   if (last?.header !== undefined && last.header.length > 0) {
     const header = document.createElement("header");
     header.dataset.aaredElement = "doc-header";
@@ -1133,6 +1377,7 @@ function renderFlow(
   body.dataset.aaredElement = "doc-body";
   body.style.minWidth = "0";
   for (const section of sections) {
+    wiring.frame = { columnPx: sectionBodyWidthPx(section), columnLeftPx: 0 };
     for (const node of section.root) appendFlowNode(body, node, wiring);
   }
   article.append(body);
@@ -1150,9 +1395,12 @@ function renderFlow(
   paintSurface(article);
   container.replaceChildren(article);
   settleTabStops(article, () => !wiring.destroyed);
+  // Flow width follows the container, so split paragraphs re-run when it changes.
+  wiring.cleanups.push(settleSplitWraps(article, () => !wiring.destroyed, { observeWidth: true }));
 
   // Flow has no pages: the column flows to its container like a web page.
   const viewer = new DocxViewer(options.zoom, [], outline, false);
+  viewer.setWarnings(fontFidelityWarnings(sections));
   wireViewer(viewer, article, container, wiring, classSheet, (appearance) => {
     paintAppearanceRoot(article, isDark(appearance));
   });
@@ -1241,15 +1489,93 @@ function wireViewer(
   viewer.refit();
 }
 
-function renderLayout(
+/**
+ * Lay every top-level block out once, off screen, at its section's body width
+ * and under the page's own text defaults, and read back what the browser
+ * built: each block's margins and border-box height, each table row's grid
+ * track. Pagination then breaks on real heights, where the estimator could
+ * only guess from average glyph widths (DECISION_LOG §21). One forced layout
+ * for the whole document. Block images stay with the estimator: their height
+ * is the model's until the picture loads.
+ */
+function measureFlow(sections: DocumentSection[], container: HTMLElement): MeasuredFlow {
+  const blocks = new Map<FlowNode, { topPx: number; contentPx: number; bottomPx: number }>();
+  const rows = new Map<DocxTableRowNode, number>();
+  // Pictures keep their authored box while loading; nothing ever loads here.
+  const urls = new MediaUrls(() => new Promise<ArrayBuffer>(() => {}));
+  const wiring: ImageWiring = { urls, destroyed: false, outline: new Map(), refAnchors: new Map(), pageNumber: 1, pageTotal: 1, cleanups: [] };
+  const probe = document.createElement("section");
+  probe.setAttribute("class", PAGE);
+  probe.setAttribute("aria-hidden", "true");
+  probe.style.position = "absolute";
+  probe.style.left = "-100000px";
+  probe.style.top = "0";
+  probe.style.visibility = "hidden";
+  probe.style.overflow = "visible";
+  probe.style.height = "auto";
+  probe.style.padding = "0";
+  const placed: Array<[FlowNode, Element]> = [];
+  for (const section of sections) {
+    wiring.frame = { columnPx: sectionBodyWidthPx(section), columnLeftPx: 0 };
+    const body = document.createElement("div");
+    body.style.width = `${sectionBodyWidthPx(section)}px`;
+    // Blocks sit apart so no margin collapses into its neighbour's reading.
+    body.style.display = "flow-root";
+    for (const node of section.root) {
+      if (node.type === "pageBreak" || node.type === "footnote" || node.type === "image") continue;
+      const holder = document.createElement("div");
+      holder.style.display = "flow-root";
+      appendFlowNode(holder, node, wiring);
+      body.append(holder);
+      const element = holder.firstElementChild;
+      if (holder.childElementCount === 1 && element !== null) placed.push([node, element]);
+    }
+    probe.append(body);
+  }
+  container.append(probe);
+  // Split paragraphs are laid out before their heights are read, so pages break on what will paint.
+  // Fonts are already awaited here, and the probe is removed right after: no second pass.
+  settleSplitWraps(probe, () => true, { refont: false });
+  try {
+    for (const [node, element] of placed) {
+      const style = getComputedStyle(element);
+      blocks.set(node, {
+        topPx: Number.parseFloat(style.marginTop) || 0,
+        contentPx: element.getBoundingClientRect().height,
+        bottomPx: Number.parseFloat(style.marginBottom) || 0,
+      });
+      if (node.type === "table") {
+        // Each logical row is one grid track; a spanning cell spans tracks.
+        const tracks = style.gridTemplateRows.split(" ").map((track) => Number.parseFloat(track));
+        if (tracks.length === node.rows.length && tracks.every((track) => Number.isFinite(track))) {
+          node.rows.forEach((row, index) => rows.set(row, tracks[index]!));
+        }
+      }
+    }
+  } finally {
+    probe.remove();
+    urls.close();
+  }
+  return { block: (node) => blocks.get(node), row: (row) => rows.get(row) };
+}
+
+async function renderLayout(
   sections: DocumentSection[],
   container: HTMLElement,
   options: RenderOptions,
   outline: readonly HeadingInfo[],
-): DocxRenderHandle {
+): Promise<DocxRenderHandle> {
   const wiring = createWiring(options);
   const classSheet = adoptClassSheet(container);
-  const layout = paginate(sections, { softBreaks: options.pagination?.softBreaks ?? "prefer" });
+  // Wait for the fonts this document uses to finish loading before the
+  // off-screen probe measures anything — a page count decided with the wrong
+  // font swaps under it once the real (or calibrated substitute) face
+  // finishes loading (DECISION_LOG §45).
+  await awaitDocumentFonts(sections);
+  const layout = paginate(sections, {
+    softBreaks: options.pagination?.softBreaks ?? "prefer",
+    measured: measureFlow(sections, container),
+  });
   wiring.pageTotal = layout.pages.length;
 
   const stack = document.createElement("div");
@@ -1271,6 +1597,7 @@ function renderLayout(
   container.replaceChildren(stack);
   if (lazy) settlePageTabStops(sheets, () => !wiring.destroyed);
   else settleTabStops(stack, () => !wiring.destroyed);
+  wiring.cleanups.push(settleSplitWraps(stack, () => !wiring.destroyed));
 
   // Public page indexes are zero-based like every other index (the internal
   // layout numbers pages from 1 for PAGE fields and the `data-page` marker).
@@ -1281,6 +1608,7 @@ function renderLayout(
     orientation: page.orientation,
   }));
   const viewer = new DocxViewer(options.zoom, pageInfos, outline, true);
+  viewer.setWarnings([...layout.warnings, ...fontFidelityWarnings(sections)]);
   wireViewer(viewer, stack, container, wiring, classSheet, (appearance) => {
     paintAppearanceRoot(stack, isDark(appearance));
   });
@@ -1314,6 +1642,12 @@ function renderLayoutPage(
   sheet.style.paddingRight = `${page.marginsPx.right}px`;
   sheet.style.paddingBottom = `${page.bodyInsetsPx.bottom}px`;
   sheet.style.paddingLeft = `${page.marginsPx.left}px`;
+  // Where anchored pictures are placed: the text column, and the page they can be measured from.
+  const pageFrame: AnchorFrame = {
+    columnPx: page.widthPx - page.marginsPx.left - page.marginsPx.right,
+    columnLeftPx: page.marginsPx.left,
+    page: { widthPx: page.widthPx, heightPx: page.heightPx, marginTopPx: page.marginsPx.top, originXPx: 0, originYPx: 0 },
+  };
 
   // Word's box model: a header hangs from its distance at the top of the page
   // and grows downward; the body starts below it (`bodyInsetsPx`). Headers are
@@ -1326,12 +1660,15 @@ function renderLayoutPage(
     header.style.top = `${page.marginsPx.header}px`;
     header.style.left = `${page.marginsPx.left}px`;
     header.style.right = `${page.marginsPx.right}px`;
+    // The header is a positioned box: page coordinates are translated by where it sits.
+    wiring.frame = { ...pageFrame, page: { ...pageFrame.page!, originXPx: page.marginsPx.left, originYPx: page.marginsPx.header } };
     for (const node of page.header) appendFlowNode(header, node, wiring);
     sheet.append(header);
   }
   const body = document.createElement("div");
   body.dataset.aaredElement = "page-body";
   body.style.minWidth = "0";
+  wiring.frame = pageFrame;
   for (const node of page.body) appendFlowNode(body, node, wiring);
   // Pages that continue the flow open flush against the header band.
   if (dropsTopSpacing(page.startReason) && body.firstElementChild instanceof HTMLElement) {
@@ -1359,6 +1696,8 @@ function renderLayoutPage(
     footer.style.bottom = `${page.marginsPx.footer}px`;
     footer.style.left = `${page.marginsPx.left}px`;
     footer.style.right = `${page.marginsPx.right}px`;
+    // A footer hangs from the page bottom, so pictures in it are placed against its own column only.
+    wiring.frame = { columnPx: pageFrame.columnPx, columnLeftPx: pageFrame.columnLeftPx };
     for (const node of page.footer) appendFlowNode(footer, node, wiring);
     sheet.append(footer);
   }

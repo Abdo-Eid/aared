@@ -55,6 +55,23 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
           window.renderedSheet = await render(input);
         };
         window.destroySheet = () => window.renderedSheet?.destroy();
+        // A bounded card wrapping a content-sized host, the shape a bench or
+        // embedder card gives the sheet: no height of its own, clipped by an
+        // ancestor with overflow.
+        window.renderInCard = async (model) => {
+          window.renderedCard?.destroy();
+          let card = document.querySelector("#card");
+          if (card === null) {
+            card = document.createElement("div");
+            card.id = "card";
+            card.style.cssText = "width:900px;height:300px;overflow:auto;border:1px solid #999";
+            const inner = document.createElement("div");
+            inner.id = "card-host";
+            card.append(inner);
+            document.body.append(card);
+          }
+          window.renderedCard = await render({ sheet: model, target: document.querySelector("#card-host") });
+        };
       </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
@@ -284,6 +301,45 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
       return { rows: document.querySelectorAll('tr[data-aared-row]').length };
     })()`) as { rows: number };
     expect(destroyedOutput.rows).toBeGreaterThan(0);
+
+    // A content-sized sheet inside a clipping card (a bench card, a viewer
+    // frame) scrolls itself, as Excel's grid does: the card never scrolls,
+    // and its own scroll box keeps frozen rows, their row numbers, and the
+    // column letters pinned in the visible room instead of letting them
+    // scroll away with the card.
+    await view.evaluate(`renderInCard(${JSON.stringify(models.deep)})`);
+    await view.evaluate(`(() => new Promise((resolve) => {
+      const scroller = document.querySelector('#card-host [data-aared-element="sheet-scroll"]');
+      scroller.scrollTop = 100000;
+      requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }))()`);
+    const cardOutput = await view.evaluate(`(() => {
+      const card = document.querySelector('#card');
+      const scroller = document.querySelector('#card-host [data-aared-element="sheet-scroll"]');
+      const frozenRowHeader = document.querySelector('#card-host th[data-aared-element="row-header"][data-aared-row="0"]');
+      const colHeader = document.querySelector('#card-host [data-aared-element="column-header"]');
+      // The sheet's own visible area starts at the scroller's box, below any
+      // notice bar; that is what "pinned" means, not the card's own edge.
+      const scrollerTop = scroller.getBoundingClientRect().top;
+      return {
+        cardScrollTop: card.scrollTop,
+        scrollerScrolled: scroller.scrollTop > 0,
+        scrollerMaxHeight: scroller.style.maxHeight,
+        frozenRowHeaderOffset: frozenRowHeader ? frozenRowHeader.getBoundingClientRect().top - scrollerTop : null,
+        colHeaderOffset: colHeader ? colHeader.getBoundingClientRect().top - scrollerTop : null,
+      };
+    })()`) as { cardScrollTop: number; scrollerScrolled: boolean; scrollerMaxHeight: string; frozenRowHeaderOffset: number | null; colHeaderOffset: number | null };
+    // The card holds still; the sheet's own box does the scrolling.
+    expect(cardOutput.cardScrollTop).toBe(0);
+    expect(cardOutput.scrollerScrolled).toBe(true);
+    expect(cardOutput.scrollerMaxHeight).toMatch(/^\d+px$/);
+    // Column letters sit right at the sheet's own visible top; the frozen
+    // row's number sits just below them, both still in view after scrolling.
+    expect(cardOutput.colHeaderOffset).not.toBeNull();
+    expect(Math.abs(cardOutput.colHeaderOffset!)).toBeLessThan(2);
+    expect(cardOutput.frozenRowHeaderOffset).not.toBeNull();
+    expect(cardOutput.frozenRowHeaderOffset!).toBeGreaterThanOrEqual(0);
+    expect(cardOutput.frozenRowHeaderOffset!).toBeLessThan(60);
   } finally {
     server.stop();
   }
@@ -540,6 +596,53 @@ visual("zoom: a sheet opens at 100%, and fit-width / fit-page really fit its use
     // RTL sheets fit the same way.
     const rtl = await view.evaluate(`show("bounded", ${JSON.stringify(models.rtl)}, "fit-width")`) as Measure;
     expect(rtl.overflowX).toBeLessThanOrEqual(1);
+  } finally {
+    server.stop();
+  }
+}, 30000);
+
+/**
+ * XLSX's render handle names fonts that painted with the browser's generic
+ * fallback, as DOCX and PPTX do: its `warnings` were always empty.
+ */
+visual("visual DOM output: XlsxRenderHandle.warnings names fonts that painted with the generic fallback", async () => {
+  const { rtl } = await sheetModels();
+  const NONEXISTENT_FAMILY = "Definitely Not A Real Font Zzqx";
+  const renamed = structuredClone(rtl);
+  for (const row of renamed.rows) {
+    for (const entry of row.cells) {
+      if (entry.cell.style !== undefined) entry.cell.style = { ...entry.cell.style, fontFamily: NONEXISTENT_FAMILY };
+    }
+  }
+  const build = await Bun.build({ entrypoints: [`${import.meta.dir}/../src/xlsx/index.ts`], target: "browser", format: "esm" });
+  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
+  const module = await build.outputs[0]!.text();
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      if (new URL(request.url).pathname === "/xlsx.mjs") {
+        return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
+      }
+      return new Response(`<!doctype html><main id="host" style="width:900px;height:400px"></main><script type="module">
+        import { render } from "/xlsx.mjs";
+        window.warningsFor = async (model) => {
+          const handle = await render({ sheet: model, target: document.querySelector("#host") });
+          const warnings = handle.warnings.map((warning) => ({ code: warning.code, message: warning.message }));
+          handle.destroy();
+          return warnings;
+        };
+      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
+    },
+  });
+  try {
+    await using view = new Bun.WebView({ width: 1000, height: 600 });
+    await view.navigate(server.url.href);
+    const real = (await view.evaluate(`warningsFor(${JSON.stringify(rtl)})`)) as Array<{ code: string }>;
+    expect(real.filter((warning) => warning.code === "font-unavailable")).toEqual([]);
+    const missing = (await view.evaluate(`warningsFor(${JSON.stringify(renamed)})`)) as Array<{ code: string; message: string }>;
+    const unavailable = missing.filter((warning) => warning.code === "font-unavailable");
+    expect(unavailable).toHaveLength(1);
+    expect(unavailable[0]!.message).toContain(NONEXISTENT_FAMILY);
   } finally {
     server.stop();
   }

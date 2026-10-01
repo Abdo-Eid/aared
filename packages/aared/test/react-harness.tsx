@@ -16,6 +16,7 @@ type HookWindow = Window &
           index: number;
           zoom: unknown;
           error: string | null;
+          navigationError: string | null;
         }
       | undefined;
     hookActions?:
@@ -28,6 +29,10 @@ type HookWindow = Window &
     mountHook?: (kind: string, source: string, strict?: boolean) => void;
     unmountHook?: () => number;
     hookGoTo?: (index: number) => Promise<unknown>;
+    hookGoToFailure?: (index: number) => Promise<{ code: unknown; message: string } | null>;
+    viewerGoToFailure?: (index: number) => Promise<{ code: unknown; message: string } | null>;
+    hookViewer?: UsePreviewResult["viewer"] | undefined;
+    goToWhileLoading?: () => Promise<{ code: unknown; message: string } | "mounted-too-fast">;
     hookSetZoom?: (zoom: ZoomValue) => Promise<unknown>;
     rerenderHook?: () => void;
     workerFactoryCalls?: number;
@@ -46,8 +51,12 @@ function publish(result: UsePreviewResult): void {
     error: result.error == null
       ? null
       : String((result.error as Error)?.message ?? result.error),
+    navigationError: result.navigationError == null
+      ? null
+      : String((result.navigationError as Error)?.message ?? result.navigationError),
   };
   w.hookActions = { goTo: result.goTo, setZoom: result.setZoom, retry: result.retry };
+  w.hookViewer = result.viewer;
 }
 
 function PptxProbe({ source }: { source: string }) {
@@ -132,6 +141,35 @@ w.rerenderHook = () => {
 w.hookGoTo = async (index: number) => {
   await w.hookActions?.goTo(index);
   return w.probe;
+};
+
+/** `goTo(index)` expected to fail: the rejection's code and message, or null if it resolved. */
+w.hookGoToFailure = async (index: number) => {
+  try {
+    await w.hookActions?.goTo(index);
+    return null;
+  } catch (error) {
+    return { code: (error as { code?: unknown }).code, message: String((error as Error).message) };
+  }
+};
+
+/** The same, through the handle itself (`viewer.goTo`), bypassing the hook's `goTo`. */
+w.viewerGoToFailure = async (index: number) => {
+  try {
+    await w.hookViewer?.goTo(index);
+    return null;
+  } catch (error) {
+    return { code: (error as { code?: unknown }).code, message: String((error as Error).message) };
+  }
+};
+
+/** Call `goTo(0)` the moment the hook reports "loading", before any viewer exists. */
+w.goToWhileLoading = async () => {
+  while (w.probe?.status !== "loading") {
+    if (w.probe?.status === "ready") return "mounted-too-fast";
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  return (await w.hookGoToFailure!(0)) ?? { code: "resolved", message: "" };
 };
 
 w.hookSetZoom = async (zoom: ZoomValue) => {

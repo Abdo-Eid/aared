@@ -5,8 +5,10 @@ import type { AaredErrorCode } from "./errors.js";
 export interface SerializedError {
   name: string;
   message: string;
-  /** Present when the worker threw an `AaredError`; restored on the main thread. */
-  code?: AaredErrorCode;
+  /** Always set: the Worker types every failure before posting it; restored on the main thread. */
+  code: AaredErrorCode;
+  /** For `internal` failures, the original error, rebuilt as `cause` so a bug report has its name and stack. */
+  cause?: { name: string; message: string; stack?: string };
 }
 
 export interface OpenRequest {

@@ -40,6 +40,10 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
           for (const type of ["indexchange", "slidechange", "zoomchange", "sheetchange"]) {
             handle.addEventListener(type, (event) => window.events.push({ type, detail: event.detail }));
           }
+          handle.addEventListener("error", (event) => window.events.push({
+            type: "error",
+            detail: { message: event.detail.message, code: event.detail.cause.code, same: event.detail.message === event.detail.cause.message },
+          }));
           return { format: handle.format, count: handle.info.count, index: handle.index, titles: handle.info.titles, zoom: handle.zoom };
         };
         window.slideScale = () => {
@@ -73,7 +77,7 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
       format: string; count: number; index: number; titles: string[]; zoom: unknown;
     };
     expect(opened.format).toBe("pptx");
-    expect(opened.count).toBe(10);
+    expect(opened.count).toBe(12);
     expect(opened.index).toBe(0);
     expect(opened.zoom).toBe("fit-page");
     const first = await view.evaluate(`snapshot()`) as { text?: string; canvasCount: number };
@@ -124,8 +128,41 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
     expect(carried.theme).toBe("dark");
     expect(carried.controls).toEqual({ xlsx: null, docx: null });
 
+    // A unit that cannot be shown rejects and also fires `error` once, with the
+    // element's `{ message, cause }` shape; the unit on screen stays.
+    const failed = await view.evaluate(`(async () => {
+      take();
+      const rejected = await handle.goTo(99).then(() => null, (error) => error.code);
+      return { rejected, index: handle.index, events: take() };
+    })()`) as { rejected: unknown; index: number; events: Array<{ type: string; detail: { message: string; code: string; same: boolean } }> };
+    expect(failed.rejected).toBe("not-found");
+    expect(failed.index).toBe(2);
+    expect(failed.events).toHaveLength(1);
+    expect(failed.events[0]).toMatchObject({ type: "error", detail: { code: "not-found", same: true } });
+    expect(failed.events[0]!.detail.message).toContain("99");
+    // Not an index at all: the call is wrong, not the document.
+    const notAnIndex = await view.evaluate(`handle.goTo(1.5).then(() => null, (error) => error.code)`);
+    expect(notAnIndex).toBe("invalid-argument");
+    await view.evaluate(`take()`);
+
+    // Two goTo() calls in one tick: the second overtakes the first, which then
+    // changes nothing; it used to set `index` to its own unit and announce it.
+    const raced = await view.evaluate(`(async () => {
+      take();
+      await Promise.all([handle.goTo(3), handle.goTo(4)]);
+      return { index: handle.index, events: take() };
+    })()`) as { index: number; events: Array<{ type: string; detail: unknown }> };
+    expect(raced.index).toBe(4);
+    expect(raced.events).toEqual([
+      { type: "indexchange", detail: { index: 4 } },
+      { type: "slidechange", detail: { index: 4, title: "Slide 5" } },
+    ]);
+
     const cleared = await view.evaluate(`destroyPreview()`) as { children: number };
     expect(cleared.children).toBe(0);
+    // A destroyed viewer says so instead of resolving as if it moved.
+    const afterDestroy = await view.evaluate(`handle.goTo(1).then(() => "resolved", (error) => ({ code: error.code, message: error.message }))`);
+    expect(afterDestroy).toEqual({ code: "closed", message: "aared/preview: goTo() was called after destroy()" });
 
     // XLSX: detected at 100%, places within the sheet on `xlsx`, tab clicks followed.
     const workbook = await view.evaluate(
@@ -195,6 +232,21 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
     expect(paged.headings[0]).toContain("Project Overview");
     expect(paged.text).toContain("1. Project Overview");
     expect(paged.canvasCount).toBe(0);
+
+    // Moving inside the unit fails like goTo(): it rejects and fires `error` too.
+    const inside = await view.evaluate(`(async () => {
+      take();
+      const codes = [];
+      for (const move of [() => handle.docx.goToHeading("No such heading"), () => handle.docx.goToPage(1.5)]) {
+        codes.push(await move().then(() => null, (error) => error.code));
+      }
+      return { codes, events: take().map((event) => ({ type: event.type, code: event.detail.code })) };
+    })()`) as { codes: unknown[]; events: unknown[] };
+    expect(inside.codes).toEqual(["not-found", "invalid-argument"]);
+    expect(inside.events).toEqual([
+      { type: "error", code: "not-found" },
+      { type: "error", code: "invalid-argument" },
+    ]);
     await view.evaluate(`destroyPreview()`);
   } finally {
     server.stop();

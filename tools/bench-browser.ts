@@ -369,7 +369,7 @@ async function sized(path: string, dest: string): Promise<SizeFileEntry> {
  */
 export async function runSizePass(
   browser: Browser,
-  versionOf: (renderer: string) => string | null,
+  versionOf: (renderer: string, format: BenchFormat) => string | null,
   log: (line: string) => void,
 ): Promise<SizeRow[]> {
   requireDist();
@@ -379,7 +379,7 @@ export async function runSizePass(
     for (const fixture of FIXTURES) {
       const format: BenchFormat = formatOfFixture(fixture);
       for (const renderer of RENDERERS_BY_FORMAT[format]) {
-        const row: SizeRow = { renderer, format, fixture, version: versionOf(renderer), files: [], status: "measured", error: null };
+        const row: SizeRow = { renderer, format, fixture, version: versionOf(renderer, format), files: [], status: "measured", error: null };
         const page = await browser.open(server.url);
         try {
           await call(page, `__m.preload(${q(fixture)})`);

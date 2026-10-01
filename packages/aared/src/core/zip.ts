@@ -163,7 +163,14 @@ async function inflateRaw(compressed: Uint8Array, declaredSize: number, signal?:
   let chunks: Uint8Array[] | undefined;
   let total = 0;
   for (;;) {
-    const chunk = await reader.read();
+    let chunk: Awaited<ReturnType<typeof reader.read>>;
+    try {
+      chunk = await reader.read();
+    } catch (error) {
+      // The platform's decompressor rejects bad deflate data with a bare TypeError.
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new ZipError("corrupt", `entry data is not valid deflate (${detail})`);
+    }
     if (chunk.done) break;
     const value = chunk.value;
     const next = total + value.byteLength;

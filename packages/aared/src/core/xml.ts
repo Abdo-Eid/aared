@@ -25,6 +25,8 @@
  * empty `children`/`attrs` are frozen to keep it that way.
  */
 
+import { damagedDocument } from "./errors.js";
+
 export interface XmlElement {
   /** Qualified name as written, e.g. `a:pPr`. */
   name: string;
@@ -138,7 +140,7 @@ export function textContent(el: XmlElement): string {
 /** A finite number from an attribute value in hand; malformed input throws, naming the attribute. */
 export function parseNumber(value: string, name: string, context: string): number {
   const number = Number(value);
-  if (!Number.isFinite(number)) throw new Error(`aared/core: invalid ${name}="${value}" on ${context}`);
+  if (!Number.isFinite(number)) throw damagedDocument(`invalid ${name}="${value}" on ${context}`);
   return number;
 }
 

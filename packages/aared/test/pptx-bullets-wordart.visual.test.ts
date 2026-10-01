@@ -88,9 +88,10 @@ visual("visual DOM output: explicit bullet paint and WordArt markers re-read fro
     expect(markerPx).toBeGreaterThan(0);
     expect(runPx).toBeGreaterThan(0);
     expect(markerPx / runPx).toBeCloseTo(1.5, 2);
-    // Wingdings chars paint in their own typeface (a "q" elsewhere is a box here).
-    expect(bulletsOutput.wing?.text).toBe("q");
-    expect(bulletsOutput.wing?.family).toContain("Wingdings");
+    // The Wingdings square ("q") paints as its Unicode shape, not in Wingdings:
+    // a device without Wingdings would otherwise show the letter.
+    expect(bulletsOutput.wing?.text).toBe("❑");
+    expect(bulletsOutput.wing?.family).not.toContain("Wingdings");
     expect(bulletsOutput.pictured).toMatchObject({ text: "•", fallback: "missing-resolver", img: false });
 
     // Bullets with a media resolver: the picture bullet paints an image.

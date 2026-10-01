@@ -78,7 +78,7 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
     // --- Load: the starting state is `load`, never an indexchange -----------
     const pptxLoad = await view.evaluate(`openSource("/arabic.pptx")`) as { format: string; count: number };
     expect(pptxLoad.format).toBe("pptx");
-    expect(pptxLoad.count).toBe(10);
+    expect(pptxLoad.count).toBe(12);
     const firstSlide = await view.evaluate(`(async () => {
       await frame();
       const viewer = document.querySelector("#viewer");
@@ -92,7 +92,7 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
     })()`) as { title?: string; format: string; count: number; canvasCount: number; events: string[] };
     expect(firstSlide.title).toContain("تقرير الإنتاج الأسبوعي");
     expect(firstSlide.format).toBe("pptx");
-    expect(firstSlide.count).toBe(10);
+    expect(firstSlide.count).toBe(12);
     expect(firstSlide.canvasCount).toBe(0);
     expect(firstSlide.events).toEqual(["load"]);
 
@@ -228,6 +228,20 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
     }))()`) as { loads: number; text?: string };
     expect(stale.loads).toBe(1);
     expect(stale.text).toContain("تقرير الإنتاج الأسبوعي");
+
+    // The open() a newer one replaced says so: it rejects `aborted` (no `error`
+    // event) instead of resolving as if it had finished.
+    const superseded = await view.evaluate(`(async () => {
+      const viewer = document.querySelector("#viewer");
+      take();
+      viewer.src = "/slow.pptx";
+      const first = viewer.open().then(() => "resolved", (error) => error.code);
+      viewer.src = "/arabic.pptx";
+      const outcome = await first;
+      await new Promise((resolve) => viewer.addEventListener("load", resolve, { once: true }));
+      return { outcome, errors: take().filter((event) => event.type === "error").length };
+    })()`) as { outcome: unknown; errors: number };
+    expect(superseded).toEqual({ outcome: "aborted", errors: 0 });
 
     // --- Theme: set before load, it reaches the slide's marker -----------------
     const darkSlide = await view.evaluate(`(async () => {

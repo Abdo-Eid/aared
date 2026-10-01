@@ -13,8 +13,9 @@
 
 import type { Appearance, DocumentFormat, DocumentInfo, WorkerInit, ZoomValue } from "../core/index.js";
 import { AaredError, isAbort } from "../core/index.js";
+import { abortError } from "../core/errors.js";
 import { resolveTheme } from "../appearance.js";
-import { DEFAULT_ZOOM, announceUnit, followSheet, forwardRenderEvents, openFormat } from "../format-route.js";
+import { DEFAULT_ZOOM, announceUnit, assertHasUnits, followSheet, forwardRenderEvents, openFormat } from "../format-route.js";
 import type { AnyDocument, RenderHandle } from "../format-route.js";
 import { safeScale, sameZoom } from "../render-handle.js";
 import type { PptxDocument } from "../pptx/index.js";
@@ -209,7 +210,9 @@ export class AaredViewer extends HTMLElement {
   /**
    * (Re)open `file` or `src` and render unit `index`. Resolves once painted
    * and `load` has fired; rejects — after firing `error` once with the same
-   * `AaredError` as `detail.cause` — when it fails. A newer `open()` wins.
+   * `AaredError` as `detail.cause` — when it fails. A newer `open()` wins: the
+   * one it replaced rejects with `aborted` (no `error` event), which `isAbort()`
+   * matches.
    */
   async open(): Promise<void> {
     const generation = this.#replaceDocument();
@@ -219,19 +222,19 @@ export class AaredViewer extends HTMLElement {
     try {
       const typeError = sourceTypeError(this.getAttribute("type"));
       if (typeError !== undefined) throw typeError;
-      if (source === null) throw new AaredError("not-found", "aared/element: provide a src URL or file before calling open()");
+      if (source === null) throw new AaredError("invalid-state", "aared/element: provide a src URL or file before calling open()");
 
       const bytes = await sourceBytes("aared/element", source, controller.signal, (loaded, total) => {
         this.#progress(loaded, total, generation);
       });
-      if (!this.#current(generation, controller)) return;
+      if (!this.#current(generation, controller)) throw abortError();
       // An asserted type skips detection: the per-format `open()` raises the
       // typed `unsupported-format` mismatch itself, naming what it found.
       const format = this.type ?? await WorkerSession.detectFormat("aared/element", bytes, {
         signal: controller.signal,
         ...(workerInit === undefined ? {} : { worker: workerInit }),
       });
-      if (!this.#current(generation, controller)) return;
+      if (!this.#current(generation, controller)) throw abortError();
       const doc = await openFormat(
         format,
         bytes,
@@ -239,23 +242,28 @@ export class AaredViewer extends HTMLElement {
       );
       if (!this.#current(generation, controller)) {
         doc.close();
-        return;
+        throw abortError();
       }
-      if (doc.info.count === 0) {
+      try {
+        assertHasUnits("aared/element", doc);
+      } catch (error) {
         doc.close();
-        throw new AaredError("invalid-document", "aared/element: this document has no slides, sheets, or sections to show");
+        throw error;
       }
       this.#doc = doc;
       this.#format = format;
       const page = this.#requestedPage(doc.info.count);
       await this.#render(page, generation);
-      if (!this.#current(generation, controller)) return;
+      if (!this.#current(generation, controller)) throw abortError();
       // The starting unit is reported by `load` (read `index`/`info`), never
       // by `indexchange`: events describe changes.
       this.dispatchEvent(new CustomEvent<DocumentInfo>("load", { detail: doc.info }));
       this.#updateChrome();
     } catch (error) {
-      if (!this.#current(generation, controller) || isAbort(error)) return;
+      // Superseded or cancelled: no `error` event (nothing failed), but the
+      // promise says so instead of resolving as if this open had finished.
+      if (isAbort(error)) throw error;
+      if (!this.#current(generation, controller)) throw abortError();
       this.#doc?.close();
       this.#doc = null;
       this.#format = null;
@@ -399,7 +407,7 @@ export class AaredViewer extends HTMLElement {
   async #render(index: number, generation: number): Promise<boolean> {
     const doc = this.#doc;
     const format = this.#format;
-    if (doc === null || format === null) throw new AaredError("not-found", "aared/element: no document is open");
+    if (doc === null || format === null) throw new AaredError("invalid-state", "aared/element: no document is open");
     const renderGeneration = ++this.#renderGeneration;
     const stale = () => generation !== this.#generation || renderGeneration !== this.#renderGeneration;
     this.#slideRender?.destroy();
@@ -459,7 +467,7 @@ export class AaredViewer extends HTMLElement {
 
   #assertPage(page: number, total?: number): void {
     if (!Number.isInteger(page) || page < 0) {
-      throw new AaredError("not-found", `aared/element: index must be a non-negative integer; received ${String(page)}`);
+      throw new AaredError("invalid-argument", `aared/element: index must be a non-negative integer; received ${String(page)}`);
     }
     if (total !== undefined && page >= total) {
       throw new AaredError("not-found", `aared/element: index ${page} is outside this ${total}-unit document`);

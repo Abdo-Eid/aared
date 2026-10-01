@@ -43,6 +43,8 @@ function pathForPreset(preset: string, viewBox: LocalViewBoxModel, adjustments: 
       // aspect, unlike a single near-closed arc that paints as zero-area.
       return `M 0 ${height / 2} A ${width / 2} ${height / 2} 0 0 1 ${width} ${height / 2} A ${width / 2} ${height / 2} 0 0 1 0 ${height / 2} Z`;
     case "line":
+    case "straightConnector1":
+      // A straight connector is a line: `M l t L r b` in the preset catalog.
       return `M 0 0 L ${width} ${height}`;
     case "triangle": {
       const apex = (width * pin(adjustments, "adj", 50000, 100000)) / 100000;

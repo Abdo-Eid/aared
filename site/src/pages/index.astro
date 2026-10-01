@@ -62,6 +62,20 @@ const installCode = "npm install @aared/viewer\nnpm install @aared/fonts";
         <p class="hero-sub">One package for every Office file. Use all of it, or only the part you need.</p>
       </section>
 
+      <figure class="launch-video">
+        <video
+          src="/media/aared-launch.webm"
+          poster="/media/aared-launch-poster.jpg"
+          controls
+          muted
+          playsinline
+          preload="metadata"
+          width="1920"
+          height="1080"
+          aria-label="aared launch film: PowerPoint, Excel and Word files rendered in the browser as real text, in English and Arabic"
+        ></video>
+      </figure>
+
       <LightTable fixtures={fixtures} />
 
       <section class="install" aria-labelledby="install-title">
@@ -141,6 +155,24 @@ const installCode = "npm install @aared/viewer\nnpm install @aared/fonts";
   .hero {
     padding-block: 2.5rem 2rem;
     max-width: 46rem;
+  }
+  /* The launch film, framed the way the film frames its document cards:
+     a thick soft frame, round corners and a long soft shadow. The film's
+     frame colour is --lt-ground itself, the page ground here, so the frame
+     takes the deeper tone to stay visible. */
+  .launch-video {
+    margin: 0 0 2.5rem;
+    border: 12px solid var(--lt-ground-deep);
+    border-radius: 18px;
+    overflow: hidden;
+    background: #f5f2ec;
+    box-shadow: 0 40px 72px rgba(28, 26, 24, 0.16), 0 8px 22px rgba(28, 26, 24, 0.08);
+  }
+  .launch-video video {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
   }
   .hero h1 {
     font-family: var(--lt-font-display);

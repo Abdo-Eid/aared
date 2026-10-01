@@ -42,6 +42,10 @@ try {
   $application.ScreenUpdating = $false
   $application.EnableEvents = $false
   $application.AskToUpdateLinks = $false
+  # "Scale content for A4 or 8.5 x 11" maps A4 to the locale's paper on
+  # export (US Letter here); off, the hardcoded A4 policy prints on A4.
+  $previousMapPaper = $application.MapPaperSize
+  $application.MapPaperSize = $false
   $previousSecurity = $application.AutomationSecurity
   $application.AutomationSecurity = 3 # msoAutomationSecurityForceDisable
   try {
@@ -55,8 +59,13 @@ try {
         $position++
         # Hardcoded print policy (deliberate: one consistent A4 truth owned by
         # tooling, not read from the file): A4 portrait, fit sheet on one
-        # page, gridlines plus row/column headings, normal margins.
+        # page, gridlines plus row/column headings, normal margins (Excel reads
+        # margins in points, so inches go through InchesToPoints).
         $setup = $sheet.PageSetup
+        # Page setup is sent to the printer driver as one batch: set one at a
+        # time, the driver keeps its own paper (US Letter on a default
+        # "Microsoft Print to PDF") although PaperSize reads back as A4.
+        $application.PrintCommunication = $false
         try {
           $setup.PaperSize = 9 # xlPaperA4
           $setup.Orientation = 1 # xlPortrait
@@ -65,13 +74,14 @@ try {
           $setup.FitToPagesTall = 1
           $setup.PrintGridlines = $true
           $setup.PrintHeadings = $true
-          $setup.TopMargin = 0.75
-          $setup.BottomMargin = 0.75
-          $setup.LeftMargin = 0.7
-          $setup.RightMargin = 0.7
-          $setup.HeaderMargin = 0.3
-          $setup.FooterMargin = 0.3
+          $setup.TopMargin = $application.InchesToPoints(0.75)
+          $setup.BottomMargin = $application.InchesToPoints(0.75)
+          $setup.LeftMargin = $application.InchesToPoints(0.7)
+          $setup.RightMargin = $application.InchesToPoints(0.7)
+          $setup.HeaderMargin = $application.InchesToPoints(0.3)
+          $setup.FooterMargin = $application.InchesToPoints(0.3)
         } finally {
+          $application.PrintCommunication = $true
           Release-ComObject $setup
         }
         $used = $sheet.UsedRange
@@ -124,6 +134,7 @@ try {
     } | ConvertTo-Json -Compress -Depth 6 | Set-Content -LiteralPath (Join-Path $output "excel-export.json") -Encoding utf8
   } finally {
     $application.AutomationSecurity = $previousSecurity
+    $application.MapPaperSize = $previousMapPaper
     if ($workbook -ne $null) {
       $workbook.Close($false)
       Release-ComObject $workbook

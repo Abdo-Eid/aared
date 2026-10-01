@@ -13,6 +13,7 @@ interface Probe {
   index: number;
   zoom: unknown;
   error: string | null;
+  navigationError: string | null;
 }
 
 interface Snapshot {
@@ -91,7 +92,7 @@ visual("visual react hooks: usePptx mounts, navigates, zooms, and unmounts", asy
     await waitFor(view, `window.probe?.status === "ready"`);
     const opened = (await view.evaluate(`window.probe`)) as Probe;
     expect(opened.format).toBe("pptx");
-    expect(opened.count).toBe(10);
+    expect(opened.count).toBe(12);
     expect(opened.index).toBe(0);
     expect(opened.error).toBeNull();
     const first = (await view.evaluate(`snapshot()`)) as Snapshot;
@@ -123,6 +124,43 @@ visual("visual react hooks: usePptx mounts, navigates, zooms, and unmounts", asy
     expect(cleared).toBe(0);
     const empty = (await view.evaluate(`snapshot()`)) as Snapshot;
     expect(empty.text).toBe("");
+  });
+});
+
+visual("visual react hooks: a failed goTo() keeps the page and lands in navigationError; goTo() before mount rejects", async () => {
+  await withHarness(async (view) => {
+    // Before any viewer exists, goTo() says so instead of resolving as if it moved.
+    await view.evaluate(`mountHook("pptx", "/arabic.pptx")`);
+    const early = (await view.evaluate(`goToWhileLoading()`)) as { code: unknown; message: string } | "mounted-too-fast";
+    if (early !== "mounted-too-fast") {
+      expect(early.code).toBe("invalid-state");
+      expect(early.message).toContain("aared/react: goTo() was called before the viewer mounted");
+    }
+    await waitFor(view, `window.probe?.status === "ready"`);
+    expect(((await view.evaluate(`window.probe`)) as Probe).navigationError).toBeNull();
+
+    // A unit that cannot be shown: the promise rejects and the hook says so, but stays ready on slide 1.
+    const failed = (await view.evaluate(`hookGoToFailure(99)`)) as { code: unknown; message: string } | null;
+    expect(failed?.code).toBe("not-found");
+    await waitFor(view, `window.probe?.navigationError !== null`);
+    const after = (await view.evaluate(`snapshot()`)) as Snapshot;
+    expect(after.probe?.status).toBe("ready");
+    expect(after.probe?.error).toBeNull();
+    expect(after.probe?.index).toBe(0);
+    expect(after.probe?.navigationError).toContain("99");
+    expect(after.text).toContain("تقرير الإنتاج الأسبوعي");
+
+    // The next successful goTo() clears it.
+    await view.evaluate(`hookGoTo(1)`);
+    await waitFor(view, `window.probe?.index === 1 && window.probe?.navigationError === null`);
+
+    // The same failure through the handle the hook hands out (`viewer.goTo`) lands
+    // too: the hook hears the handle's `error` event, not only its own promise.
+    const direct = (await view.evaluate(`viewerGoToFailure(42)`)) as { code: unknown } | null;
+    expect(direct?.code).toBe("not-found");
+    await waitFor(view, `window.probe?.navigationError?.includes("42") === true`);
+    expect(((await view.evaluate(`window.probe`)) as Probe).status).toBe("ready");
+    await view.evaluate(`unmountHook()`);
   });
 });
 

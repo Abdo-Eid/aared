@@ -18,7 +18,7 @@ import type { OpcPackage } from "../opc.js";
 import { mixColors, parseHexDigits, toHexColor } from "../color.js";
 import { readDrawingTheme } from "../theme.js";
 import type { DrawingTheme } from "../theme.js";
-import { throwIfAborted } from "../errors.js";
+import { damagedDocument, throwIfAborted } from "../errors.js";
 import { formatCodeForId } from "./numberfmt.js";
 import type { XlsxCellStyleModel } from "../model.js";
 
@@ -311,7 +311,7 @@ export async function readXlsxStyles(
   };
   const root = stylesPart === undefined ? undefined : await pkg.readXmlIfPresent(stylesPart, signal);
   if (root === undefined) return empty;
-  if (root.local !== "styleSheet") throw new Error("aared/core: xl/styles.xml root must be <styleSheet>");
+  if (root.local !== "styleSheet") throw damagedDocument("xl/styles.xml root must be <styleSheet>");
 
   const numberFormats = new Map<number, string>();
   const numFmts = firstChild(root, "numFmts");

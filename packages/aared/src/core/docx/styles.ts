@@ -24,9 +24,18 @@ export interface DocxStyle {
 export interface StyleData {
   defaultPPr?: XmlElement;
   defaultRPr?: XmlElement;
+  /**
+   * The paragraph style Word marks `w:default="1"` (usually `Normal`): what a
+   * paragraph with no `w:pStyle` uses, so its font, size and spacing are this
+   * style's, not the bare document defaults'.
+   */
+  defaultParagraphStyleId?: string;
   paragraph: Map<string, DocxStyle>;
   character: Map<string, DocxStyle>;
 }
+
+/** The spellings of an on/off attribute that mean on (`w:default="1"`, `"true"`, `"on"`). */
+const ON_VALUES = new Set(["1", "true", "on"]);
 
 function readStyle(style: XmlElement): { id: string; parsed: DocxStyle } | undefined {
   const id = attr(style, "styleId");
@@ -68,8 +77,12 @@ export function parseStyles(root: XmlElement | undefined, signal?: AbortSignal):
     const parsed = readStyle(style);
     if (parsed === undefined) continue;
     // Last definition wins: real files repeat Heading1/Heading2 blocks.
-    if (parsed.parsed.type === "paragraph") data.paragraph.set(parsed.id, parsed.parsed);
-    else data.character.set(parsed.id, parsed.parsed);
+    if (parsed.parsed.type === "paragraph") {
+      data.paragraph.set(parsed.id, parsed.parsed);
+      if (ON_VALUES.has(attr(style, "default") ?? "")) data.defaultParagraphStyleId = parsed.id;
+    } else {
+      data.character.set(parsed.id, parsed.parsed);
+    }
   }
   throwIfAborted(signal);
   return data;

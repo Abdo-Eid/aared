@@ -11,6 +11,14 @@
 
 export type DocumentFormat = "pptx" | "xlsx" | "docx";
 
+/**
+ * The name a `FontResolver` must register a delivered substitute's
+ * `FontFace` under, for the requested family it was asked to resolve. See
+ * `cssFontFamily` in `core/typography.ts` (not re-exported: renderer-only)
+ * for why — this is the one exported hook a resolver author needs.
+ */
+export { fontAlias } from "./typography.js";
+
 export type {
   BoundsModel,
   ChartGraphicModel,
@@ -26,6 +34,7 @@ export type {
   PictureTileModel,
   PathGradientFillModel,
   RelativeRectModel,
+  RenderWarning,
   ShapeGeometryModel,
   ShapeFillModel,
   ShapeModel,
@@ -122,6 +131,8 @@ export type {
   DocxTableCellNode,
   DocxTableRowNode,
   DocxImageNode,
+  DocxImageAnchor,
+  DocxAnchorPosition,
   DocxListNode,
   DocxListItemNode,
   DocxFootnoteNode,

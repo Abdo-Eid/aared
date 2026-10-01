@@ -733,8 +733,9 @@ The bench comparison in §11 judged fixes by eye against screenshots. Since
 then every layout rule has been read from a native Word export of the frozen
 fixture instead — `tools/word-render` exports through the installed Word,
 rasterizes with PyMuPDF, and dumps every text span's font, size and position —
-so a number is read, not guessed. The full rule list is in `HANDOFF.md`
-(*DOCX Word-fidelity pass*). What it overturned:
+so a number is read, not guessed. The full rule list was kept in the
+handoff document, since folded into `ARCHITECTURE.md` § Format rules (DOCX).
+What it overturned:
 
 - **Headers are never clipped** (§11, third bullet). A header hangs from its
   `w:header` distance and grows down, and the body starts below it
@@ -1230,6 +1231,8 @@ family.
 - Body text whose theme font PowerPoint fetches from the cloud (Aptos, the
   default since 2023) paints in a substitute; `pptx-coverage.pptx`'s Latin
   table text measures ~12% larger for it. Font work stays on the roadmap.
+  (Closed by §49 for anyone passing a font resolver: Aptos has a calibrated
+  substitute.)
 - A run tagged `en-US` holding Arabic words around a neutral (`عربي +
   إنجليزي`, slide 5) keeps its words left-to-right in PowerPoint; aared applies
   the Unicode bidi algorithm, which reverses them. Unprobed, so unchanged.
@@ -1692,3 +1695,1672 @@ AGENTS.md ends at the first real release, not at the placeholder.
 
 **Publishing is done by a person.** It is public and permanent, the account
 needs 2FA on writes, and agents never hold npm credentials or tokens.
+
+## 43. DOCX right-to-left tables: `w:bidiVisual`, logical borders, physical margins
+
+Found while building the showcase term sheet: every right-to-left table Word
+wrote painted its columns left to right. The parser looked for
+`w:tblBidiVisual`, an element Word never writes; the real one is
+`w:bidiVisual` (ECMA-376 17.4.1). No fixture had a right-to-left Word table,
+so no test saw it.
+
+Word keeps writing `w:left`/`w:right` inside such a table, so the sides needed
+a ground-truth probe (`tools/probe/docx-bidi-visual/`): the same table saved
+left-to-right, then switched to right-to-left in Word, then authored
+right-to-left from the start, each exported through Word with span geometry.
+
+- Switching a table to right-to-left changes only `w:bidiVisual`; no side is
+  rewritten.
+- Borders (`tblBorders`, `tcBorders`) are logical: the `w:left` border paints
+  on the right edge of a right-to-left table, and setting the physical left
+  border through Word's object model writes `w:right`.
+- Cell margins (`tblCellMar`, `tcMar`) stay physical: a 0.5in `w:left` margin
+  kept each cell's text 46px from the cell's left edge after the switch.
+- `tblInd` is measured from the start side (the right). aared now reads it
+  (`DocxTableNode.indent`) and paints it as `margin-inline-start` on the
+  table grid, which carries the table's direction.
+
+So the parser reads `w:bidiVisual`, the DOCX painter keeps drawing side
+borders on the inline start/end, and cell padding moved from
+inline-start/end to physical left/right. PPTX is untouched: it already pads in
+physical sides and reads `a:tblPr rtl`. Pinned by section 5 of `fixtures/docx-coverage.docx`
+(Word-authored, every side different) in the parser test and a DOM read-back
+test.
+
+## 44. Fixes found by the showcase documents (Sep 2026)
+
+Building polished showcase files for the launch video (PowerPoint, Excel and
+Word output compared page by page with aared) surfaced real bugs. Each was
+traced to its cause, checked against native Office, pinned in the existing
+coverage fixtures (edited through Office COM; no new fixture files) and
+tested by reading the DOM back.
+
+**PPTX lines and connectors were dropped.** PowerPoint writes every line and
+connector as `p:cxnSp`; the shape-tree walk only knew `p:sp`, so timelines,
+dividers and today-markers vanished with no fallback marker. A connector is a
+shape without text (same `spPr` geometry and line), so it now parses through
+the shape path; `straightConnector1` joins `line` in the hand-coded fast path
+(same path; the catalog test now checks fast-path presets against the oracle
+too). Shape outlines also paint authored `a:prstDash` (dash/dot families,
+scaled to the line width) — the model carried it for table edges only.
+Pinned by `pptx-coverage.pptx` slide 11 ("خطوط وموصلات").
+
+**Headings inherited the browser's `<h1>` bold and 2em.** DOCX headings paint
+as `<h1>`–`<h6>` for outline semantics; runs only set `font-weight: 700` when
+bold, so a Heading 1 without `w:b` still painted bold (and a sizeless run at
+2em). The shared block class now resets weight and size; runs decide, as in
+Word.
+
+**Left-to-right runs in right-to-left paragraphs (probe run-direction).** Word
+and PowerPoint keep a run that is not right-to-left (DOCX: no `w:rtl`; PPTX:
+a left-to-right `lang`) together left to right: "71%", "2.1%" and
+"15 Oct 2026" show as written. The Unicode bidi algorithm alone makes a
+number after Arabic an Arabic number, detaching "%" ("%2.1") and splitting
+dates ("Oct 2026 15"). Such runs (with no Hebrew/Arabic letters) now carry
+`TextRunModel.ltrRun`, and the shared run painter adds a left-to-right mark
+at both edges through `::before`/`::after` — generated content, so it is never
+copied, searched or counted. Isolating each run instead was rejected: a date
+PowerPoint splits into two en-US runs ("15 " + "Oct 2026") would reverse.
+Deliberate non-changes: right-to-left runs keep plain bidi (Word and
+PowerPoint disagree there: Word "71%", PowerPoint "%71"), and a left-to-right
+run holding Arabic words in a left-to-right paragraph (the existing
+`عربي + إنجليزي` gap) still needs its own probe. The PPTX renderer now adopts
+the shared class sheet, as DOCX and XLSX already did.
+
+**Long DOCX tables no longer blank a page.** In layout mode a table taller than
+a page took the oversize path: the page it would start on was closed (in the
+showcase term sheet, holding only a `pageBreakBefore` paragraph — a blank page)
+and the whole table went on the next page, its tail clipped. Word breaks
+tables between rows. The paginator now splits a table at the last row that
+fits (rows are never split; a boundary inside a vertical merge is skipped, so
+each part stands alone); only an unsplittable table (one row, or one merge
+spanning it) still takes the oversize path. The term sheet went from 13 pages
+with clipped tables to 12 complete ones against Word's 10.
+
+**A vertical-merge boundary must also yield to `w:keepNext`.** The table split
+above only skipped a merge; a row whose paragraphs all carry `w:keepNext`
+(Word treats the whole row that way — never splitting a title row from the
+row it introduces, for instance) can still be split from the row after it.
+`DocxParagraphLayout.keepNext` is now parsed and carries through headings,
+list items and table rows; the paginator's keep-with-next chain (any block
+that keeps with the next, plus the first placeable piece of the one after
+it — a table's own leading run of `keepNext` rows counts as one piece here,
+same as `splitTable` already treats it) moves to a fresh page when the chain
+fits one but not what is left of the current one. A first attempt read a
+generator's "keepNext on every row but the last" (a common way to say "try
+not to orphan a row") as license to relax the row-boundary gate itself,
+reasoning that OOXML has no literal "keep this row with the next row"
+property — that surfaced correctly-fitting content (an 11-row milestone
+table Word placed whole) but also let a section's title row split from its
+first row, which Word never does; reverted (`aared_launch` review caught
+both, side by side against native Word).
+
+**Table rows and other blocks are now measured, not only estimated
+(DECISION_LOG §21).** The 12-vs-10-page gap above was the estimator's average
+glyph-width guess, worst on the term sheet's dense two-column bilingual table.
+`docx/index.ts` gained `measureFlow()`: it lays every section's top-level
+blocks out once, off screen, at that section's real body width and the
+page's own text defaults, and reads back each block's margins and
+border-box height and each table row's grid-track height. `paginate()` takes
+this as `PaginateOptions.measured` and prefers it over the estimator wherever
+it answers; the estimator remains the fallback (headless use, and any block a
+render did not place standalone). One forced layout for the whole document.
+Reading back a table row's height needed table cells to lay out as CSS grid
+rows, which the DOM shell already was. Combined with the two fixes above, the
+term sheet's section breaks now land exactly where Word's do on every page —
+no more numbers split from their titles anywhere in the document (the bug
+that prompted this work). Section 4's own two-column table (a bold title row
+plus four `Heading2` clause rows) did measure about 13% taller here than in
+Word at the time, concentrated in its two heading-styled rows (about 21-24%
+over; its two plain-paragraph rows were within 3%) — just enough, on this one
+table, to push an otherwise-fitting 11-row milestone table onto a page of its
+own (aared: 11 pages; Word: 10). That gap is now closed (see "Exact line
+pitch" and "Table cell side insets," below): it was never a line-height
+difference in the CSS the paragraph itself set, but every run on an
+exact-pitch line stretching that line past its own font's ascent and descent
+— the heading rows pair a Calibri number with Sakkal Majalla, the worst
+mismatch in the table. With both fixed, the term sheet measures 10 pages
+against Word's 10.
+
+**Exact line pitch is the paragraph's, not each run's.** `w:lineRule="exact"`
+(and PowerPoint's points spacing, `a:spcPts`) set a paragraph's line height,
+but every run still painted at the browser's own rule: a span's line box is
+centred on its own font's ascent and descent and aligned on the shared
+baseline. A Calibri digit run inside a Simplified Arabic line stretched an
+exact 24px line to about 25px; a Calibri section number beside a Sakkal
+Majalla heading stretched it further still — the "heading-styled rows
+measure 21-24% taller" residual recorded above was this same stretch,
+wherever a differently-metriced run shared an otherwise-exact line. Word and
+PowerPoint keep an exact line at its authored pitch whatever it holds — the
+pitch belongs to the paragraph, never to a run on it. Fix: a run on an
+exact-pitch line now paints at `line-height:0` (`EXACT_PITCH_RUN`,
+`text-style.ts`), contributing no line-box height of its own, so the line is
+set entirely by the paragraph's own strut; `exactLinePitch(box)` decides
+which paragraphs qualify (a set `lineSpacingPt` without `lineSpacingAtLeast`
+— see "Line rule kept," below), and both `docx/index.ts` (paragraphs,
+headings, list markers) and `pptx/index.ts` (runs) apply it wherever a run
+paints. A line whose rule is `atLeast` — a floor, not a pitch — is untouched:
+its tallest run still grows the line past the floor, matching Word. In the
+term sheet's justified Arabic cell, four lines measured 99px and now measure
+exactly 96px (4×24). PowerPoint's `a:baseline` shift was painted as a
+`vertical-align` percentage, which CSS takes of the run's own line height:
+zero on an exact-pitch run, and 1.2 times too much elsewhere, since DrawingML
+defines the shift as a share of the font size. It now paints in `em`, so
+DrawingML's font-size meaning holds whatever the line. Pinned by both
+coverage fixtures, extended through Office for it (`tools/probe/docx-justify/
+extend.py`): the DOCX delivery-tracker update line is exactly 18pt with its
+date and percentage in Calibri beside Arial Arabic (it measured 25px under
+the old rule, 24px now), and the PPTX "Mixed direction" box on slide 11 is
+exactly 30pt with its "2.1%" in Calibri; both visual tests read the line
+height and the runs' `line-height: 0` back from the DOM. Word's save put the
+org's label marking back into the DOCX headers and recreated the even and
+first-page headers to carry it. `tools/probe/pptx-lines/strip_label.py` now
+also strips a Word package: it removes the marking runs, then drops any
+even/first header or footer left with no run.
+
+**Line rule kept, and a direct-formatting merge bug fixed alongside it.** Two
+faults in the paragraph-property resolver, found while chasing the line-pitch
+fix above. First, `w:lineRule="atLeast"` was read but discarded —
+`resolveParaProps` only ever produced `lineSpacingPt`, so an `atLeast` floor
+and an `exact` pitch looked identical to the renderer and the pagination
+estimator, and a style's `auto` multiple layered over a docDefault's exact
+pitch left both `lineSpacing` and `lineSpacingPt` set instead of the later
+level replacing the earlier, as intended. Second, `resolveParaProps` parsed
+direct formatting into its own throwaway object and copied it onto the merged
+style-chain result key by key — a copy that could only add or overwrite a
+key, never clear one, because a `delete` inside `readParaProps`'s own
+accumulation logic (a later `w:spacing` rule replacing an earlier one, a
+`w:pBdr` composing per side) only ever touched the object passed to that one
+call, not the merged object copied from afterward. Concretely: a paragraph
+with a styled top border that then set only a direct left `w:pBdr` painted
+with the top border gone — the `pBdr` case's own promise ("a direct left
+border composes with a styled top border rather than replacing it") held
+only inside a single `readParaProps` call, not across the docDefault → style
+→ direct chain. Fixed by adding a model field,
+`DocxParagraphLayout.lineSpacingAtLeast`, set (and cleared by the opposite
+rule) in the same `w:spacing` branch that already resolves `lineSpacingPt`;
+and by resolving direct formatting straight into the same merged object the
+style chain already built (`resolveParaProps` now calls
+`readParaProps(directPPr, merged)` last), instead of merging a separate parse
+result afterward. `styleId` — previously read off a full throwaway parse of
+the direct properties, only to get one field out of it — is now read
+directly from `directPPr`'s own `pStyle`, since the ancestry lookup needs it
+before the merge exists. The pagination estimator's `textBlockHeightPx`
+treats `atLeast` as a floor: `max(pitch, Word's single line)`, never the
+pitch itself. Blast radius: every paragraph property that accumulates rather
+than replaces (tab stops, `w:pBdr` sides) now composes correctly under direct
+formatting too, not only across the style chain; `numPr`/`ilvl`,
+`pageBreakBefore` and `keepNext` are plain presence-wins-if-set fields,
+already correct either way. Pinned by parser tests over small synthetic
+packages: exact and at-least rules through docDefaults, style and direct
+levels (each one replacing the one it inherits), and a direct left border
+composing with a styled top one.
+
+**Table cell side insets follow Word's own centred-border rule.**
+Ground-truth probe `tools/probe/docx-cell-border/` (real Word, side borders
+at 0.5pt / 3pt / 6pt): a side border moves the cell's text 0.3 / 1.4 / 2.45pt
+from the grid line — Word centres a border on the shared grid line and keeps
+the text a margin beyond its own inner half, whichever cell paints it. aared
+took the whole painted border (at least one device pixel — the same rule
+`borderSnapSlackPx` uses top and bottom) out of the padding on the side that
+painted it, double-counting the outer half no cell needs to give up. Fix:
+`sideInsetPx(margin, edge, painted)` computes padding as the margin plus half
+the edge on that side, less what this cell itself paints there. A shared
+inside divider is painted once, by the later cell as its start border: that
+cell subtracts the painted width, while its neighbour paints nothing on that
+side and keeps the full margin plus half. PPTX
+tables are unaffected: they already paint edges as a centred overlay
+(`cellEdgeOverlay`), which takes no text width. Pinned by two visual tests.
+In the right-to-left table, the first column's right padding beside its 3pt
+start border is 4.8 + 2 − 4 = 2.8px (it was 4.8px before), and its left
+padding, with no border on that side, stays at the 0.3in margin (28.8px). In a
+left-to-right table with 0.5pt outer edges and a 0.25pt inside divider, both
+columns' paddings are checked, including the divider side of the column that
+does not paint it.
+
+**Word 2013 justified space shrinking, approximated conservatively.**
+Ground-truth probe `tools/probe/docx-justify/` (real Word, Courier New,
+binary search on text width): in `w:compatibilityMode` 15 or later, a
+justified or distributed paragraph — left-to-right or right-to-left — fits
+one more word on a line by shrinking each space, up to about a quarter
+(24.6-24.8% whenever that bound applied) and about a third of the word it
+fits, in total; never when left-aligned, never in Word 2010 mode (14). CSS
+breaks lines at fixed widths and has no equivalent shrink-then-refit pass, so
+aared approximates: the parser reads `word/settings.xml`'s
+`w:compat/w:compatSetting[@name="compatibilityMode"]`
+(`wordLayoutShrinksSpaces`, `DocxIndex.justifyShrinks` — computed once per
+document and shared by every part, body, headers, footers and footnotes
+alike, since compatibility mode is document-wide) and sets
+`DocxParagraphLayout.justifyShrink` on a justified/distributed paragraph
+only; the renderer adds a small negative `word-spacing` (`JUSTIFY_SHRINK`,
+`-0.01em`) to such a line. The amount stays under both of Word's limits for a
+line of up to about twenty spaces, so it can never pull down a word Word
+would have pushed to the next line — it only catches near misses, the case
+that mattered: the term sheet's justified Arabic cell broke "تيار" to a
+fourth line for 0.6px. Known remaining limits: one row still breaks one word
+earlier than Word because Word shrinks more there than this conservative
+bound allows, and English Calibri text measures 0.3-0.5% wider in Word than
+in the browser regardless of shrinking (glyph-advance rounding), so a few
+English lines wrap differently — deliberately not faked with letter-spacing.
+Snapshot digests in `docx-sections-stream.test.ts` were re-pinned after
+proving, by hashing with the new field stripped, that `justifyShrink` is the
+only model change. A parser test covers the gating: modes 15, 14 and absent;
+justified, distributed and left-aligned; and the coverage fixture's justified
+paragraphs. A visual test reads the negative `word-spacing` back from a
+justified paragraph, and `0px` from a left-aligned one.
+
+**A `w:lastRenderedPageBreak` mid-paragraph is not a break point.** Word writes
+one at the position its own last layout put a page break, which can land
+inside a run's text as easily as before a paragraph — the parser treated any
+occurrence as a preferred break, splitting the paragraph itself in half (a
+heading's number landed alone on the previous page, its title top-of-page on
+the next: the exact bug pages 3/4/6 of the showcase term sheet showed). The
+hint is now a signal read only when no text of the paragraph has been seen yet
+(a preferred break *before* the paragraph); a mid-paragraph occurrence is
+consumed and dropped, matching what it actually records (Word's stale layout
+cache, never a place to split live content). The same hint inside a table
+cell has nowhere to go (tables break between rows) and is dropped there too.
+
+**tools/excel-render printed US Letter, edge to edge.** Excel's "Scale content
+for A4 or 8.5 x 11 paper sizes" (`MapPaperSize`, on by default in US-locale
+installs) mapped the hardcoded A4 policy to Letter on export, and margins were
+set as inches where Excel reads points. The exporter now turns `MapPaperSize`
+off for its run (restoring the user's setting after — it persists), commits
+page setup as one batch, and converts margins with `InchesToPoints`; pages are
+A4 (1241×1754 at 150 dpi) with content at 0.7in/0.75in, matching the aared A4
+fit the capture test already assumed.
+
+**A frozen row's own row number scrolled away from its row.** Scrolling a
+sheet with frozen rows inside the launch-video's bench card left the frozen
+rows pinned at the top, correctly, beside whatever row numbers had scrolled
+underneath them — Excel keeps a frozen row's number with it. The row-header
+cell only ever stuck to the inline-start edge (`paintFrozen` handles the
+column axis); it never got the row axis's own `top` offset and z-index a
+frozen data cell gets. It now does, at the same `frozenRowOffset` a frozen
+row's cells already use, above the scrolling numbers passing beneath it.
+Pinned by `xlsx-coverage.xlsx`'s Shot Log sheet (4 frozen rows, ~100 total) in
+the render test, scrolled and read back from the DOM.
+
+**A content-sized sheet let its container scroll it, so frozen chrome and the
+horizontal scrollbar disappeared.** The same bench card exposed a second bug
+behind the first: `<aared-viewer>` and the bench give the sheet no height of
+its own (content-sized, matching Excel's own grid, which never imposes a
+scrollbar until the window does), and aared's `syncViewport` only ever grew
+that box to its full content height, adopting a clipping ancestor's visible
+room as a `min-height` floor and no more. So the *card* scrolled the whole
+sheet: frozen rows, their numbers and the column letters all scrolled away
+with it (position:sticky pins to the nearest scrolling ancestor, which was
+the card, not the sheet), and the sheet's own horizontal scrollbar sat below
+the fold at the sheet's full height, reachable only by trackpad. Excel's grid
+scrolls itself inside the window's own visible area; the container never
+scrolls it.
+
+Fix: `syncViewport` now also caps the scroller's own `max-height` to the
+clipping ancestor's visible room (a ceiling, alongside the existing floor),
+whenever that room is at least 120px (`MIN_SCROLL_ROOM_PX` — below that, a
+box too short to show anything useful, so the container scrolls it as
+before). The sheet then scrolls inside its own bounded box: frozen rows, row
+numbers and column letters all stay pinned in view, and a normal horizontal
+scrollbar sits right under the visible grid. With no clipping ancestor
+(a full-length embed), nothing changes — the page still scrolls the sheet.
+
+A first version of this cap broke `tools/xlsx-render`'s print-capture
+harness, which deliberately grows the scroller to an oversized explicit
+height to force every row into the DOM for measurement, undisturbed by
+virtualization or windowing. `syncViewport`'s own cap from an *earlier* pass
+was still in place when that resize happened, so the change-detection that
+decides whether to recompute measured the scroller's height through its own
+stale cap and never saw the resize. Fixed by lifting a previously-set cap
+before measuring (only when one is actually set, so the common bounded-viewer
+path — which never sets one — pays no extra layout cost), and always
+recording the *uncapped* height for the next comparison, never the capped one
+the pass just applied. Pinned by the same render test: it renders the sheet
+inside a bounded card, scrolls it, and checks the card's own `scrollTop`
+stayed at 0 while the sheet's box scrolled, with the column headers and the
+frozen row's number both still in the visible area — and by the print-capture
+suite continuing to pass, which now exercises exactly the resize-after-cap
+sequence that broke the first attempt.
+
+## 45. Font fidelity: a delivered substitute is actually used, waited for, and reported (Sep 2026)
+
+Follow-on to §44's font-metrics work, prompted by a direct question: aared's
+layout fidelity today depends on the calibration machine having every
+requested Office font actually installed (Calibri, Simplified Arabic, Sakkal
+Majalla — all real here). On a machine without them, what happens?
+Investigating the answer surfaced three real bugs in `aared-fonts` and the
+renderer, on top of the substitution table itself needing correction.
+
+**A delivered substitute was registered but never selected.** `createResolver`
+built each `FontFace` under the *substitute's own* Google Fonts name (`new
+FontFace("Carlito", …)`), while every renderer painted `font-family: Calibri`
+— a single bare name, no fallback stack of its own. Nothing connected the
+two: on a machine without Calibri, the browser fell straight to its own
+generic default, and the registered Carlito face sat in `document.fonts`
+unused. This was an open question recorded in ARCHITECTURE.md and never
+verified until now. Fix: `fontAlias(family)` (`core/typography.ts`, exported
+from `aared/core`) is the one shared naming rule — `cssFontFamily` now stacks
+the requested name, `fontAlias(requested)`, then the nearest generic, and
+`createResolver` registers every delivered face under `fontAlias(requestedFamily)`,
+never the requested name (would shadow a reader who really has it installed)
+and never the substitute's own name (nothing would select it). Verified
+end-to-end, not just at the unit level: a visual test renames a run to a
+family guaranteed to exist nowhere, registers a face under its alias sourced
+from a dramatically different local font (`local('Courier New')`, monospace),
+and confirms the *painted* width matches Courier's, not the generic
+sans-serif's — this is what actually closes the open question, a unit test
+against a fake `FontFace` could not.
+
+**The substitution table's Latin entries pointed at fonts Google Fonts
+doesn't host, and the Arabic entries weren't picked by measurement.**
+Fetching each `FONT_SUBSTITUTIONS` value from the CDN directly (a one-off
+script, not a test — no network in the suite) found Liberation Sans/Serif/
+Mono return 400: never hosted there. Arimo/Tinos/Cousine are — the actual
+Google Fonts builds of the same Ascender-designed metric-compatible family
+Liberation ships locally (confirmed: 0 of 95 ASCII glyphs' advance widths
+differ from the real Arial/Times New Roman/Courier New installed here,
+`tools/probe/font-metrics/metric-clone-check.py`; Calibri/Carlito likewise 0
+differ; Cambria/Caladea differ only by sub-pixel units-per-em quantization,
+under 0.13%). So every substitute Arial/Times New Roman/Courier New document
+was silently falling back to the generic default the whole time, not to
+Liberation as documented — the table said "metric-compatible" for a mapping
+that had never actually been exercised. Separately, the four Arabic entries
+mapped by name association (Traditional Arabic/Sakkal Majalla → "sounds like
+Naskh" Noto Naskh Arabic, Simplified Arabic → Noto Sans Arabic — a different
+letterform style entirely, not even the same design family as the other
+three). Measured instead, in two passes. The first (three candidates, three real
+paragraphs from `fixtures/docx-coverage.docx`, real shaping via
+`CanvasRenderingContext2D.measureText`, not a per-glyph table — Arabic's
+contextual forms make an unshaped sum wrong) picked Amiri for all four fonts:
+it beat Noto Naskh Arabic despite the "Naskh" name and Noto Kufi Arabic (a
+geometric, angular style — wrong shape family, confirmed by the numbers, not
+assumed from the name). That pass was too narrow, and it had never been checked
+against outside sources. The second pass (web research, then a survey:
+`tools/probe/font-metrics/arabic-survey.ts`) is what the table now rests on:
+
+- **Sources.** Searches found no open metric clone of any of the four fonts;
+  Microsoft Typography describes Sakkal Majalla as Naskh with compact
+  proportions and Arabic Typesetting as a *modern reading of Naskh* — the
+  earlier code comment calling it "decorative/Diwani" was wrong — and
+  Wikipedia describes Simplified Arabic as a typewriter-derived "simplified"
+  design, not a Naskh revival. The one page that lists metric clones (the
+  ArchWiki) was unreachable, so "none exists" rests on the searches alone.
+- **Method.** 59 samples (every Arabic-only run in the three fixtures) measured
+  in the real Windows font *files* (served locally and loaded through
+  `FontFace`, so the measurement machine's font choices cannot leak in)
+  against eleven candidates loaded from the same Google Fonts files the
+  resolver delivers, each load verified — a candidate that silently fell back
+  would measure a generic font and look plausible. Ranked by the spread (sd) of
+  per-sample width ratios, because line breaks depend on the spread while the
+  mean is exactly what `size-adjust` removes; then by the height of alef and of
+  the seen body after adjusting. A candidate had to beat the incumbent by a
+  quarter to displace it.
+- **Result.** Sakkal Majalla moves to Markazi Text (sd 0.036 against Amiri's
+  0.060: 41% less). Simplified Arabic moves to Lateef (0.023 against 0.044:
+  47%). Traditional Arabic and Arabic Typesetting keep Amiri (Lateef would be
+  12% better and 10% worse). An early worry — that a large `size-adjust` (Lateef
+  needs 130%, Amiri 67% for Arabic Typesetting) would distort the letters —
+  did not survive measurement: the alef and seen heights after adjusting land
+  at the original's proportions for both.
+- **Bold.** Measured per weight: bold differs from regular by up to 5.6% in
+  width (Traditional Arabic 80.0% against 84.5%), enough to matter for
+  headings, so `FontCalibration` gained an optional `bold` set and the resolver
+  picks by each face's weight.
+
+**Calibrating one delivered face against several different real fonts.**
+Each requested family has its own `FontFace` descriptors computed from the
+measured width ratio: `size-adjust` scales the substitute's advances to match,
+and `ascent-override`/`descent-override` are set so the *resulting* line box
+matches each real font's measured ascent/descent. Getting the override numbers
+right needed one more empirical check, not a spec reading: does `size-adjust`
+scale an override percentage, or does the override replace the metric outright
+at the unscaled em? Tested directly (`tools/probe/font-metrics/
+size-adjust-interaction.ts`, four descriptor combinations on the same local
+file): `final_ascent = ascent-override% x size-adjust% x font-size` — the
+override is multiplied by size-adjust's own factor, confirmed by measuring
+30 = 0.60 x 0.50 x 100 exactly. The published `FONT_CALIBRATION` numbers are
+divided out from that formula, not assumed from the spec's own wording (which
+reads ambiguously either way). Requested families sharing a substitute (Arial,
+Times New Roman, Cambria and Simplified Arabic all deliver Arabic through
+Lateef) still register as separate `FontFace`s, one per alias, each carrying
+its own calibration — `createResolver`'s CSS fetch is cached per *substitute*
+(one round trip serves all of them), but the constructed-and-registered faces
+are cached per *requested family*, deliberately not collapsed to one.
+
+**Most Arabic in real documents is set in Arial, not in an Arabic-named
+font, and the substitute for Arial has no Arabic glyphs.** Resolving the
+families of every Arabic-containing run in the fixtures showed the four
+calibrated fonts carry none of them: Arial carries 183 runs, Times New Roman
+12, Aptos 9, Cambria 1. Arimo and Tinos have no Arabic subset (checked against
+Google Fonts' own metadata), so that text fell through to whatever `sans-serif`
+the reader's system has. It never showed on the development machine because
+on Windows the generic sans-serif *is* Arial's own Arabic — the same
+coincidence that misled the fidelity detector. Ground truth for what to match:
+Word's PDF export (`tools/probe/font-metrics/word-arabic-fallback.ps1`, one
+sample per page, real span widths read with PyMuPDF; an earlier version read
+`Range.Information()` caret positions and was discarded — they flip between
+the two ends of a bidi run and gave garbage) agrees with the canvas
+measurement of the same installed fonts to within about 3% (Simplified Arabic
+0.983 of Arial in Word, 0.988 measured), which is what licenses using canvas
+numbers. Findings: Arial's and Times New Roman's Arabic match Simplified
+Arabic's widths within 1.3% (Wikipedia's account of Simplified Arabic as the
+Arabic supplement of Arial and Times New Roman is right); Calibri 6 carries
+its own Arabic; Cambria has none and Word draws that text in Times New Roman.
+So the resolver adds a *second face to the same alias* for Arial, Times New
+Roman, Cambria, Calibri and Calibri Light, limited by `unicode-range` to the
+Arabic script blocks and calibrated per original. Composition was proven in a
+real browser first, not assumed (`alias-composition.ts`): Latin under the alias
+measures exactly as Arimo alone; Arabic exactly as calibrated Lateef alone;
+spaces and punctuation stay with the Latin face (as in real Arial); the vertical
+metrics come out at Arial's (36/8 at 40px, against 45/25 uncalibrated); and add
+order is irrelevant. The face uses its own fixed Arabic range rather than
+Google's subset range, which also claims punctuation Arimo owns. Only upright
+Arabic faces are registered: Arial and Times New Roman have no Arabic italic,
+so Word slants Arabic synthetically and so does the browser once handed an
+upright face.
+Two costs are kept off documents that do not need them. The Arabic face is
+not `.load()`ed eagerly (the Latin faces keep the earlier behaviour), and the
+font wait and the fidelity probe used to put Arabic letters in their sample
+unconditionally, which made even a Latin-only Arial document fetch about 130 KB
+(regular plus bold) — caught by a test that asserts a Latin-only document
+never requests the face. It failed even after the wait was made conditional,
+because the fidelity probe measures a sample through canvas `measureText`,
+which itself makes the browser fetch whichever face covers the text.
+`collectFontUse` now reports whether the model has Arabic text in the same
+walk that collects the families, and both the wait and the probe use it. With
+the wait's Arabic letters removed the test fails too, so it guards both.
+Deliberate non-changes: Courier New's Arabic is monospace (every proportional
+candidate is off by 45% or more on individual paragraphs, so no calibration
+helps and none is offered); Tahoma and Segoe UI are not in the table at all;
+Aptos has no Windows font to measure against (superseded by §49: Office's
+cloud-font cache has the real files); and the explicit `.load()` the
+resolver calls on every Latin subset face (which downloads all of Arimo's
+Cyrillic, Greek and Hebrew subsets whether or not they are painted) predates
+this and was left alone (removed in §50: faces now load when painted).
+
+**A registered substitute's glyph data can still be loading when a renderer
+measures painted text.** `createResolver` calls `FontFace.load()` without
+awaiting it (by design — painting should not block on every font file), and
+the session (`core/session.ts`) only awaits the resolver's own promise
+*settling*, which happens once the `FontFace` object exists and is added to
+`document.fonts`, well before its bytes finish loading. DOCX layout mode's
+`measureFlow` and PPTX's `normAutofit` shrink pass both read painted
+`getBoundingClientRect`/`scrollHeight` synchronously; before this fix, that
+measurement ran with whatever was already painted — an installed real font,
+or the browser's own unrelated fallback — regardless of a substitute
+mid-flight. Fix: `awaitDocumentFonts(model)` (`text-style.ts`, shared by both
+formats) walks the model for every `fontFamily` it uses (`collectFontUse`, a
+sibling of the `collectStrings` walk `core/session.ts` uses to find which
+families to resolve, which also reports whether any run has Arabic text) and calls `document.fonts.load()` on each family and its alias,
+racing the result against a 2-second timeout so an offline or blocked CDN
+never hangs a render. DOCX layout pagination always awaits it before
+`measureFlow`; DOCX flow mode awaits it too, even though flow mode's own
+CSS text reflows automatically once a font loads with no help needed —
+`awaitDocumentFonts` there is only for the fidelity flag below, which reads
+whichever font actually ends up painting. PPTX only pays this cost for a
+slide that actually has `normAutofit="shrinkText"` text
+(`hasAutofitShrinkText`, checked against the raw model before painting, so
+the common slide with no autofit text never waits); the synchronous
+`paintSlide` entry point and a no-autofit `render()` compute font fidelity
+from whatever is loaded at that moment, which can occasionally read stale
+for a font mid-flight — a documented, narrower scope for PPTX than DOCX.
+(Superseded for PPTX by §48: PowerPoint never measures on open, so the shrink
+pass and this wait are gone.)
+Verified with a genuine race, not a single-tick approximation: `document.
+fonts.load()` on an unregistered family (installed or nowhere) resolves in
+under 1ms, and even a `FontFace` from an in-memory `ArrayBuffer` reports
+`"loaded"` synchronously — a `local()` or binary-data source has no
+asynchronous window to test against at all. Only a genuine network `url()`
+fetch (what the real resolver actually uses) does, so the regression tests
+serve real font bytes from a deliberately delayed same-origin route and
+compare a render that registers-and-immediately-triggers (mirroring the
+resolver's fire-and-forget exactly) against one that awaits `.load()` first;
+both a DOCX page-count test and a PPTX shrink-scale test fail without the
+fix and pass with it (confirmed by temporarily reverting each fix and
+re-running).
+
+**The fidelity flag.** Every render handle now carries `.warnings: readonly
+RenderWarning[]` (`{code, message}` — `core/model.ts`, shared by every
+format's handle via `RenderHandleBase.setWarnings()`, `render-handle.ts`,
+never one DOCX-only shape). DOCX layout mode merges the paginator's own edge
+cases (`oversize-block`, `footnote-overflow` — computed since §21 but
+previously dropped before reaching the embedder, a ROADMAP gap closed here)
+with font entries; DOCX flow mode and PPTX carry the font entries alone.
+`detectFontFidelity`/`fontFidelityWarnings` (`text-style.ts`, DOM-required —
+deliberately not in `core/session.ts`, which Rule 3 keeps DOM-free) decide
+per family whether it painted with something real (the requested name, or a
+delivered alias) or fell to the browser's own unrelated default, by
+comparing a `canvas.measureText` width against a same-generic-category
+control — not by asking `document.fonts.check()`, which turned out unusable
+for this: it returns `true` even for a family name that exists nowhere on
+the calibration machine (verified, `tools/probe/font-metrics/
+fonts-check-probe.ts` — on this Chromium build it reports whether *anything*
+could paint the fallback stack, not whether the named family itself
+resolved). The width comparison has one real gap of its own, also found by
+testing against the real fixture rather than trusting the design on paper: Arial,
+Times New Roman and Courier New measured "unavailable" on first pass even
+though they are genuinely installed here, because Windows Chromium's own
+`sans-serif`/`serif`/`monospace` generic keywords resolve to exactly those
+three fonts — there is no way to distinguish "the real font, painting" from
+"the generic default, which happens to be the same font" by width alone, and
+it does not matter: the pixels are correct either way. Fixed by special-
+casing those three names (`resolvesLikeGenericDefault`, `core/typography.ts`
+— this is *why* they were picked as the generics' historical archetypes) to
+never read as unavailable from that comparison alone. A working delivered
+substitute is not itself a warning (`detectFontFidelity`'s `"substituted"`
+status) — only `"unavailable"` (neither the requested name nor an alias
+painted with anything real) produces a `RenderWarning`. Verified end-to-end
+per format: a real font, a substituted font and a genuinely missing font each
+render, and only the missing one's `.warnings` names it.
+
+**A table row Word's own saved layout broke before is now real evidence
+pagination uses, not dropped.** `w:lastRenderedPageBreak` leading a table
+cell's first paragraph had nowhere to go under the mid-paragraph fix (§44):
+tables break between rows, never inside a cell, so it was silently dropped
+even at a row's very own start — real signal thrown away. It is real signal:
+checked directly against `docProps/app.xml`'s own `<Pages>` count on two real
+Word-saved files (the coverage fixture and the showcase term sheet), the
+number of raw `w:lastRenderedPageBreak` occurrences in `document.xml`
+(counting every one, including ones already dropped for other reasons)
+matched `Pages − 1` exactly on both — Word's own account of how many times it
+broke a page agrees with how many markers it left behind. `DocxTableRowNode.
+pageBreakBefore` now carries a marker leading the row's first cell's first
+paragraph (`parseTableCell` returns it alongside the cell; a marker on any
+other cell, or after real text within the first cell's paragraph, still has
+nowhere to go and stays dropped, unchanged). `splitTable` prefers a marked,
+valid boundary over the latest-fitting one it would otherwise guess whenever
+both agree it is usable (clean of a merge, no `w:keepNext` chain, fits the
+room) — real evidence beats a heuristic. Fitting this in exposed a genuine
+design gap, not a fixture accident: honoring the marked boundary as *which*
+split to make is not the same as guaranteeing the resulting tail actually
+*starts* a fresh page — a tail that fits some more content in the room left
+on the current page would otherwise keep packing onto it, which is not what
+`pageBreakBefore` means. A table encountered whole with a marked first row
+still only breaks for it once the current page is already more than half
+full, the same "prefer" gate a top-level hint uses — but a tail `splitTable`
+itself just carved off at a marked boundary always starts fresh, ungated: that
+split already used the strongest evidence available, so a further "is the
+page half full enough" heuristic on top of it would second-guess a decision
+real evidence had already settled. Caught by a test that mirrors what
+actually happened building this: `splitTable` alone reported the right split
+point, yet the rendered pages still put the marked row on the same page as
+its predecessor — the second, narrower fix (tracked by object reference
+through the one `pending` queue a table's fragments flow through, not by a
+value that could coincidentally match) is what a passing test against the
+real behaviour, not just the chosen split index, actually required.
+
+**Not done in this pass, deliberately scoped out** (see ROADMAP M4): a
+mid-paragraph `w:lastRenderedPageBreak` is still dropped outright rather than
+promoted to a paragraph-level hint — splitting exactly where Word did, inside
+a paragraph's own text, is a new pagination capability (paragraphs are atomic
+today), not a small extension of what exists; the loss is real but bounded to
+that one paragraph, and the next real marker (a following paragraph or table
+row) resyncs pagination from there. Embedded fonts (DOCX `.odttf`, PPTX
+`.fntdata`) are not read: a DOCX implementation was built and then removed
+again, so the substitution table and `warnings` are the only font handling.
+
+## 46. Arabic calibration measured the way it paints: through the alias, unrounded (Sep 2026)
+
+Supersedes the calibration *numbers* in §45 (the method of choosing each
+substitute stands). Found while benchmarking a proposal to replace Arial's
+two-face fallback (Arimo + Lateef) with one font, Vazirmatn, which has both
+Latin and Arabic glyphs.
+
+**Vazirmatn, rejected on measurement.** `tools/probe/font-metrics/
+vazirmatn-bench.ts` lays out every real paragraph in the three fixtures (142:
+65 English, 45 Arabic, 32 mixed) in the DOM at 11pt across seven widths
+(240–720px), in the real `arial.ttf`/`arialbd.ttf` and in each setup, and
+counts the lines that start at the same word as Arial's. Vazirmatn was tested
+the way aared would ship it: Latin and Arabic faces split by `unicode-range`,
+each with its own fitted `size-adjust` and vertical overrides (so "one text box
+cannot size both languages" does not apply here). Share of lines breaking like
+Arial, regular / bold:
+
+| Setup | English | Arabic | Mixed |
+|---|---|---|---|
+| Arimo + Lateef, Lateef refitted (below) | 100 / 100 | 96.2 / 98.4 | 98.2 / 99.7 |
+| Vazirmatn, fitted per script | 97.1 / 96.4 | 95.6 / 98.6 | 96.8 / 97.6 |
+| Vazirmatn as-is, same size | 97.1 / 79.4 | 86.4 / 86.4 | 93.3 / 92.1 |
+
+It loses English (Arimo is a metric clone; Vazirmatn only averages out on a
+sample line) and mixed paragraphs, and ties Arabic. After width-matching, its
+Arabic alef is about 25% shorter than Arial's (refitted Lateef's, about 7%), so
+its Arabic reads visibly smaller than Word's. It saves no download either:
+Google Fonts serves it as per-script files, one Latin and one Arabic per
+weight, the same count as Arimo + Lateef. As-is, its `line-height: normal` box
+is 23px against Arial's 16px at 11pt (the overrides remove that).
+
+**Bug 1: the Arabic fallback faces were calibrated alone, but paint beside a
+Latin face.** An `ARABIC_SCRIPT_FALLBACKS` face covers `ARABIC_UNICODE_RANGE`
+only, so the spaces, Western digits and punctuation inside Arabic text paint
+in the alias's Latin face (Arimo, Tinos, Caladea, Carlito) at its own size.
+§45 measured Lateef and Markazi Text on their own (`arabic-survey.ts --calib`),
+counting *their* spaces, scaled by their `size-adjust`. As painted, every
+fallback was too wide: Arial's Arabic 3.3%, Calibri's 2.5% (bold 3.3%), Times
+New Roman's 2.3%, Calibri Light's 2.7%, Cambria's 0.9%. Fix:
+`arabic-fallback-fit.ts` fits each through its real alias. The alias's width is
+linear in the Arabic face's `size-adjust`, so two probes (100% and 80%) solve
+for the value that matches the original's total width over every Arabic-only
+run in the fixtures (59). Cambria is fitted against Times New Roman's Arabic
+(what Word draws) through Caladea (what paints its spaces here), so it no
+longer shares Times New Roman's numbers.
+
+**Bug 2: vertical metrics were read rounded.** Canvas `fontBoundingBox*`
+comes back in whole pixels, and the survey read it at 40px, so every
+`ascentOverridePercent`/`descentOverridePercent` carried up to half a pixel of
+error, 2.5% of the em at worst (Arabic Typesetting's descent 67.1% against a
+correct 65.4%; Sakkal Majalla's 96.1%/57.7% against 97.1%/56.3%). Both probes
+now read at 10000px; the values match each font file's `usWin` ascent/descent
+(read with fontTools), which is what a browser on Windows paints the real font
+with. All nine calibrations (the four main faces in `FONT_CALIBRATION`, the
+five fallbacks) were corrected.
+
+**Proof.** Arabic lines breaking like the original, before → after, regular /
+bold (`arabic-fallback-fit.ts`, 77 paragraphs with Arabic, seven widths):
+
+| Original | Arabic before | Arabic after | Mixed before | Mixed after |
+|---|---|---|---|---|
+| Arial | 90.5 / 94.0 | 96.2 / 97.6 | 99.3 / 99.3 | 98.2 / 99.7 |
+| Times New Roman | 95.9 / 94.8 | 98.4 / 97.8 | 98.5 / 98.2 | 98.2 / 98.2 |
+| Cambria | 98.4 / 97.5 | 98.4 / 96.5 | 97.8 / 91.4 | 96.7 / 92.5 |
+| Calibri | 94.6 / 92.7 | 96.7 / 97.0 | 99.3 / 97.8 | 99.3 / 99.3 |
+| Calibri Light | 95.9 | 96.4 | 97.1 | 97.8 |
+
+Arabic paragraphs gain about 2 points on average at both weights. Mixed
+paragraphs are flat overall: regular dips (Arial −1.1, Cambria −1.1) and bold
+gains; single-line differences at this sample size are about one point, so
+these are within noise. Every regular width now lands at 100.0% of the
+original. The line-box check (`vertical-check.ts`, `line-height: normal` at
+2000px so rounding costs 0.05%) puts every entry within 0.1% of the real font
+except the two non-changes below.
+
+**Blast radius.** Numbers only: `FONT_CALIBRATION` and
+`ARABIC_SCRIPT_FALLBACKS` in `aared-fonts`; the resolver is unchanged. A
+calibrated face paints only when the reader lacks the real font, so on the
+calibration machine (which has every Office font) nothing renders differently
+and the visual suite cannot show it; the probes above are the evidence. The
+unit test that pinned Cambria to Times New Roman's numbers now pins the shared
+substitute instead.
+
+**Deliberate non-changes.**
+- Bold keeps §45's rule: its own numbers only where it differs from regular
+  by more than about 1.5%. Arial, Times New Roman and Cambria bold differ by
+  0.7–0.9%, so their bold faces use the regular numbers and land at 99.3–99.4%
+  width (Cambria bold's Arabic line match drops a point with it, within noise).
+  Simplified Arabic bold's descent is 1% deeper than regular's; same rule.
+- No `line-gap-override`. aared never paints text at `line-height: normal`
+  (every renderer sets its own line height), so a face's line gap does not
+  reach the page. It is why `vertical-check.ts` still shows Arabic
+  Typesetting's `normal` box 0.7% short: the old, wrong descent happened to
+  hide that gap.
+- Whose spaces Word draws inside Cambria's Arabic (Times New Roman's or
+  Cambria's) is unknown; `word-arabic-fallback`'s saved output cannot answer it
+  (its sample order does not line up). A Word probe would settle it.
+- The substitutes still have not been checked on a machine without the Office
+  fonts (ROADMAP M4).
+
+## 47. Paragraph spacing in lines: what a "line" is in Word and PowerPoint (Sep 2026)
+
+Proposed: paint Word's `w:beforeLines`/`w:afterLines` with the CSS `lh` unit
+(one line = the paragraph's own computed line height). Rejected on
+measurement: neither app means that. Probe `tools/probe/line-spacing-units/`
+builds paragraph pairs through each app's object model ("Before: 1 line" set
+the way the UI sets it, beside control pairs with no spacing), exports
+through the app itself and reads the gap off the PDF.
+
+**Word: a line is always 12pt.** At 11pt and 24pt, single and double
+spacing, Arial Arabic and Calibri, "1 line" added 12.0pt and "0.5 line"
+6.0pt. `lh` would have given 12.7, 27.6, 25.3 and 16.1pt. Word also saves
+the points beside the lines (`w:beforeLines="100" w:before="240"`), which
+aared already read, so Word's own files were right before this entry. The
+one exception is a line grid (`w:docGrid w:type="lines"`): Word then counts
+the grid pitch (18pt at pitch 360, 24pt at 480) and snaps every line to the
+grid. A stored pitch with no grid type changes nothing. aared has no line
+grid, so that stays a gap.
+
+Word reading hand-edited XML settled precedence: the line value and the
+point value inherit separately, and a line value above zero wins, even over
+the paragraph's own points (a style's `w:beforeLines="100"` beat a
+paragraph's `w:before="120"`: 12pt). `beforeLines="0"` means "in points"
+(`before="120"` then paints 6pt), and lines alone need no points
+(`beforeLines="50"`: 6pt). Word writes a style's line value without points
+(`<w:spacing w:beforeLines="100"/>`) and materialises `w:before` on each
+paragraph, so only other producers' files differ. `resolveParaProps` now
+carries both through the chain and `paragraphSpacePt` applies the rule.
+
+**PowerPoint: a line is 1.2 × the paragraph's largest run size.** It is the
+same in Arial, Calibri, Times New Roman, Segoe UI, Traditional Arabic and
+Cambria Math, and at line spacing 0.8, 1.0 and 2.0. A 28pt word in an 18pt
+paragraph makes the line count 28pt, before and after alike. `lh` matches
+only at exactly 1.0 line spacing. aared dropped `a:spcPct` spacing
+altogether (`spacingValue` returned it, and only points were used). It is now
+`TextParagraphModel.spaceBeforeLines`/`spaceAfterLines` and paints as an `em`
+margin on the paragraph's `<p>`, which already carries its largest run size.
+So it also follows the shrink-to-fit pass that scales that size.
+
+The same probe found three more rules, all fixed here because they belong to
+the same spacing:
+- PowerPoint drops space before a text body's first paragraph and after its
+  last, in points or in lines, in shapes and table cells. aared painted both.
+  `pptx-coverage.pptx` slide 5's bullets carry 10pt before every paragraph,
+  and the list now starts where PowerPoint's does.
+- One paragraph's space after adds to the next one's space before (1 + 1
+  lines = 43.2pt at 18pt). A table cell with no vertical alignment was a
+  block, where CSS collapses the two margins into the larger;
+  `appendTextBody` now makes every text body a flex column.
+- The Word renderer already stacks blocks apart, so Word is unaffected.
+
+**Coverage.** Slide 12 ("تباعد الفقرات") was appended to
+`pptx-coverage.pptx` through PowerPoint's object model. It has an RTL Arabic
+text box and a table cell spaced in lines: the first/last edge, half a line,
+the 28pt word, and after + before. A parser test reads the lines back, and a
+DOM test (`pptx-paragraph-spacing.visual.test.ts`) re-reads the painted gaps
+between paragraph boxes; it fails on the previous renderer. A synthetic
+parser test pins Word's precedence cases, since Word's own saves always carry
+the points too.
+
+**Seen in the paired captures, not fixed here:**
+- PowerPoint also lowers a paragraph's first line when its line spacing is
+  above 100%; aared centres the extra leading.
+- A text box that authors no insets gets none in aared, where PowerPoint
+  uses 0.1in/0.05in.
+- On slide 5, bullets larger than their text make aared's lines taller than
+  PowerPoint's.
+
+All three are in ROADMAP's fidelity-gap table.
+
+## 48. PPTX autofit is what PowerPoint stored; bullets hang; a subtitle takes the master body style (Sep 2026)
+
+The slide-5 screenshot (PowerPoint beside aared: a bullet list spread out
+down the slide) and the paired captures of slide 1 turned up four causes with
+one theme: aared worked out something PowerPoint reads from the file.
+
+**Autofit follows the stored values, not a measurement.** Overturns the
+shrink half of §45. Probe `line-spacing-units` built nine `normAutofit` boxes
+and read PowerPoint's own PDF: PowerPoint does not measure on open. A bare
+`<a:normAutofit/>` paints at 100%, overflow painted (not shrunk, not
+clipped). Only the stored `fontScale` and `lnSpcReduction` change anything.
+A painted size is `round(size × fontScale)` in whole points, half up; the line
+step is 1.2 × that size × (line spacing − `lnSpcReduction`); spacing in points
+is unscaled; spacing in lines counts 1.2 × the rounded size and ignores the
+reduction. aared's old pass measured `scrollHeight`, took ×0.95 steps and
+clamped at 0.6. That had no basis in Office, and it shrank slide 1's subtitle
+to 28.95px where PowerPoint paints 32px (a bare `normAutofit`, tipped over
+its threshold once the empty last paragraph was counted as a line).
+
+`parseTextBody` now applies both stored values and the model carries them
+(`TextBodyModel.fontScale`, `.lineSpacingReduction`; sizes and `lineSpacing`
+are already scaled, so a renderer only paints). Only the slide's own `bodyPr`
+counts: a layout or master `normAutofit` never carries a scale. Removed:
+`shrinkTextToFit`, `scaleFonts`, `hasAutofitShrinkText`, the PPTX-only
+`awaitDocumentFonts` wait (DOCX keeps it; nothing on a PPTX slide measures
+text any more) and `data-aared-autofit-applied`. Tests: a parser test pins
+the rounding, the reduction and the layout/master rule; the fidelity test
+re-reads the painted size of the shrink box (24px).
+
+Deliberate non-changes: `lineSpacingPt` (exact line spacing) and
+`bullet.sizePts` stay unscaled, since PowerPoint's effect on both is
+unprobed. **Limit:** `none` and `shrinkText` shapes still paint with
+`overflow: hidden`, where PowerPoint paints the overflow.
+
+**Bullets keep PowerPoint's hanging indent.** The marker was a grid column
+with a gap, which put the text at the wrong place whenever the marker was
+wider or narrower than the hanging gap, and a marker larger than its text
+(150% bullets, a 42pt Wingdings square) made the line taller. Read off
+PowerPoint's PDF: the marker starts the first line at the margin plus the
+(negative) first-line indent, and the text starts at the margin or right where
+a wider marker ends. The marker is now an inline box at least as wide as the
+hanging gap, with no line height of its own, so both hold in either
+direction. Along the way: `marL` counts from the right in a right-to-left
+paragraph (`margin-inline-start`, not `margin-left`); an empty paragraph is
+still one line at its own size; a `+mj-lt` bullet font is the theme's heading
+font (`cssFontFamily`). The first-line indent is painted for every paragraph,
+so `applyParagraphBox` lost its `firstLineIndent` option.
+`pptx-bullet-geometry.visual.test.ts` re-reads the marker and text boxes of
+slides 1 and 5 in both directions and fails on the grid.
+
+**A subtitle placeholder takes the master's body style.** `masterTextStyle`
+switched on the raw placeholder type, so `subTitle` (and content, table,
+picture and chart placeholders) fell through to `otherStyle`, while the
+master-placeholder lookup beside it already sent them to the master body. The
+master's `bodyStyle` carries the 90% line spacing and 10pt before, so slide
+1's subtitle painted lines 39px apart where PowerPoint's are 47, 51 and 48
+(aared now 47, 51 and 47). Both lookups now share `masterPlaceholderType`;
+only date, footer and slide number take `otherStyle`. Blast radius: every
+placeholder that is not a title or one of those three, in every PPTX; the
+layout's `lstStyle` and the slide's own properties still sit above the master
+style, so nothing that authored its own values moved (no existing test
+changed). `pptx-parser.test.ts` pins the subtitle's 0.9 and 10pt, and the
+slide number's lack of both.
+
+**Seen, not fixed.** On slides 1 and 5 aared's first line still sits about 3px
+lower than PowerPoint's in paragraphs at 90% line spacing (the title and the
+bullets alike); where PowerPoint puts the leading is unprobed (same family as
+the 100%-and-over gap in §47). Both are in ROADMAP's fidelity-gap table.
+
+## 49. Aptos: calibrated look-alikes measured against the real cloud fonts (Sep 2026)
+
+Aptos has been Office's default theme font since 2023: Aptos for body text,
+Aptos Display for headings, and Aptos Narrow as Excel's default. It had no
+substitute, because §45 thought there was nothing to measure against. No
+browser has Aptos, so its text painted in the generic sans-serif; on Windows
+that is Arial, 5-17% wider than Aptos. Slide 1's "Next review: Thursday
+12:00" measures 384.8px in Aptos and 407.3px in Arial; the paired captures
+show 383px in PowerPoint and 406px in aared.
+
+**The real fonts were on the machine all along.** Office downloads cloud
+fonts into `%LOCALAPPDATA%\Microsoft\FontCache\4\CloudFonts` and never
+installs them as system fonts. The files are named by hash, so
+`tools/probe/font-metrics/cloud-fonts.ts` finds them through their name
+table. Versions 2.00 and 2.01 are both there, with identical advances. They
+are used only for measuring and are never shipped or copied.
+
+**Choice.** The method is §45's, applied to Latin text.
+`latin-survey.ts` measured every Latin run in the five fixtures (194
+samples, plus 77 digit strings reported on their own) in the real Aptos,
+Aptos Display and Aptos Narrow, against 61 open candidates. Each candidate
+was loaded with the resolver's own request (`fontCssUrl`), and every load was
+verified.
+
+Width spread alone did not decide it. The narrowest spreads came from
+condensed faces whose letters end up 12-33% taller once size-adjust matches
+the widths. So the rule became: keep Aptos's x-height and cap height. The bar
+was set at 3% first. For Aptos Narrow no face met it; IBM Plex Sans Condensed
+is closest, with its cap height 3-4% off. So the bar is 4%, at both weights,
+and exactly one candidate per family passes it:
+
+- Aptos → Radio Canada
+- Aptos Display → Roboto
+- Aptos Narrow → IBM Plex Sans Condensed
+
+**Line breaks.** `latin-fit.ts` laid out real paragraphs at eight widths, in
+both weights, for the 16 closest candidates. It counted paragraphs broken
+exactly where Aptos breaks them:
+
+| Family | Substitute (regular / bold) | Generic sans-serif (regular / bold) |
+|---|---|---|
+| Aptos | 96% / 93% | 75% / 63% |
+| Aptos Display | 95% / 94% | 42% / 38% |
+| Aptos Narrow | 96% / 95% | 56% / 51% |
+
+The picks have the best average of the 16 for Aptos and Aptos Narrow, and
+are 0.8 points under the best for Aptos Display. Visual weight ("ink") is
+within 2-9%.
+
+**Aptos Display** is Aptos spaced tighter for large sizes. A uniform
+size-adjust cannot reproduce tighter spacing, so the Aptos pick lost ground
+on it, and Display takes its own face.
+
+**Numbers.** Each family gets its own `FONT_CALIBRATION` entry.
+
+Bold carries its own numbers in all three families, although the weights
+differ by only 1-3%. That departs from the Arabic entries' 1.5% bar, on
+measured cost: at the regular numbers, Aptos Narrow's bold paints 1.3% wide,
+and its identical paragraphs fall from 95% to 91%.
+
+The vertical overrides are Aptos's typo ascent and descent (0.939/0.282 of
+the em). The browser measured those, because Aptos sets USE_TYPO_METRICS.
+The win metrics (1.010/0.275), which the other calibrations' "usWin" rule
+would have picked, are unused. The line box now matches Aptos's within 0.1%;
+Arial's was 5.8% short.
+
+**Arabic under Aptos.** `aptos-arabic-fallback.ps1` sets Arabic in each
+Aptos family, exports PDF, and reads the span fonts:
+
+- Excel (one font per cell, no complex-script slot) draws it in Arial, at
+  Arial's own width (1.001).
+- Word draws it in Arial too, whether Aptos sits in the Latin slot of a
+  left-to-right run or in the complex-script slot of an RTL one.
+
+This is the common spreadsheet case, since Aptos Narrow is Excel's default.
+So the three families take Arial's Lateef face in `ARABIC_SCRIPT_FALLBACKS`,
+fitted through their own alias. `arabic-fallback-fit.ts` now registers the
+Latin face with its own calibration, as the resolver does. The spaces come
+from the size-adjusted Latin face, which is narrower than Arimo, so Lateef is
+3-5% larger than under Arial. 96-100% of Arabic line starts land where
+Arial's do.
+
+PPTX and DOCX already set any run containing Arabic in its complex-script
+font, so this face mostly matters for XLSX. Neither XLSX fixture has an
+Aptos Narrow cell holding text, so the probe is the only evidence for that
+route. No fixture was added.
+
+**Blast radius.** `aared-fonts`'s table and tests change. For anyone passing
+a resolver, Aptos documents now download fonts.
+
+- The resolver eagerly loads every non-Arabic subset face of a substitute,
+  in all four styles (§45 left that alone). The new substitutes cost about
+  what shipped ones already do: Radio Canada 234 KB, Roboto 471 KB and IBM
+  Plex Sans Condensed 175 KB, against Arimo's 445 KB and Carlito's 784 KB.
+  A document in the default theme (Aptos plus Aptos Display) now fetches
+  about 700 KB where it fetched nothing. Loading only the painted subsets is
+  a separate, open decision.
+- The site's Light Table demo passes `defaultResolver` for PPTX only. Its
+  sample deck (`post-production-review.pptx`) has no Aptos, so the default
+  demo is unchanged; a dropped Aptos deck now paints the substitute.
+- The XLSX route reaches the resolver. A cell with no style takes style 0,
+  whose font is the workbook default; `collectStrings` visits every distinct
+  cell style, and the renderer paints `cssFontFamily(style.fontFamily)`.
+  This was confirmed by reading the code and in the end-to-end check below;
+  no test exercises it.
+- End to end, built packages with the real `defaultResolver`:
+  - Slide 1's "Next review: Thursday 12:00" paints 385.7px under the Aptos
+    alias. Real Aptos measures 384.8px, and PowerPoint's capture spans the
+    same x range.
+  - An Aptos Narrow cell holding Arabic loads Lateef at 132.6%.
+- No renderer code changed.
+- XLSX column widths are a fixed 7px per character (`core/xlsx/sheet.ts`),
+  never measured, so the substitute's digits move no column.
+- No visual test uses the real resolver (they register faces by hand and stay
+  offline), and neither do the bench or the paired captures. On this machine,
+  those still paint Aptos in the generic sans-serif.
+- The resolver unit test pins registration: Radio Canada under the Aptos
+  alias, per-weight numbers, and Lateef limited to Arabic and loaded lazily.
+- The probes are the acceptance, as for every calibration.
+
+**Limits.**
+
+- Italics use the upright numbers of their weight (`FontCalibration` is keyed
+  by weight). They paint 2-3% narrower than Aptos's italic in Aptos and Aptos
+  Display, and 1% in Aptos Narrow.
+- Aptos Light, SemiBold, ExtraBold, Black, Mono and Serif are separate Office
+  families and are not covered.
+- Letterforms differ; widths and letter heights are what match.
+- The substitutes are Google Fonts' current files, which can change under any
+  calibration. Refitting Arial's and Cambria's Arabic faces while wiring this
+  up came out 0.3-0.9% off the numbers §46 shipped (bold furthest). That was
+  noticed, not changed.
+
+## 50. Delivered fonts load when painted, not up front (Sep 2026)
+
+The resolver used to call `.load()` on every non-Arabic subset face of a
+substitute as soon as it registered it, in all four styles. Every Google
+subset (Latin, Latin Extended, Greek, Cyrillic, Vietnamese…) came down,
+whether or not the document used it. That was left alone in §45, and §49
+made it cost more, since the default theme now has substitutes too.
+
+**Change.** The resolver now registers faces and never loads them. The
+browser fetches a face when text first needs it, going by its style, its
+weight and its `unicode-range`.
+
+Two things relied on the eager load, and both now load exactly what the
+document paints:
+
+- **The wait.** `collectFontUse` records, per family, the variants its runs
+  paint in (their own `bold`/`italic`; an XLSX cell style has the same keys).
+  `awaitDocumentFonts` loads those variants with a text sample, and that is
+  what triggers the download of those faces and subsets only.
+  - Before, it waited for regular and bold and never for italic. So DOCX
+    layout could measure an italic run before its face arrived; the eager
+    load only made that unlikely.
+- **The fidelity check.** `detectFontFidelity` now measures in a variant the
+  document paints. A bold-only family's regular face may never be fetched.
+- **PPTX `render()`** now waits too, like both DOCX modes: it paints, waits
+  (bounded, 2 s) for the slide's fonts, then reads the warnings and resolves.
+  - Before, the eager loads usually finished in time. Lazily, nothing would
+    have loaded, and every substituted family would have read as
+    "font-unavailable".
+  - The synchronous `paintSlide` still reads at once, and says so (API
+    page).
+  - XLSX neither measures nor warns, so it needs no wait.
+
+**Measured.** `tools/probe/font-metrics/font-bytes.ts` records every face the
+resolver registers with its file, and counts the ones the browser left
+"unloaded" as not downloaded:
+
+| Render | Before (loaded up front) | Now (loaded when painted) |
+|---|---|---|
+| `pptx-coverage.pptx` slide 1 (Aptos, Arial) | 58 files, 1620 KB | 5 files, 185 KB |
+| `post-production-review.pptx` slide 1 | 26 files, 717 KB | 4 files, 167 KB |
+| `docx-coverage.docx`, whole document | 87 files, 2307 KB | 11 files, 337 KB |
+| `xlsx-coverage.xlsx` sheet 1, no Office fonts | 18 files, 572 KB | 4 files, 168 KB |
+
+Most of what remains is the Lateef Arabic face, which was already loaded on
+demand.
+
+**Cost left.** A reader who has the real font still downloads what the wait
+and the check load under the alias. On this machine the PPTX and DOCX
+numbers equal the no-Office-fonts ones. Skipping those loads would need to
+know the real font is installed, and that can't be measured reliably: Arial
+measures the same as the generic it stands behind (§45). Kept, and bounded
+by the table above.
+
+**Tests.**
+
+- The resolver tests now assert that no face is loaded up front, Latin or
+  Arabic.
+- `collectFontUse` has a test for variants: run and cell-style keys,
+  including `bold: false`.
+- The visual suite passes unchanged, and it now includes the no-Office-fonts
+  pass (§51), which paints through the lazy faces in all three formats.
+
+## 51. The no-Office-fonts review: substitutes painted where they matter (Sep 2026)
+
+Every calibration was measured on a Windows machine with Office's fonts. The
+real fonts are installed there and always win, so no substitute had ever
+painted a real document. A phone, or a Mac or Linux machine without Office,
+is where they paint.
+
+**Simulated on this machine.**
+
+- An installed font cannot be hidden from a page. A registered face named
+  "Arial" that fails to load falls back to the installed Arial; the text
+  still measured as Arial.
+- So the review renames every family in the model to one no machine has
+  (`"Arial absent"`). `packages/aared-fonts/test/absent-fonts.browser.ts`
+  then registers the real resolver's faces under the renamed family's alias,
+  through its `FontFaceCtor` hook: the same CDN files, calibrations and
+  aliases a phone would get. A family with no substitute (Wingdings, Segoe
+  UI) falls to the generic, as it would there.
+- `bun run test:visual:artifacts --absent-fonts` adds that render as a third
+  column of the PPTX and XLSX reviews. It uses the network.
+  `tools/word-render/capture.ts --absent-fonts` writes the DOCX pages.
+
+**What holds.** All three fixture families lay out as with the real fonts,
+against the native Office renders:
+
+- DOCX: the same 4 pages, the same English line breaks and the same table
+  geometry.
+- PPTX: all 12 slides in place.
+- XLSX: every sheet, with no row or column moved.
+
+**Fixed here.** Chart text in both PPTX and XLSX was painted with the bare
+family name. It skipped `cssFontFamily`'s alias and generic, so a missing
+font (Aptos, every default-theme chart) fell to the SVG default serif, even
+on this machine. The chart titles and axes in the paired XLSX captures had
+always been Times. `chart-svg.ts` now paints the same stack as every run;
+`chart-svg.test.ts` re-reads the attribute.
+
+**Found.** Symbol-font bullets became letters: Wingdings' square and check
+mark painted as "q" and "ü" (`pptx-coverage.pptx` slide 5), because those
+glyphs live at letter codes in Wingdings, and Android, iOS and Linux have no
+Wingdings. Fixed in §52. The rest are accepted as good enough (ROADMAP
+fidelity gaps; AGENTS.md "Good enough beats perfect"):
+
+- **Lateef's Arabic draws taller than Arial's.** It is set 127-133% to match
+  widths, so its strokes run past Arial's line box. In dense rows
+  (`docx-coverage.docx`'s delivery tracker) they cross the borders.
+  - Under a link (`pptx-coverage.pptx` slide 6), the underline sits at the
+    Latin face's position and cuts through letters: the dot of "ج" merges
+    into it.
+- **Arabic breaks can shift by a word.** A justified Arabic paragraph did so
+  (`docx-coverage.docx` page 2). This is within the calibration's measured
+  spread (96-98% of line starts).
+- **Text on the wrapping edge can flip.** A mixed-script table cell sitting
+  right at its wrap point fits on one line where PowerPoint wraps it (slide
+  2).
+
+**Limits.**
+
+- Characters no substitute covers fall to this machine's generic (Arial,
+  Times New Roman). A phone's generic is Roboto or Noto, so unsubstituted
+  families look different there.
+- One look on a real device is still worth taking: ROADMAP M4.
+
+## 52. Wingdings and Symbol bullets paint their Unicode shape (Sep 2026)
+
+Found by §51. Wingdings and Symbol keep their glyphs at letter codes:
+Wingdings' square is "q" and its check mark "ü", and Word's default
+first-level bullet is Symbol's private-use U+F0B7. Only machines with Office
+have those fonts. Anywhere else the bullet paints as the letter, or as an
+empty box.
+
+**Change.** `core/symbol-fonts.ts` maps the characters Office offers as
+bullets to their Unicode shapes: 20 Wingdings, 5 Symbol.
+
+- Both the plain and the private-use (U+F000 + code) forms are mapped.
+- Each entry was matched by eye against the real glyph. The first guesses
+  for four were wrong: Wingdings' check mark is the light ✓, not the heavy
+  one.
+- Shapes a phone may draw as colour emoji (☑, ▪, ◻, ♣, ♦) carry the
+  text-style selector U+FE0E.
+
+The PPTX parser applies it to `buChar` and the DOCX parser to list markers,
+dropping the symbol font, so the model itself carries the shape and search
+and copied text see it too. On a machine with Office, the marker now paints
+from a standard font instead of Wingdings; the shapes are near-identical.
+
+**Not covered (accepted):** runs set in a symbol font, `a:sym`/`w:sym`
+symbols, and Wingdings 2/3 and Webdings, which still paint letters without
+those fonts.
+
+**Tests.**
+
+- `symbol-fonts.test.ts` covers the table rules.
+- The PPTX text-style test re-reads slide 5's markers from the real fixture.
+- The bullet visual test re-reads the painted marker.
+- A synthetic DOCX test covers Word's default Symbol bullet; no fixture has
+  one.
+
+## 53. `aared-fonts` frozen and unpublished: the browser's own fonts are the default (Sep 2026)
+
+Overturns ROADMAP M4 ("`aared-fonts` publish + CDN default"). The real-device
+check §51 left open was done, on an Android phone in Opera, over Wi-Fi to the
+bench dev server, once with `?fonts=aared` and once without:
+
+| Fixture | With `aared-fonts` | Browser's own fonts |
+|---|---|---|
+| `pptx-coverage.pptx`, open to first slide | 7,238 ms | 494 ms |
+| `post-production-tracker.xlsx`, open | 1,120 ms | 332 ms |
+
+The resolver fetches Google Fonts stylesheets before the first paint, and on
+a phone that network wait dominates. The dev server makes the absolute numbers
+larger than a production build would; the ratio is the finding.
+
+The look went the same way. The phone's own Arabic (Noto) is drawn for
+screens and read more cleanly than Lateef, which was chosen for Office's
+widths, not for reading. Without the package, some Arabic lines break a word
+differently from Office. Nothing overlapped, and page counts and tables held.
+Under AGENTS.md "Good enough beats perfect", a reader notices slow and hard to
+read, not a line break.
+
+**Decision.**
+
+- **The default is unchanged:** no resolver unless the app passes one, the
+  browser's own fonts, nothing downloaded (§6, §12).
+- **`aared-fonts` stays in the repo, frozen and unpublished.** It gets no
+  more work. It leaves the first release (`@aared/fonts` is not reserved or
+  published), and the docs present it only as an option for Office-exact
+  line breaks.
+- **Reopen only for a consumer that needs those.** Start from the network
+  cost, not from more calibration.
+
+**Kept, because they help every reader without the package:**
+
+- chart text through the full font stack (§51)
+- Wingdings and Symbol bullets as Unicode shapes (§52)
+- fonts awaited per variant before measuring (§50)
+
+The review tooling stays for anyone reopening this: `--absent-fonts`, the
+bench's `?fonts=aared` switch, and `bench-lan` in `.claude/launch.json`.
+
+
+## 54. PPTX fidelity pass: where PowerPoint puts text, colour maps, table styles, Arabic around punctuation (Sep 2026)
+
+Sixteen PPTX rows of ROADMAP's fidelity-gap table were worked through under
+"good enough beats perfect": fix what a reader notices, probe once when the
+rule is unknown, accept the rest in writing. Probes: `first-line-leading`,
+`en-us-arabic-run`, `master-graphics` (all in the gitignored `tools/probe/`).
+
+**Line spacing off 100% moves the text inside its box (overturns §47/§48's
+"seen, not fixed").** PowerPoint's own PDF, Arial, Calibri and Times New Roman
+at 18 and 40pt, 70% to 300%: the line step is always `spacing x 1.2 x size`
+(aared already matched), but above 100% the first baseline sits
+`0.9 x spacing x size` from the top of the text area, and below it the natural
+baseline plus the removed leading, never above `0.9 x spacing x size`. CSS
+centres the leading, so aared sat too low at 90% (the 3px on slides 1 and 5)
+and too high above 100% (9pt at 200% and 40pt). `leadingShiftEm` paints the
+difference as a relative `top` on the `<p>`: box heights, steps and flow are
+untouched. The shift is measured against the height CSS really paints, which
+`MINIMUM_LINE_HEIGHT` (1.1) floors, so 70%-90% lines still step 1.1em apart
+where PowerPoint steps tighter: kept, because Arabic ink clips below it.
+Worst gap to PowerPoint across the probe: 1.15pt (was 22.6pt).
+`pptx-line-leading.visual.test.ts` pins PowerPoint's Arial 40pt numbers.
+Limits: the natural baseline is taken as 0.95em (0.93-0.97 across the three
+fonts); exact spacing (`spcPts`) is unprobed and unchanged. Blast radius: every
+PPTX paragraph with a line spacing other than 100% - notably every title and
+body on a default master (90%), table cells included; nothing with no authored
+spacing moved. XLSX and DOCX do not run the PPTX paragraph painter, so they are
+unchanged (DOCX's lines are Word's own model, §44).
+
+**A text body's anchor and wrap cascade one attribute at a time (found in the
+paired review, not in the table).** `parseTextBody` read `anchor` and `wrap`
+only from the first non-empty `bodyPr` in the slide/layout/master chain. A
+slide's own `<a:bodyPr><a:normAutofit/></a:bodyPr>` is non-empty, so it hid
+the master's `anchor="ctr"`: every such title painted at the top of its box
+where PowerPoint centres it (43px high on `pptx-coverage.pptx` slide 2, and
+on slides 4, 7-12). Insets already cascaded per attribute (§47); anchor and
+wrap now use the same list. Blast radius: every placeholder whose own `bodyPr`
+carries a child but no `anchor`/`wrap`, in every deck, which is most
+PowerPoint-authored titles; text boxes with no placeholder chain are
+unchanged. Autofit and `prstTxWarp` still read the first non-empty `bodyPr`
+(child elements, not attributes). Across the 12 coverage slides the pixels
+differing from PowerPoint's export fell on every slide (about 30% in total)
+with this and the changes below.
+
+**Text frames with no authored insets get DrawingML's defaults.** The parser
+only recorded insets some `bodyPr` in the chain stated, so an `AddTextbox` box
+(which writes none) had no padding; PowerPoint uses 0.1in and 0.05in. The
+defaults now resolve in `parseTextBody`, one constant pair shared with table
+cell margins. Blast radius: every shape whose text body states no inset on any
+side, in every deck; placeholders were unchanged (masters author theirs).
+Existing tests did not move.
+
+**Overflow paints in every autofit mode.** `none` and `shrinkText` no longer
+clip (`overflow: visible`); the slide viewport still clips at the slide edge.
+Text past its box now paints where PowerPoint paints it. Unprobed and
+unchanged: exact spacing and bullet sizes under a stored `fontScale`.
+
+**Colour-map overrides.** `p:clrMapOvr/a:overrideClrMapping` on a slide or
+layout replaces the map above it; `a:masterClrMapping` keeps it. Slide beats
+layout beats master. A layout's shared graphics use the layout's map; a
+slide-level override does not reach them (the model is shared per layout).
+Implemented from the spec; no fixture carries one.
+
+**Table styles.** `a:lnRef` edge widths now come from the theme's
+`a:lnStyleLst` (`DrawingTheme.lineWidths`). The old constant assumed 0.5, 1 and
+1.5pt, which is the 2013-era Office theme (`post-production-review.pptx`); the
+Aptos-era one (`pptx-coverage.pptx`) states 1, 1.5 and 2pt, so `lnRef` edges
+were too thin there. Both fixtures now pin their own widths; the constant
+stays only as the fallback for a theme that states none. A built-in Medium
+Style 2 (seven ids, the default one included) missing from `tableStyles.xml`,
+as in decks from generators that write only the id (python-pptx's default
+table style is the Accent 1 id), is built from PowerPoint's own definition on
+first use. Each id was applied to a table in real PowerPoint
+(`tools/probe/table-style-guids`) and its stored definition parses identically
+to the built one; any other missing style still paints unstyled.
+
+**Arabic around ASCII punctuation in an `en-US` run.** PowerPoint's PDF: in a
+left-to-right paragraph, a run tagged with a left-to-right language orders
+Arabic words in written order around every ASCII punctuation character
+(31 tried) - `W1 + W2`, `W1 (W2) W3` - while spaces alone (`W3 W2 W1`), an
+Arabic `lang` and every right-to-left paragraph follow plain bidi. The parser
+cuts such a run at the punctuation between two Arabic words and flags the
+punctuation pieces `ltrRun` (existing mechanism: invisible marks in generated
+content, never copied or searched). Untagged runs, Arabic `lang` and RTL
+paragraphs are untouched; Arabic-specific punctuation is not treated as ASCII.
+Neighbours are checked inside the run only.
+
+**Punctuation stretches in right-to-left paragraphs.** The same probe method
+on a right-to-left paragraph (`rtl-trailing-punct`, PowerPoint's own PDF): an
+`ar-SA` run is plain bidi; an `en-US` run lays each stretch of two or more
+punctuation marks out in written order, at the start, in the middle or at the
+end (`.»` closing an Arabic quotation shows `.` then `»`; `(-)` shows in
+written order), while the glyphs stay mirrored as right-to-left text (the left
+guillemet on `pptx` slide 7 is the right one flipped, 82% against 43%
+unflipped). That rules out a plain left-to-right override, which would draw
+unmirrored glyphs. It was built (a parser split, a `TextRunModel` field and a
+left-to-right isolate with each bracket in a right-to-left one) and matched
+PowerPoint on `post-production-review.pptx` slide 7, then **removed**: the
+only visible effect is which of `.` and `»` sits outermost, which a reader
+does not notice, against a new public model field, nested bidi wrappers in
+the DOM and a painter branch. Under "good enough" that is not worth carrying;
+the measurement stays here for anyone who needs it (ASCII punctuation and
+guillemets only; spaces, curly quotes, dashes and Arabic punctuation were
+never probed). The left-to-right-paragraph rule above stays: it swaps whole
+words, which a reader does see.
+
+**Master and layout graphics verified, no change.** PowerPoint: a layout's
+`DisplayMasterShapes = false` hides the master's shapes; a slide's hides layout
+and master shapes. aared resolved all four probe slides identically, and a
+master picture background resolves as a picture on every slide.
+
+**Route completeness.** `DrawingTheme` is shared: XLSX and DOCX read the same
+theme, so both now carry `lineWidths` too, which neither uses (a few numbers
+per document); their colours and fonts are unchanged. `parseTextBody`, the
+PPTX text painter, colour-map overrides and table styles are PPTX-only: XLSX
+charts go through `core/chart.ts`, untouched, and DOCX resolves its own tables,
+insets and bidi (`w:tblCellMar`, `w:rtl`, §43-§44), so neither gets the
+defaults or the punctuation rule. Whether Word orders Arabic around ASCII
+punctuation the way PowerPoint does is unprobed.
+
+**Accepted, not built (recorded in the fidelity table):** fill approximations
+(group pattern anchor, 96 DPI tiles, gradient stops); off-centre `circle` and
+`shape` gradients stay marked fallbacks (COM cannot author them); live fields
+other than slide number and date; `"Slide N"` titles (by design, §31); embedded
+fonts (§45); notes (parsed onto `SlideModel.notes`, reachable through
+`slide.read()`, not painted, not searched); `defaultTextStyle` versus
+`otherStyle` (both fixtures agree, PowerPoint writes them consistently).
+**Deferred by the maintainer:** charts, to be done in isolation; the quick-fix
+route is written out in ROADMAP. **Found, not scheduled:** WordArt preset
+warps (`prstTxWarp`) paint unwarped and marked. No earlier entry ruled them
+out (the "explicitly out of scope" in `TextBodyModel.textWarp`'s comment had
+no entry behind it and is reworded); the arch and circle presets could bend
+real text along an SVG `textPath`, which keeps rule 1, and the other presets
+are free-form envelopes with no DOM form.
+
+## 55. DOCX pictures that text wraps around, placed as Word places them (Sep 2026)
+
+An anchored picture (`wp:anchor`) used to paint as a plain left or right CSS
+float whatever its wrap, so a centred picture sat at a column edge, a
+top-and-bottom picture had text beside it, and a behind-text watermark pushed
+the text away. Probe `docx-float-wrap` (gitignored): `author.py` writes 13
+wrap cases through Word's COM object model (`wraps.docx`), `author-page.py` a
+page watermark and a header logo (`page.docx`); each was exported by
+`tools/word-render` and compared line by line with aared's capture.
+
+**The model.** `DocxImageNode.anchor` (`DocxImageAnchor`) carries what Word
+stores: wrap kind, `behindDoc`, `wrapText`, horizontal and vertical position
+(`relativeFrom` with `align` or offset, in inches), the four wrap distances and
+the wrap polygon as shares of the picture (Word writes it in a 21600 square).
+The picture leaves the runs: it hangs off its paragraph or heading as
+`floats`. A float-only paragraph stays a paragraph, so the picture has a line
+to anchor to. The old `float` field is gone (pre-release; no alias).
+
+**The placement** is pure numbers (`docx/float-layout.ts`, `planFloat`): the
+same inputs give the same plan in a test without a browser. Four kinds:
+
+```text
+ wrap      one side, a CSS float; the wrap distance is padding inside its
+           border box and `shape-outside: border-box` (or the wrap polygon
+           for tight/through) is what text avoids
+ band      top and bottom: a float the width of the column
+ overlay   no wrap: absolute, z-index -1 behind the text or 1 in front,
+           measured from the paragraph, or from the page for a page or
+           margin position (layout mode; the header translates the origin)
+ split     text down both sides (below)
+```
+
+**Two-sided wrap is built, not approximated.** A CSS line box is one interval
+between the left and right floats, so CSS cannot put text on both sides of one
+obstacle. An earlier pass pushed centred pictures to one side as "good
+enough"; the maintainer rejected it as a difference a reader sees at a glance,
+and AGENTS.md now says so ("Good enough" covers only what a reader would not
+notice). `docx/split-wrap.ts` lays the rows beside the picture out itself: each
+row is a grid of (left slot | hole | right slot), filled in reading order
+(right slot first in a right-to-left paragraph), with the rest of the
+paragraph flowing normally below. Words are measured with canvas
+`measureText` (measuring only; the text is DOM spans, selectable and
+searchable) through a bounded word cache, then every painted slot is checked
+against its width and the paragraph re-laid out with 1, 2 or 4px of slack if
+the browser's shaping disagreed. Three approaches were timed on an Arabic
+mixed-font paragraph: DOM `Range` measurement 20.5ms, canvas 2.4ms, identical
+breaks. Reads, writes and checks run as three passes over every split
+paragraph so layout is forced once per pass; a `ResizeObserver` re-runs flow
+mode on width changes and fonts arriving re-run it once. Tight and through
+take each row's hole from the polygon's extent over that row
+(`polygonSpan`). The paragraph's minimum height reaches the picture's bottom
+less its spacing after: Word starts the next paragraph at its ordinary place
+(81px on the fixture's page 6, `docx-render.visual.test.ts`) and wraps it
+around what remains, which a split cannot reach into, so the picture may hang
+into the gap as in Word but never under the next line.
+
+**Word applies the default paragraph style.** Found while comparing the
+captures: aared's text was a pixel or two larger than Word's. A paragraph with
+no `w:pStyle` takes the paragraph style marked `w:default="1"` (usually
+`Normal`), not the bare document defaults; aared used the defaults, so the
+probe painted 16px Aptos where Word painted 11pt Arial. `StyleData` records
+`defaultParagraphStyleId` and `resolveParaProps` falls back to it. Blast
+radius: every DOCX paragraph without a style; on the coverage fixture the
+model gained `styleId: "Normal"` on 126 nodes and the pixels did not move,
+since its Normal restates the defaults.
+
+**Fixture.** Seven wrap cases were added to `docx-coverage.docx` through COM
+(`tools/probe/docx-float-wrap/extend.py`, label stripped), first one per page,
+then packed onto two landscape pages at the maintainer's request: the fixture
+is six pages in Word and in aared.
+
+**Review pass.** A review of this session's code for memory, speed and dead
+code found ten points, all fixed: the word cache is bounded; the flow
+`ResizeObserver` and font listener are disposed with the render
+(`ImageWiring.cleanups`); constant picture styles are classes; an anchor
+inside a table cell is placed against the cell's text width, not the page's;
+a paragraph-relative vertical offset under an `align` no longer adds both; and
+unused exports and a stale header comment went.
+
+**Route completeness.** PPTX pictures are absolutely placed shapes with no
+text wrap; XLSX pictures float over cells with no text: neither format has
+anchored text wrap, so both are unchanged. The default paragraph style is
+DOCX-only (PowerPoint's masters cascade through `core/pptx.ts`).
+
+**Limits (in ROADMAP):** a wrapped picture positioned from the page or a
+margin vertically starts at its paragraph's top (the flow does not know where
+the paragraph lands on the page); paragraphs after a split picture do not wrap
+around its remainder; a top-and-bottom band right after a paragraph whose
+picture still hangs is pushed below that picture (about 14px on the fixture's
+page 5), since a full-width float cannot sit beside another float; with a
+through wrap Word keeps a wider hole on the lowest rows than the polygon
+gives at the line's own height, so it wraps about a word more there; VML
+pictures (`w:pict`) have no placement; text boxes are not parsed.
+
+## 56. The Worker URL resolves under webpack and Next.js (Sep 2026)
+
+Settles ROADMAP's pre-publish question "Does the Worker URL resolve under
+webpack?". Only Vite was proven (§19); webpack's own guide says webpack 5
+bundles `new Worker(new URL("./worker.js", import.meta.url))` with no loader
+when the URL is written inline, but says nothing of `{ type: "module" }`, and
+Next.js 16 builds with Turbopack by default, a different bundler.
+
+Measured with the package packed as it would publish (`npm pack`: `dist`
+only) and installed into throwaway apps that open the three gate fixtures,
+list their units and read the first slide and sheet:
+
+```text
+ build                                        pptx      xlsx      docx  404s
+ webpack 5.111.1 production, no loader        7, read   4, read   2     favicon
+ Next.js 16.3.8, Turbopack, static export     7, read   4, read   2     favicon
+ Next.js 16.3.8, --webpack, static export     7, read   4, read   2     favicon
+ both Next builds, aared imported at the top  same, no server-side errors
+   of a client component
+```
+
+Webpack emits the Worker as one 133 KB chunk, Latin-1 clean, and passes
+`{ type: "module" }` through. Importing aared at module scope of a client
+component is safe: Next evaluates it on the server during prerender, and
+nothing at import touches `window`, `document` or `Worker`.
+
+**Kept proven:** `tools/check-consumer-build.ts` now builds the same consumer
+with webpack as well as Vite (webpack and webpack-cli pinned in `bench/`,
+about ten seconds a run), with the Latin-1 check and the open-every-format
+run for both. Breaking the URL in `dist` to a plain string fails both passes.
+Next.js is not in the script: the same Worker constructor is what both
+passes guard, and Next with React would add about 150 MB to `bench/`.
+
+**Deployment shapes, measured the same way:**
+
+```text
+ setup                                        webpack   Next/Turbopack  Next/webpack
+ dev server (webpack serve, next dev)         ok        ok              ok
+ server-rendered (next start, per request)    -         ok              ok
+ sub-path (publicPath /app/, basePath /sub)   ok        ok              ok
+ scripts on another origin (CDN)              refused   refused         refused
+ the same CDN with the Blob recipe            ok        ok              ok
+```
+
+A browser never starts a Worker from a script on another origin, CORS or
+not, so a CDN on another host fails for every bundler (Vite too, by the same
+rule; not run). aared cannot route around it itself: a bundler only follows
+the literal `new Worker(new URL(...))`, so aared never holds the URL before
+the browser refuses it. Two changes follow:
+
+- The refusal is thrown by the constructor, before any `onerror`, and used to
+  reach the caller as the browser's raw `SecurityError`. `WorkerBridge` now
+  wraps it: `AaredError("worker-error")` with the browser's reason, the usual
+  cause and the remedy, and the original as `cause`
+  (`session-lifecycle.test.ts`; seen in a real browser on the webpack CDN
+  build).
+- The API reference's "Worker override" gives the recipe: a same-origin Blob
+  Worker that imports `new URL("aared/worker", import.meta.url)`, which every
+  bundler measured emits as a file beside the other assets. It needs the CDN
+  to send CORS headers, as any module script does.
+
+## 57. Every document failure is typed; a lost session is `closed`, not `aborted` (Sep 2026)
+
+An audit of the error surface (a read-only pass over every throw) found two
+breaks in the one-error-model promise (`core/errors.ts`; the abort taxonomy
+is §19), both at the Worker boundary:
+
+**Parse failures arrived untyped.** `serializeError` (`core/worker.ts`) mapped
+only `ZipError` to `invalid-document`. Malformed XML (`XmlError`, with no
+`aared/` prefix either), a required part or element missing (plain
+`throw new Error("aared/core: ...")` across `opc.ts`, `pptx.ts`, `theme.ts`,
+`xlsx/`, `docx/`) and a corrupt deflate stream (the platform's `TypeError`)
+crossed as a bare `{ name, message }` and rejected `open()`/`read()` with no
+`code`, so `isAaredError()` and `error.code` saw nothing. Every one of them
+means the same thing to a caller, this file cannot be previewed, so the
+boundary every parser failure crosses now types them all `invalid-document`,
+the `ZipError` precedent extended, instead of retyping ~35 throw sites. The
+original text stays (prefixed `aared/core:` when it had none), followed by
+the one action a reader can take: re-save the file in Office. An aared bug
+on an odd file also reads as `invalid-document`; from the caller's side that
+is still a file it cannot preview, and the original message is kept.
+
+**A lost session reported `aborted`.** `sessionClosed()` answered a request
+for a session the Worker no longer holds (closed, or its open cancelled) with
+`code: "aborted"`, which `isAbort()` swallows: the element and the React
+hooks then dropped a real usage error silently. It is `closed` now, as the
+main thread already reports after `close()`.
+
+Tests: a damaged main part inside a valid archive (malformed XML, and a
+missing `p:sldSz`) rejects typed (`pptx-document.test.ts`); the Worker's
+closed-session reply carries `closed` (`worker-cancellation.test.ts`).
+
+**Worker errors read in the caller's entrypoint.** The Worker only knows it
+is `aared/core`, so every failure it sent said `aared/core:` even when the
+caller opened through `aared/pptx`, while main-thread errors already used the
+caller's scope. The bridge now rewrites the prefix to its own scope as it
+receives a failure. Cancellation keeps the one `aared/core: request was
+cancelled` wording on both sides of the Worker: it is created on both, and a
+reader never sees it. Headless `core` calls (no Worker) still say
+`aared/core:`, which is what they are.
+
+**A failing font resolver no longer fails the document; `font-error` is
+gone.** A `fontResolver` that threw (or rejected) rejected the whole `read()`
+and `render()` with its raw error, and the rejected promise was cached for the
+session, so the family could never resolve again. A font is cosmetic: the
+failure is now caught per family and not cached, the family paints in the
+browser's fallback, and the render handle's `warnings` already names it
+(`font-unavailable`, measured from what painted, §45). `font-error`, defined
+and documented but never produced, is removed from `AaredErrorCode`
+(pre-release; no alias). A failing `mediaResolver` was already handled in all
+three renderers (an "(unavailable)" XLSX drawing, DOCX alt text, the marked
+PPTX fallback; `MediaUrls` catches a synchronous throw too) and is unchanged.
+
+Tests: the damaged-part test also pins the `aared/pptx:` prefix; a resolver
+that throws and then rejects leaves both reads succeeding and is asked again
+(`session-lifecycle.test.ts`).
+
+**A damaged sheet says what it skipped.** The XLSX sheet parser skipped
+anything with an unreadable address (a cell, hyperlink, merge,
+conditional-format range) or an unreadable drawing anchor with a bare
+`catch { continue; }`: the item vanished and nothing said the view was
+incomplete. Excel never writes these; damaged files and buggy generators do.
+They now go to `SheetModel.unsupported`, the list the parser already uses for
+what a preview does not show, under a new kind, `damaged`, counted per kind
+so a broken file adds one line per kind ("2 cells could not be read and were
+skipped; the file may be damaged") rather than one per cell. The new kind
+keeps "the file is broken" apart from "aared does not model this feature",
+which a host words differently; the two existing "points at a missing part"
+drawing entries move to it. Not render `warnings`: those are measured from
+what painted, and this is known at parse time. An unreadable `dimension`
+stays silent: the extent is then taken from the cells, so nothing is lost.
+Test: a hand-built workbook with each kind of damage keeps its readable cell
+and merge and reports four counted entries (`xlsx-document.test.ts`).
+
+The audit's matching PPTX claim, that a chart whose part cannot be read
+paints blank and unmarked, was wrong: a chart with no drawing already paints
+the marked placeholder (`data-aared-chart-fallback="unsupported"`, a dashed
+outline with its name, `pptx/index.ts` `appendChart`). Unchanged.
+
+**Every embed layer reports a failed navigation.** The element fires `error`
+and rejects `goTo()`; `preview()` rejects; the hook put only a failed mount
+in state. Those are each layer's own idiom and stay. The gaps were these:
+
+- **The hook lost page-change failures.** A host writing
+  `onClick={() => goTo(index + 1)}` and reading `status`/`error` saw nothing
+  when the next unit failed: the promise rejected unawaited, `status` stayed
+  `"ready"`. The result gains `navigationError`, cleared by a unit change and
+  every mount. Chosen over moving `status` to `"error"`: that would replace
+  the whole view for one page that would not show, while this keeps the page
+  on screen.
+- **Reported where the failure happens, not where the call came from.** A
+  first cut set `navigationError` inside the hook's own `goTo()` wrapper; but
+  the hook also hands out `viewer`, the real handle, and hosts pass that
+  around (the bench card, the site's paging bar), so `viewer.goTo()` bypassed
+  it and the bench and site needed workarounds to route through the wrapper.
+  Instead `preview()`'s handle fires `error` on a failed `goTo()` (still
+  rejecting), the same event and `{ message, cause }` detail
+  `<aared-viewer>` fires, and the hook listens to it as it does to
+  `indexchange`. Every caller lands; the workarounds were reverted, and the
+  two embed layers that are event targets now report navigation the same
+  way. Cancellations and overtaken calls fire nothing.
+- **Silent no-ops.** `preview().goTo()` after `destroy()` and the hook's
+  `goTo()` before mount resolved as if they had moved. Both reject with
+  `closed` now (no new code: nothing is open to move in).
+- **A race found while there:** an overtaken `preview().goTo()` returned from
+  its stale render and still set `index` and announced its own unit, so two
+  quick calls could leave `index` naming a unit not on screen. `renderUnit`
+  now reports whether it painted, and only the call that did moves `index`.
+
+Tests: `react.visual.test.ts` (a failed `goTo()` keeps the slide and sets
+`navigationError`, a unit change clears it, a failed `viewer.goTo()` sets it
+too, `goTo()` while loading rejects `closed`), `preview.visual.test.ts` (a
+failed `goTo()` fires one `error` with the element's shape; two `goTo()` in
+one tick announce only the second, which failed against the old `goTo`;
+`goTo()` after `destroy()` rejects). The bench's reference card keeps calling
+`viewer.goTo()`; a failed slide or sheet change now shows as a notice bar
+from `navigationError` instead of replacing the view with its error screen.
+
+## 58. Error codes say whose fault it is (Sep 2026)
+
+A design review of the error surface after §57 (a reviewer given only the
+files and two questions: is this a good design, is anything wrong) judged
+the model sound (one class, a closed code union, `aborted`/`closed`/
+`worker-error` kept apart, one event shape) and found the codes coarser than
+they look. Overturns two calls in §57.
+
+**`invalid-document` meant "something failed", not "the file is broken".**
+§57 typed every untyped Worker throw `invalid-document` with "re-save it in
+Office". That blamed the file for aared's own defects (a `TypeError` in a
+parser) and for valid content: `pptx.ts` threw on a paragraph alignment or
+cell anchor it did not know, so a good deck was told to repair itself. Now
+the fault decides the code:
+
+```text
+ the file is broken (a check that names what) -> damagedDocument(...) where the check is
+                                                  invalid-document + repair hint
+ not a ZIP / not an Office package              -> invalid-document, no repair hint
+ malformed XML (XmlError)                       -> invalid-document + repair hint
+ corrupt deflate (the platform's TypeError)     -> ZipError("corrupt") -> invalid-document
+ an unknown value in a readable file            -> the default, read on (as Office shows it)
+ anything else                                  -> internal, original error as `cause`
+```
+
+`damagedDocument` (`core/errors.ts`) replaces about 20 plain throws across
+`opc`, `pptx`, `theme`, `xml`, `xlsx/` and `docx/`. The unknown-value
+helpers (`align`, `verticalAlign`, `onOff`, a non-numeric colour modifier)
+fall back instead of throwing: one odd attribute no longer costs a slide.
+`internal` is new: "aared failed on this file", never "re-save it", with the
+Worker's original error rebuilt as `cause` (name, message, stack) for the bug
+report. The wire type's `code` is now required, and the main thread's
+untyped-error branch, dead once every failure is typed, is gone.
+
+**Usage errors had borrowed other codes.** "Index is not a whole number" was
+`not-found`, the element's `open()` with no source was `not-found`, and the
+hook's `goTo()` before mount was `closed` (§57). New codes split them the way
+the platform does (`TypeError` vs `InvalidStateError`): `invalid-argument`
+(a value the call does not take; `itemAt`, `preview`'s `assertIndex`, the
+element's index check) and `invalid-state` (a call the viewer is not ready
+for). `not-found` is left for whole numbers and names that do not exist;
+`closed` for after teardown.
+
+**A crashed Worker read as a closed document afterwards.** `terminate()`
+stopped the bridge and every later request rejected `closed`. The bridge
+keeps why it stopped and rejects later requests with it, so a call after a
+crash reports `worker-error`. The crash itself now carries the browser's
+event as `cause`, and its message when it has one.
+
+**Smaller fixes from the same review and the open gaps:** a download that
+drops mid-body is `network-error` (was the platform's raw `TypeError`);
+`preview()`'s cancellation uses the shared `abortError()` (one wording); the
+element and `preview()` share one empty-document check (`assertHasUnits`);
+an element `open()` that a newer one replaced rejects `aborted` instead of
+resolving as if it had finished (no `error` event: nothing failed);
+navigation inside a unit (`viewer.xlsx`, `viewer.docx`) fires the handle's
+`error` like `goTo()`, so the hook's `navigationError` hears it too; XLSX's
+render handle reports font fidelity (`warnings`, measured after fonts
+settle, as PPTX and DOCX do; it was always empty).
+
+**`messageFor()` stays, documented for what it is:** one generic English
+sentence per code for a UI, without the detail `message` carries, not
+localized; a host in another language maps `code` itself. The API
+reference's Errors section now has the code-to-meaning-to-caller table, the
+message policy, `cause`, and the listen-or-catch rule for the event layers
+(the event and the rejection carry the same instance by design).
+
+**Not changed:** `AaredError.name` stays `"AbortError"` for cancellation so
+existing `AbortSignal` handling keeps working; the docs now say to branch on
+`code`. `scrollTo()`'s wrong-shape target stays `invalid-range` (it is a
+range question). The reviewer's note on `DOMException` in `serializeError`
+does not apply to the supported browsers.
+
+Tests: the in-process Worker turns an injected `RangeError` into `internal`
+with its stack and a corrupt deflate stream into `invalid-document`
+(`worker-cancellation.test.ts`); a crash keeps reporting `worker-error`, an
+`internal` failure arrives with `cause` in the caller's scope, a mid-body
+drop is `network-error` (`session-lifecycle.test.ts`); `itemAt`'s split
+(`error-helpers.test.ts`); `goTo(1.5)`, and `goToHeading`/`goToPage`
+failures firing `error` (`preview.visual.test.ts`); a superseded element
+`open()` rejecting `aborted` with no event (`element-viewer.visual.test.ts`);
+the hook's before-mount `invalid-state` (`react.visual.test.ts`); XLSX
+`warnings` naming a missing family (`xlsx-render.visual.test.ts`). The
+unknown-value fallbacks have no test of their own.

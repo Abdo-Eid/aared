@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { appendChartPrimitive } from "../src/chart-svg.js";
 import type { ChartGraphicPrimitive } from "../src/core/model.js";
+import { cssFontFamily, fontAlias } from "../src/core/typography.js";
 
 // `appendChartPrimitive` needs a DOM. The unit suite runs headless, so this
 // stand-in records the elements it is asked to create and their attributes;
@@ -65,8 +66,15 @@ describe("chart primitives", () => {
       kind: "text", x: 5, y: 6, text: "الاسم", fontSize: 20, fontFamily: "Arial", fontWeight: "bold", textAnchor: "end", fill: "#5B6470",
     });
     expect(node.textContent).toBe("الاسم");
-    expect(node.attributes).toMatchObject({ x: "5", y: "6", "font-size": "20", "font-family": "Arial", "font-weight": "bold", "text-anchor": "end", fill: "#5B6470" });
+    expect(node.attributes).toMatchObject({ x: "5", y: "6", "font-size": "20", "font-weight": "bold", "text-anchor": "end", fill: "#5B6470" });
     expect(paint({ kind: "text", x: 0, y: 0, text: "t" }).attributes.fill).toBe("#000000");
+  });
+
+  test("text paints its family through the same stack as every run: the family, its delivered substitute, a generic", () => {
+    // A bare family the reader lacks (Aptos, the default theme's) fell to the SVG default serif.
+    expect(paint({ kind: "text", x: 0, y: 0, text: "t", fontFamily: "Aptos" }).attributes["font-family"])
+      .toBe(`"Aptos", "${fontAlias("Aptos")}", sans-serif`);
+    expect(paint({ kind: "text", x: 0, y: 0, text: "t", fontFamily: "Arial" }).attributes["font-family"]).toBe(cssFontFamily("Arial"));
   });
 
   test("optional fields that are absent leave no attribute behind", () => {

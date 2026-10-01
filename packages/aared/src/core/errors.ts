@@ -11,10 +11,12 @@ export type AaredErrorCode =
   | "unsupported-feature"
   | "network-error"
   | "media-error"
-  | "font-error"
   | "not-found"
   | "invalid-range"
+  | "invalid-argument"
+  | "invalid-state"
   | "worker-error"
+  | "internal"
   | "closed"
   | "aborted";
 
@@ -39,6 +41,19 @@ export class AaredError extends Error {
   }
 }
 
+/**
+ * The file itself is broken (a required part, element or id missing, a value
+ * that is not what the format allows): `invalid-document`, naming what failed,
+ * plus the one repair a reader can try. Thrown where the check is, so the code
+ * says what happened; an unexpected throw is `internal` instead.
+ */
+export function damagedDocument(detail: string): AaredError {
+  return new AaredError(
+    "invalid-document",
+    `aared/core: ${detail}. The file may be damaged: opening and re-saving it in Office usually repairs it`,
+  );
+}
+
 /** Internal cancellation error shared by the worker and the main-thread session. */
 export function abortError(): AaredError {
   return new AaredError("aborted", "aared/core: request was cancelled");
@@ -50,12 +65,19 @@ export function throwIfAborted(signal?: AbortSignal): void {
 }
 
 /**
- * `list[index]` for a collection's `get()`: an integer inside the list, else a
- * `not-found` error carrying the caller's own wording (each unit names itself).
+ * `list[index]` for a collection's `get()`: an integer inside the list. A
+ * whole number outside it is `not-found`, in the caller's own wording (each
+ * unit names itself); anything that is not a whole number is the call itself
+ * being wrong, `invalid-argument`, in the same scope.
  */
 export function itemAt<T>(list: readonly T[], index: number, outside: () => string): T {
+  if (!Number.isInteger(index)) {
+    const wording = outside();
+    const scope = wording.slice(0, wording.indexOf(":"));
+    throw new AaredError("invalid-argument", `${scope}: an index must be a whole number; received ${String(index)}`);
+  }
   const item = list[index];
-  if (!Number.isInteger(index) || item === undefined) throw new AaredError("not-found", outside());
+  if (item === undefined) throw new AaredError("not-found", outside());
   return item;
 }
 
@@ -76,11 +98,6 @@ export function isAbort(error: unknown): error is Error {
   return error instanceof Error && error.name === "AbortError";
 }
 
-/**
- * Human-readable message for a known `AaredError` code. Returns a
- * fallback string for unknown codes. Intended for UI display or logging;
- * the returned string never includes the `aared/...` scope prefix.
- */
 const MESSAGES: Record<AaredErrorCode, string> = {
   "unsupported-format": "This file format is not supported",
   "invalid-document": "This file is not a valid or supported document",
@@ -88,14 +105,23 @@ const MESSAGES: Record<AaredErrorCode, string> = {
   "unsupported-feature": "This feature is not supported",
   "network-error": "A network error occurred while loading the file",
   "media-error": "A media resource could not be loaded",
-  "font-error": "A required font could not be loaded",
   "not-found": "The requested item was not found",
   "invalid-range": "The requested range is invalid",
+  "invalid-argument": "The viewer was called with an invalid value",
+  "invalid-state": "The viewer is not ready for this yet",
   "worker-error": "The document worker failed to start or stopped unexpectedly",
+  "internal": "Something went wrong in the viewer while reading this file",
   "closed": "The document was closed",
   "aborted": "The operation was cancelled",
 };
 
+/**
+ * A short, generic English line per code, for a UI that wants one sentence
+ * without the `aared/...` scope prefix; a fallback for anything else. It
+ * deliberately drops the detail (`error.message` has it: which index, which
+ * part, which HTTP status) and is not localized: a host that shows errors in
+ * another language maps `error.code` to its own strings.
+ */
 export function messageFor(error: unknown): string {
   if (isAaredError(error)) return MESSAGES[error.code];
   return "An unexpected error occurred";

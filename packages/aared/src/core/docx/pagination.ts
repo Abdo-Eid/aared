@@ -14,8 +14,11 @@
 import type {
   DocxFootnoteNode,
   DocxParagraphBorders,
+  DocxTableNode,
+  DocxTableRowNode,
   DocumentSection,
   FlowNode,
+  RenderWarning,
   TextRunModel,
 } from "../model.js";
 import { runsText } from "../search.js";
@@ -96,23 +99,34 @@ export interface LayoutPage {
   footer?: FlowNode[];
 }
 
-export interface LayoutWarning {
-  code: "oversize-block" | "footnote-overflow";
-  message: string;
-}
-
 export interface LayoutDocument {
   pages: LayoutPage[];
-  warnings: LayoutWarning[];
+  /** `code` is `"oversize-block"` or `"footnote-overflow"` here; see `RenderWarning`. */
+  warnings: RenderWarning[];
 }
 
 export interface PaginateOptions {
   /** How `preferred` (`w:lastRenderedPageBreak`) hints split pages. Default `"prefer"`. */
   softBreaks?: SoftBreakPolicy;
+  /**
+   * Real heights, measured by a renderer that laid the blocks out at their
+   * section's body width (`sectionBodyWidthPx`). Blocks and rows it answers
+   * for paginate on those; anything else falls back to the estimator.
+   */
+  measured?: MeasuredFlow;
+}
+
+/** Laid-out heights in CSS pixels, keyed by the model's own objects. */
+export interface MeasuredFlow {
+  /** A top-level block: its margins and its border-box height. */
+  block(node: FlowNode): { topPx: number; contentPx: number; bottomPx: number } | undefined;
+  /** One table row's height (the grid track it occupies). */
+  row(row: DocxTableRowNode): number | undefined;
 }
 
 interface EstimateContext {
   bodyWidthPx: number;
+  measured?: MeasuredFlow;
 }
 
 /** Word's default text size when neither a paragraph nor a run states one. */
@@ -141,13 +155,19 @@ interface TextBlockShape {
   wrapFontPt: number;
   lineSpacing?: number;
   lineSpacingPt?: number;
+  lineSpacingAtLeast?: true;
   widthPx: number;
 }
 
 function textBlockHeightPx(shape: TextBlockShape): number {
   const charsPerLine = Math.max(1, Math.floor(shape.widthPx / (ptToPx(shape.wrapFontPt) * averageCharEm(shape.text))));
   const lines = Math.max(1, Math.ceil(shape.text.length / charsPerLine - WRAP_TOLERANCE_LINES));
-  if (shape.lineSpacingPt !== undefined) return lines * ptToPx(shape.lineSpacingPt);
+  // An exact pitch is the line; `atLeast` is a floor under Word's single line.
+  const singlePx = ptToPx(shape.lineFontPt) * Math.max(WORD_SINGLE_LINE, MINIMUM_LINE_HEIGHT);
+  if (shape.lineSpacingPt !== undefined) {
+    const pitchPx = ptToPx(shape.lineSpacingPt);
+    return lines * (shape.lineSpacingAtLeast === true ? Math.max(pitchPx, singlePx) : pitchPx);
+  }
   // An authored multiple scales Word's single-line box (see the renderer).
   const multiple = (shape.lineSpacing ?? 1) * WORD_SINGLE_LINE;
   return lines * ptToPx(shape.lineFontPt) * Math.max(multiple, MINIMUM_LINE_HEIGHT);
@@ -171,6 +191,7 @@ function paragraphContentPx(
     fontSizePt?: number;
     lineSpacing?: number;
     lineSpacingPt?: number;
+    lineSpacingAtLeast?: true;
     leftIndent?: number;
     rightIndent?: number;
     borders?: DocxParagraphBorders;
@@ -184,6 +205,7 @@ function paragraphContentPx(
     wrapFontPt: wrapFontSizePt(node.runs, fontSizePt),
     ...(node.lineSpacing === undefined ? {} : { lineSpacing: node.lineSpacing }),
     ...(node.lineSpacingPt === undefined ? {} : { lineSpacingPt: node.lineSpacingPt }),
+    ...(node.lineSpacingAtLeast === undefined ? {} : { lineSpacingAtLeast: node.lineSpacingAtLeast }),
     widthPx: paragraphTextWidthPx(node, ctx),
   });
   // An inline picture sits on the baseline, so its line is the picture plus
@@ -229,6 +251,8 @@ export function estimateBlockHeightPx(block: FlowNode, bodyWidthPx: number): num
 const metricsCache = new WeakMap<FlowNode, { widthPx: number; metrics: BlockMetrics }>();
 
 function measureBlock(block: FlowNode, ctx: EstimateContext): BlockMetrics {
+  const real = ctx.measured?.block(block);
+  if (real !== undefined) return metrics(real.topPx, real.contentPx, real.bottomPx);
   const cached = metricsCache.get(block);
   if (cached !== undefined && cached.widthPx === ctx.bodyWidthPx) return cached.metrics;
   const measured = measureUncached(block, ctx);
@@ -271,40 +295,9 @@ function measureUncached(block: FlowNode, ctx: EstimateContext): BlockMetrics {
       if (!first) total += pendingBottom;
       return metrics(BLOCK_MARGIN_PX, total, BLOCK_MARGIN_PX);
     }
-    case "table": {
-      let total = 0;
-      // The hairline between rows at its real thickness (0.25pt is 0.33px): the
-      // renderer draws it snapped to a device pixel and takes the difference
-      // back out of the cell padding, so a row is padding plus this.
-      const insideH = block.borders?.insideH;
-      const rowEdgePx = typeof insideH === "object" ? ptToPx(insideH.widthPt) : 0;
-      for (const row of block.rows) {
-        let rowHeight = 0;
-        let column = 0;
-        for (const cell of row.cells) {
-          // Cells wrap within their own column width, not the body width.
-          const span = cell.columnSpan ?? 1;
-          const cellWidthPx = block.columns.length === 0
-            ? ctx.bodyWidthPx
-            : block.columns.slice(column, column + span).reduce((sum, width) => sum + width, 0) * PX_PER_INCH;
-          column += span;
-          const pad = { ...block.cellMargins, ...cell.margins };
-          const padX = ((pad.left ?? 0) + (pad.right ?? 0)) * PX_PER_INCH;
-          const padY = ((pad.top ?? 0) + (pad.bottom ?? 0)) * PX_PER_INCH;
-          const cellCtx: EstimateContext = { bodyWidthPx: Math.max(24, Math.min(ctx.bodyWidthPx, cellWidthPx) - padX) };
-          // A row is its text plus the cell padding plus the hairline between rows.
-          const cellHeight = foldBlocksHeightPx(cell.nodes, cellCtx) + padY + rowEdgePx;
-          if (cellHeight > rowHeight) rowHeight = cellHeight;
-        }
-        if (row.height !== undefined) {
-          const authored = row.height * PX_PER_INCH;
-          if (authored > rowHeight) rowHeight = authored;
-        }
-        total += rowHeight;
-      }
+    case "table":
       // Tables paint flush: Word gives them no margin of their own.
-      return metrics(0, total, 0);
-    }
+      return metrics(0, tableRowHeightsPx(block, ctx).reduce((sum, height) => sum + height, 0), 0);
     case "image":
       return metrics(BLOCK_MARGIN_PX, block.height * PX_PER_INCH, BLOCK_MARGIN_PX);
     case "footnote":
@@ -314,6 +307,161 @@ function measureUncached(block: FlowNode, ctx: EstimateContext): BlockMetrics {
     case "pageBreak":
       return metrics(0, 0, 0);
   }
+}
+
+/** Estimated height of each row of a table, in pixels, in logical order. */
+function tableRowHeightsPx(block: DocxTableNode, ctx: EstimateContext): number[] {
+  // The hairline between rows at its real thickness (0.25pt is 0.33px): the
+  // renderer draws it snapped to a device pixel and takes the difference
+  // back out of the cell padding, so a row is padding plus this.
+  const insideH = block.borders?.insideH;
+  const rowEdgePx = typeof insideH === "object" ? ptToPx(insideH.widthPt) : 0;
+  const measured = ctx.measured === undefined ? undefined : block.rows.map((row) => ctx.measured!.row(row));
+  if (measured !== undefined && measured.every((height) => height !== undefined)) return measured as number[];
+  return block.rows.map((row) => {
+    let rowHeight = 0;
+    let column = 0;
+    for (const cell of row.cells) {
+      // Cells wrap within their own column width, not the body width.
+      const span = cell.columnSpan ?? 1;
+      const cellWidthPx = block.columns.length === 0
+        ? ctx.bodyWidthPx
+        : block.columns.slice(column, column + span).reduce((sum, width) => sum + width, 0) * PX_PER_INCH;
+      column += span;
+      const pad = { ...block.cellMargins, ...cell.margins };
+      const padX = ((pad.left ?? 0) + (pad.right ?? 0)) * PX_PER_INCH;
+      const padY = ((pad.top ?? 0) + (pad.bottom ?? 0)) * PX_PER_INCH;
+      const cellCtx: EstimateContext = { bodyWidthPx: Math.max(24, Math.min(ctx.bodyWidthPx, cellWidthPx) - padX) };
+      // A row is its text plus the cell padding plus the hairline between rows.
+      const cellHeight = foldBlocksHeightPx(cell.nodes, cellCtx) + padY + rowEdgePx;
+      if (cellHeight > rowHeight) rowHeight = cellHeight;
+    }
+    if (row.height !== undefined) rowHeight = Math.max(rowHeight, row.height * PX_PER_INCH);
+    return rowHeight;
+  });
+}
+
+/**
+ * Split a table between rows so the head fits `roomPx`, the way Word breaks a
+ * long table across pages (rows never split: aared treats every row as
+ * `w:cantSplit`). A boundary inside a vertical merge is skipped, since each
+ * part must stand alone. A row whose paragraphs all carry `w:keepNext` is
+ * also skipped as a boundary — Word never splits a title row from the row it
+ * introduces, or an "every row but the last" table from itself — matching a
+ * plain paragraph's `keepNext`, which aared already honours the same way
+ * (`keepsWithNext`/`keepChainPx`, below) for the block before a table. Among
+ * the boundaries that fit, one Word's own saved layout marked
+ * (`DocxTableRowNode.pageBreakBefore`, DECISION_LOG §45) wins over the
+ * latest-fitting one aared would otherwise guess — real evidence beats a
+ * heuristic whenever both agree it is valid. With `force`, the head takes at
+ * least one row even when that row alone overflows (an empty page has no
+ * better place for it). Returns undefined when no row fits and nothing is
+ * forced, or when the table cannot be split at all. `wordMarked` tells the
+ * caller the chosen boundary came from Word's own marker rather than a
+ * natural fit, so the tail should start a fresh page outright, not merely be
+ * preferred to — this split already used the strongest evidence available;
+ * a further "is the page half full" heuristic on top of it would second-
+ * guess a decision real evidence already settled (DECISION_LOG §45).
+ */
+function splitTable(
+  block: DocxTableNode,
+  roomPx: number,
+  ctx: EstimateContext,
+  force: boolean,
+): { head: DocxTableNode; tail: DocxTableNode; wordMarked: boolean } | undefined {
+  if (block.rows.length < 2) return undefined;
+  const heights = tableRowHeightsPx(block, ctx);
+  // mergeEnd[i]: the last row a vertical merge started at or above row i reaches.
+  let reach = 0;
+  const mergeEnd = block.rows.map((row, index) => {
+    for (const cell of row.cells) reach = Math.max(reach, index + (cell.rowSpan ?? 1) - 1);
+    reach = Math.max(reach, index);
+    return reach;
+  });
+  const clean = (index: number, keep: boolean): boolean =>
+    mergeEnd[index] === index && index < block.rows.length - 1 && (!keep || !rowKeepsWithNext(block.rows[index]!));
+  let best = 0;
+  let wordMarked = 0;
+  let used = 0;
+  for (let index = 0; index < block.rows.length - 1; index++) {
+    used += heights[index]!;
+    if (used > roomPx) break;
+    if (clean(index, true)) {
+      best = index + 1;
+      if (wordMarked === 0 && block.rows[index + 1]!.pageBreakBefore === true) wordMarked = index + 1;
+    }
+  }
+  if (wordMarked > 0) best = wordMarked;
+  if (best === 0 && force) {
+    // Nothing fits on an empty page: break at the first boundary Word would
+    // take, else at the first one a merge allows (keep-with-next yields).
+    best = block.rows.findIndex((_, index) => clean(index, true)) + 1
+      || block.rows.findIndex((_, index) => clean(index, false)) + 1;
+  }
+  if (best <= 0) return undefined;
+  return {
+    head: { ...block, rows: block.rows.slice(0, best) },
+    tail: { ...block, rows: block.rows.slice(best) },
+    wordMarked: wordMarked > 0 && best === wordMarked,
+  };
+}
+
+/** Whether a paragraph-like node keeps with the next one (`w:keepNext`). */
+function paragraphKeepsWithNext(node: FlowNode): boolean {
+  return (node.type === "paragraph" || node.type === "heading") && node.keepNext === true;
+}
+
+/** A row keeps with the next when every paragraph in it does, as Word treats a table row. */
+function rowKeepsWithNext(row: DocxTableRowNode): boolean {
+  let paragraphs = 0;
+  for (const cell of row.cells) {
+    for (const node of cell.nodes) {
+      if (node.type !== "paragraph" && node.type !== "heading") continue;
+      if (node.keepNext !== true) return false;
+      paragraphs += 1;
+    }
+  }
+  return paragraphs > 0;
+}
+
+/** Whether a block must share its page with the block after it. */
+function keepsWithNext(block: FlowNode): boolean {
+  if (block.type === "table") return block.rows.length > 0 && rowKeepsWithNext(block.rows[block.rows.length - 1]!);
+  if (block.type === "list") {
+    const last = block.items[block.items.length - 1];
+    return last !== undefined && last.paragraph.keepNext === true;
+  }
+  return paragraphKeepsWithNext(block);
+}
+
+/**
+ * Height a keep-with-next chain starting at `start` needs on one page: every
+ * block that keeps with the next, plus the first piece of the block it keeps
+ * with (a table's own rows up to the first one whose own `keepNext` does not
+ * carry the chain further — the same run `splitTable` already refuses to
+ * split; any other block whole).
+ */
+function keepChainPx(blocks: readonly FlowNode[], start: number, ctx: EstimateContext): number {
+  let total = 0;
+  for (let index = start; index < blocks.length; index++) {
+    const block = blocks[index]!;
+    if (block.type === "pageBreak" || block.type === "footnote") break;
+    if (keepsWithNext(block)) {
+      total += measureBlock(block, ctx).standalone;
+      continue;
+    }
+    if (block.type === "table") {
+      const heights = tableRowHeightsPx(block, ctx);
+      for (const [row, height] of heights.entries()) {
+        total += height;
+        if (!rowKeepsWithNext(block.rows[row]!)) break;
+      }
+    } else {
+      total += measureBlock(block, ctx).standalone;
+    }
+    break;
+  }
+  return total;
 }
 
 /** Stacked height of consecutive blocks with CSS margin-collapsing semantics. */
@@ -381,6 +529,11 @@ function bodyInsets(section: DocumentSection): BodyInsets {
     ? twipsToPx(margins.footer) + foldBlocksHeightPx(section.footer, ctx)
     : 0;
   return { top: Math.max(top, headerBand), bottom: Math.max(bottom, footerBand) };
+}
+
+/** The body width a section's blocks lay out in, in CSS pixels (for `PaginateOptions.measured`). */
+export function sectionBodyWidthPx(section: DocumentSection): number {
+  return bodyBox(section).widthPx;
 }
 
 function bodyBox(section: DocumentSection): PageBox {
@@ -467,7 +620,7 @@ function sectionStartReason(sectionIndex: number, breakType: DocumentSection["pr
  */
 export function paginate(sections: DocumentSection[], options?: PaginateOptions): LayoutDocument {
   const softBreaks = options?.softBreaks ?? "prefer";
-  const warnings: LayoutWarning[] = [];
+  const warnings: RenderWarning[] = [];
   const pages: LayoutPage[] = [];
   if (sections.length === 0) return { pages, warnings };
 
@@ -481,7 +634,7 @@ export function paginate(sections: DocumentSection[], options?: PaginateOptions)
 
   let sectionIndex = 0;
   let current: OpenPage | undefined;
-  const estimateCtx: EstimateContext = { bodyWidthPx: 0 };
+  const estimateCtx: EstimateContext = { bodyWidthPx: 0, ...(options?.measured === undefined ? {} : { measured: options.measured }) };
 
   /** Push the open page when it has content; empty speculative pages vanish. */
   const flushPage = (): void => {
@@ -547,7 +700,9 @@ export function paginate(sections: DocumentSection[], options?: PaginateOptions)
   const commitBlock = (section: DocumentSection, block: FlowNode): void => {
     if (current === undefined) openPage(section, sectionStartReason(sectionIndex, section.properties.breakType));
     const part = measureBlock(block, estimateCtx);
-    if (part.standalone > current!.box.heightPx) {
+    // A table breaks between rows like Word's; only an unsplittable one
+    // (a single row, or rows bound by one vertical merge) takes the oversize path.
+    if (part.standalone > current!.box.heightPx && !(block.type === "table" && splitTable(block, current!.box.heightPx, estimateCtx, true) !== undefined)) {
       warnings.push({
         code: "oversize-block",
         message: `aared/core: block taller than an empty page (${Math.round(part.standalone)}px > ${Math.round(current!.box.heightPx)}px); placed with overflow`,
@@ -559,16 +714,52 @@ export function paginate(sections: DocumentSection[], options?: PaginateOptions)
       return;
     }
     const pending: FlowNode[] = [block];
+    // Tail fragments `splitTable` itself carved off at a boundary Word's own
+    // saved layout marked (DECISION_LOG §45): tracked by reference so they
+    // start a fresh page outright below, distinct from a table merely
+    // *encountered* with a marked first row (soft-gated further down) — this
+    // split already used the strongest evidence available, so it is not
+    // re-gated by how full the page happens to be.
+    const forcedFreshPage = new Set<FlowNode>();
     while (pending.length > 0) {
       if (current === undefined) openPage(section, "overflow");
       const next = pending[0]!;
+      if (current!.page.body.length > 0 && forcedFreshPage.has(next)) {
+        flushPage();
+        openPage(section, "overflow");
+      } else if (
+        // A table encountered with a marked first row, not from a split
+        // above: the same "prefer" gate a top-level `w:lastRenderedPageBreak`
+        // hint uses (`splitOnBreak`) — a page already more than half full
+        // honours it, rather than every hint forcing a break regardless of
+        // how little content that would leave behind.
+        current!.page.body.length > 0 && softBreaks !== "ignore"
+        && next.type === "table" && next.rows[0]?.pageBreakBefore === true
+        && current!.usedPx > current!.box.heightPx / 2
+      ) {
+        flushPage();
+        openPage(section, "overflow");
+      }
       const nextPart = measureBlock(next, estimateCtx);
       const gap = current!.page.body.length === 0
         ? pageTopGap(current!.page.startReason, nextPart)
         : Math.max(current!.prevBottomPx, nextPart.topPx);
-      if (current!.usedPx + gap + nextPart.contentPx > current!.box.heightPx && current!.page.body.length > 0) {
-        flushPage();
-        continue;
+      if (current!.usedPx + gap + nextPart.contentPx > current!.box.heightPx) {
+        // The rows that fit stay here and the rest continue on the next page;
+        // on an empty page the head takes at least one row.
+        const empty = current!.page.body.length === 0;
+        const parts = next.type === "table"
+          ? splitTable(next, current!.box.heightPx - current!.usedPx - gap, estimateCtx, empty)
+          : undefined;
+        if (parts !== undefined) {
+          if (parts.wordMarked) forcedFreshPage.add(parts.tail);
+          pending.splice(0, 1, parts.head, parts.tail);
+          continue;
+        }
+        if (!empty) {
+          flushPage();
+          continue;
+        }
       }
       pending.shift();
       current!.page.body.push(next);
@@ -624,13 +815,19 @@ export function paginate(sections: DocumentSection[], options?: PaginateOptions)
       // Continuous: keep filling the open page under the new geometry.
       if (current !== undefined) estimateCtx.bodyWidthPx = bodyBox(section).widthPx;
     }
-    for (const block of section.root) {
+    for (const [position, block] of section.root.entries()) {
       if (block.type === "pageBreak") {
         splitOnBreak(section, block.strength);
         continue;
       }
       // Flow-level footnote entries are assigned per page, never placed inline.
       if (block.type === "footnote") continue;
+      // Keep with next: when the chain cannot start here but fits a page,
+      // it starts on the next one (a chain taller than a page flows as usual).
+      if (current !== undefined && current.page.body.length > 0 && keepsWithNext(block)) {
+        const chain = keepChainPx(section.root, position, estimateCtx);
+        if (current.usedPx + chain > current.box.heightPx && chain <= current.box.heightPx) flushPage();
+      }
       commitBlock(section, block);
     }
     sectionIndex += 1;

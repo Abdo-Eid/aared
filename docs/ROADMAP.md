@@ -1,142 +1,104 @@
 # Roadmap
 
-> Queued sequencing. For the shape each milestone builds toward, see
-> [ARCHITECTURE.md](ARCHITECTURE.md) and [API.md](API.md). For why
-> the order is PPTX → XLSX → DOCX, see
-> [DECISION_LOG.md §5](DECISION_LOG.md#5-build-order-pptx--xlsx--docx-not-alphabetical-or-easiest-first).
+> Open work only. For how the engine works, see
+> [ARCHITECTURE.md](ARCHITECTURE.md); for what landed and why, the numbered
+> entries in [DECISION_LOG.md](DECISION_LOG.md); for the build order, §5
+> there.
 
-This is the open-work tracker — it changes often. Treat it as current status,
-not a spec; the canonical docs (`API.md`, `ARCHITECTURE.md`) are the spec.
+Keep it current: finished work leaves this file (the DECISION_LOG entry is
+its record), and a difference settled as accepted or by design moves to
+[ARCHITECTURE.md § Known limits](ARCHITECTURE.md#known-limits).
 
-## Shipped (M0–M3 + API redesign)
+**Status (Sep 2026): the API is complete; fidelity and pre-publish gates
+remain.** All three formats ship through their entrypoints (`aared/pptx`,
+`aared/xlsx`, `aared/docx`: `open()` → `slides`/`sheets`/`sections`/`headings`
+→ `read()` → `render()` → `destroy()` → `close()`, typed `AaredError`,
+`MediaCollection`, theme-only `Appearance`), and through the embed layers
+(`aared/preview`, `aared/react`, `<aared-viewer>`). Content is
+source-faithful in every theme; unsupported geometry and fills paint marked
+fallbacks, never silent approximations. DOCX layout mode paginates from
+DOM-measured blocks with Word's own numbers: close to Word, not a Word-exact
+promise.
 
-- Scaffold, design docs, seeded fixtures, `bench/` harness; verified
-  `install → typecheck → test → build`.
-- Worker-parsed, DOM/SVG-painted renderers for PPTX, XLSX, and DOCX, each
-  with its Arabic fixture (deck with table, RTL sheet with merges and
-  frozen pane, bidi document) and visual regression; native
-  PowerPoint/Excel/Word review pipelines under `tools/*-render/`.
-- API surface: format entrypoints with typed errors and collection grammar,
-  `aared/preview` facade, `aared/react` hooks, `<aared-viewer>` element,
-  `docs-parity` test, and the shared-code pass (one home per rule).
-- PPTX master/layout surface (DECISION_LOG §17) and source-faithful theme
-  everywhere (DECISION_LOG §25): dark `theme` drives chrome only.
-- Grouped shapes (`grpSp`) with child-space mapping, pinned by real-fixture
-  parser and visual tests.
-- DrawingML fills on shapes, table cells and slide backgrounds through one
-  painter: pattern, picture (stretched, cropped, tiled), rect-path and
-  centered radial gradients, with PowerPoint's linear-light stop blending;
-  unpaintable fills are marked in dev builds, never dropped silently
-  (DECISION_LOG §28, `pptx-coverage.pptx` slides 7–10).
-- Development diagnostics behind one build flag (`src/diagnostics.ts`):
-  PPTX dashed fallback outlines and the XLSX sheet notice bar paint from
-  source only, never in shipped bundles.
-- Deploy (`.github/workflows/deploy.yml`: push to `main` → build packages
-  → build site → GitHub Pages). The package build must run first because
-  the site imports `aared`/`aared-fonts` through their `dist/` exports map,
-  with no source fallback.
-- Real PPTX and DOCX zoom fit: both formats measure their host and apply a
-  real scale (`fit-width`/`fit-page`), instead of leaving the page at its
-  authored size or relying on a consumer's own CSS `zoom` trick that a
-  percentage-width box silently ignores (DECISION_LOG §29).
-- PPTX tables and text lines matched to PowerPoint exports: rows grow to
-  their text, default cell insets, the full table-style region surface
-  (every region, six edges each, fonts, diagonals, dashes, rotated text),
-  boundary-centred edges, line boxes sized by their runs, and PowerPoint's
-  1.2× single line (DECISION_LOG §30).
-- `PreviewHandle.docx` (`aared/preview`, `aared/react`): DOCX's page count,
-  laid-out page sizes, and heading outline, plus `goToHeading()` navigation
-  — real API instead of a consumer scraping the painted DOM for what the
-  parsed document and render handle already know (DECISION_LOG §29).
-- One API grammar across formats and layers (DECISION_LOG §31): units vs
-  places (`goTo` vs `goToCell`/`goToHeading`/`goToPage`), `{ index, title }`
-  unit references and `{ address, row, col }` cell locations everywhere,
-  async `goTo…` and `search()`, change-only events, a `"closed"` error code,
-  zoom owned by the facade across navigation, `PreviewHandle.xlsx`
-  controls, and DOCX `goToPage` in layout mode.
-- Real XLSX zoom: opens at 100% like Excel; `fit-width`/`fit-page` fit the
-  used area, +/− scale the whole grid (DECISION_LOG §31).
-- True benchmark numbers (DECISION_LOG §33): memory read from the page and
-  each Worker in its own DevTools session, with first-open, after-full-read
-  and idle-Worker readings; download size measured as what the browser
-  fetches from one production build, dependencies and versions included.
-- Memory and size work against those numbers (DECISION_LOG §34–§39):
-  Latin-1 shipped JS, a DOCX Worker that keeps nothing the page holds
-  (streamed `w:body`), renderer defaults as classes in one adopted
-  stylesheet, a lighter XLSX grid, lazily painted DOCX layout pages, Worker
-  reuse between opens, bounded Worker unit caches, and minified dist.
-- Viewers no longer jump when a unit is replaced (DECISION_LOG §40): no
-  scroll to the top on Next, no fill that appears a frame late or grows row
-  by row; the playground's React, JS and full-control demos show the same
-  slide size and paging bar as the element.
+Gates (AGENTS.md § Testing rule): typecheck, build, unit tests,
+`docs-parity`, the PPTX/XLSX/DOCX DOM and visual tests, and `bench-measure`
+all pass. One is open: **PPTX visual review sign-off** (same-size PowerPoint
+and aared captures, the Arabic deck with a table included), a `1.0.0` gate.
+No CI is wanted, deliberately; `bench-measure` runs rarely (`--calibrate`
+first on an idle machine, about 30 minutes a pass).
 
-## M4 — `aared-fonts` publish + CDN default
+## Next up
 
-- [x] Metric-compatible substitutions (Carlito, Liberation family, Noto
-      Naskh/Sans Arabic, Amiri) mapped through the CDN-backed `defaultResolver`.
-- [ ] Cloud-only Office faces (Aptos, the Office default theme font since
-      2023): PowerPoint fetches them, browsers lack them, so text paints in a
-      generic substitute — Latin table text in `pptx-coverage.pptx` measures
-      ~12% larger than PowerPoint's (DECISION_LOG §30).
-- [ ] Embedded-PPTX-font extraction (`ppt/fonts/*.fntdata` de-obfuscation)
-      reviewed against real decks that carry embedded fonts
-- [ ] Embedded-DOCX-font extraction (`word/fonts/*.odttf`, obfuscated with the
-      `w:fontKey` GUID; faces are named by `w:embedRegular`/`Bold`/`Italic`/
-      `BoldItalic` in `word/fontTable.xml` and resolved through
-      `word/_rels/fontTable.xml.rels`), preferred over the substitution table
-      when present, reviewed against real documents that carry embedded fonts
-- [ ] Embedded-XLSX-font check: Excel has no embed-fonts option (Word and
-      PowerPoint do), so this is expected to be not applicable. Confirm against
-      real workbooks and record the answer, rather than assume it.
+In order:
 
-Polish, bench measurement, and visual inspection are continuous practice
-during development (see AGENTS.md Root-cause discipline), not sequenced
-phases, so they are not tracked here. The gate ladder in HANDOFF.md records
-what is proven; the N-run bench table stays TBD there until generated from
-JSON — no hand-filled numbers. No CI is wanted — deliberately.
+1. **Pre-publish:** settle the resolved-model contract tier ("Before first
+   publish" below), then the first release (checklist there).
+2. **PPTX visual review sign-off.**
+3. **DOCX picture placement:** a top-and-bottom picture after a paragraph
+   whose picture still hangs, and the lowest rows beside a through-wrapped
+   picture (limits table); both visible, both need a Word probe of the rule.
+4. **DOCX residuals:** block images and footnotes still estimate their
+   pagination height; page-3 drift (per-font single-line metrics, block-image
+   spacing); promote the anchor-comparison script into `tools/word-render`.
+5. **Charts, in isolation** (the maintainer's): size and performance first;
+   the quick-fix route is under "Not yet scheduled".
+6. **Final polish pass:** confirmed defects only, then the full gate and docs.
 
-## Known fidelity gaps (not blocking pre-release)
+## Open gaps (not blocking pre-release)
 
-These are deliberate or known limitations. Do not treat them as bugs unless
-the audit explicitly marks them as missing from the contract.
+Known differences still meant to be closed. Differences settled as accepted
+or by design are not here: they are in
+[ARCHITECTURE.md § Known limits](ARCHITECTURE.md#known-limits).
 
 | Format | Gap | Status |
 |---|---|---|
-| PPTX | Off-center `path="circle"` and `path="shape"` gradients are not painted (shapes, cells, WordArt and backgrounds alike): a dashed outline in dev builds, `data-aared-fill-fallback` / `data-aared-background="unsupported"`. COM cannot author either, so both wait on a hand-made slide appended to `pptx-coverage.pptx`, plus a probe. Everything else paints through one fill painter, checked against PowerPoint renders (DECISION_LOG §28): solid, linear, centered radial and `rect`-path gradients (linear-light, smoothstep-eased stops), the 54 preset patterns, and pictures stretched, cropped or tiled. That covers shapes, table cells and slide backgrounds (slide → layout → master, `bgRef` theme styles included) | Documented |
-| PPTX | Fill approximations: patterns in group children anchor to their child-space position rather than the slide origin; picture tiles assume 96 DPI (images with other DPI metadata tile differently in PowerPoint); gradient stops follow a fitted smoothstep, within a few colour levels of PowerPoint | Documented |
-| PPTX | Tables: built-in styles referenced by GUID but missing from `tableStyles.xml` paint unstyled (PowerPoint regenerates them from the theme); `lnRef` edge widths assume the default theme's 0.5/1/1.5pt because `a:lnStyleLst` is not read (DECISION_LOG §30) | Deferred |
-| PPTX | Charts: fixed-template drawing (no chart model) — value axis always 0 to the data maximum in four steps; tick marks, authored text sizes, legend position, `gapWidth`, number formats and manual layout ignored; stacked/percent bars draw clustered, combo charts keep one type; area, scatter, radar and chartex show a placeholder | Deferred — quick fix vs. rebuild undecided |
-| PPTX | A run tagged `en-US` with Arabic words around a neutral (`عربي + إنجليزي`, `post-production-review.pptx` slide 5) keeps its words left-to-right in PowerPoint; aared applies the Unicode bidi algorithm and reverses them | Deferred — needs a ground-truth probe |
-| PPTX | Text boxes and table cells with no run size take `p:defaultTextStyle`'s size per level; which of it and the master's `p:otherStyle` PowerPoint uses when they disagree is unprobed (both fixtures agree) | Deferred — needs a fixture where they differ |
-| PPTX | Layout/slide colour-map overrides (`p:clrMapOvr`) are not read, only the master's `p:clrMap`; a layout or slide using a dark background style may resolve `bg1`/`tx1` against the wrong map | Deferred — needs an edited fixture to reproduce |
-| PPTX | Layout/master graphics: charts are not painted, and the `showMasterSp` rule (slide flag hides layout and master graphics; layout flag hides the master's) is unverified against PowerPoint output; a picture background *inherited* from a layout or master is unexercised by the fixtures (slide 9 covers a slide's own tiled picture background) | Deferred — needs an edited fixture to verify |
-| PPTX | Only `slidenum` and `datetime` `a:fld` fields are live; other field types keep their cached text | Documented |
-| PPTX | Synthetic slide titles (`"Slide N"`) in `info.titles` and `slide.info` — kept by design: extracting the title placeholder would parse every slide at `open()` (DECISION_LOG §31); `slide.read()` has the real text | Documented |
-| PPTX | Notes are parsed but nothing renders them (the former `capabilities.presentation.notes: true` overclaimed this; `capabilities` was cut — DECISION_LOG §15) | Deferred |
-| PPTX | Embedded fonts silently deferred — no unsupported marker (unlike geometry/fills) | Deferred |
-| XLSX | The sheet notice bar (formulas never recalculated, unsupported features) paints in development builds only; shipped builds show the sheet alone, and a host that wants to tell users reads `SheetModel.unsupported` itself | Documented |
+| PPTX | Charts: fixed-template drawing (no chart model) — value axis always 0 to the data maximum in four steps; tick marks, authored text sizes, legend position, `gapWidth`, number formats and manual layout ignored; stacked/percent bars draw clustered, combo charts keep one type; area, scatter, radar and chartex show a placeholder. Charts on layouts and masters are not painted | Deferred — the maintainer's, in isolation |
+| PPTX | WordArt preset warps (`a:prstTxWarp`) paint the text flat, marked `data-aared-text-warp`; the text is all there. The four curve presets (`textArchUp`, `textArchDown`, `textCircle`, `textButton`) could follow an SVG `textPath` as real text (a PowerPoint probe for the arc, then the painter); the other presets reshape the letters and have no DOM form. Low priority (Sep 2026): visible when it occurs, but warped WordArt is rare in current decks and unseen in Arabic ones; PPTX only, since DOCX does not parse text boxes | Deferred — pick up when a real deck needs it |
+| PPTX | Master and layout graphics (a master logo, `showMasterSp="0"` on a layout or slide, a picture background) match PowerPoint on a probe (§54) but no fixture carries them, so the suite does not pin them: three `test.todo` in `pptx-layout.test.ts` | Open — needs master content added to a coverage deck |
 | XLSX | `rotation` missing from cell style model | Deferred |
-| XLSX | Border styles reach the renderer as raw Excel names (mapped in `xlsx/index.ts`), where DOCX resolves its borders in core. Resolving them in core changes the public `XlsxCellStyleModel`, so it waits on the model-contract decision below | Deferred |
-| XLSX | First `read()` is unbounded — full sheet parsed then sliced; scroll-driven re-reads deferred | Documented |
-| XLSX | Embedded fonts: Excel has no embed-fonts feature, so none are expected; unconfirmed against real workbooks (see M4) | Deferred — confirm |
-| DOCX | Paginator `warnings` computed then silently dropped — never reach the embedder | Deferred |
-| DOCX | Search excludes headers, footers, and text boxes (text boxes are not parsed) — headings, paragraphs, lists, table cells, and footnotes/endnotes are covered | Documented |
+| XLSX | Border styles reach the renderer as raw Excel names (mapped in `xlsx/index.ts`), where DOCX resolves its borders in core. Moving them changes the public `XlsxCellStyleModel`, so it waits on the model-contract decision | Deferred |
+| XLSX | First `read()` is unbounded — full sheet parsed then sliced; scroll-driven re-reads deferred | Deferred |
+| DOCX | Layout pagination measures top-level blocks and table rows in the DOM (§21, §44); block images and footnotes still estimate. Table rows never split, and header rows (`w:tblHeader`) do not repeat | Open — estimates in "Next up" |
+| DOCX | Anchored pictures (§55): a wrapped picture positioned vertically from the page or a margin starts at its paragraph's top; paragraphs after a picture with text on both sides do not wrap around what of it remains (they start below it); a top-and-bottom picture right after a paragraph whose picture still hangs is pushed below that picture (about 14px on `docx-coverage.docx` page 5); with a through wrap Word keeps a wider hole on the lowest rows than the polygon at the line's height, so it wraps about a word more there (probe case 8); VML pictures (`w:pict`) have no placement | Open — the band and through-wrap rows are in "Next up" |
+| DOCX | No line grid (`w:docGrid w:type="lines"`): aared counts a line as 12pt, right only with the grid off (§47) | Deferred |
+| DOCX | Text boxes are not parsed (their text is lost); search also excludes headers and footers | Open — not scheduled |
 | DOCX | Table ARIA missing `role="row"` children — non-conforming (PPTX too) | Deferred |
-| DOCX | Element renders flow-only — no layout-mode attribute | Documented |
-| DOCX | Embedded fonts (`word/fonts/*.odttf`) are not read — text falls back to the substitution table or system fonts; no unsupported marker | Deferred |
+| DOCX | Element renders flow-only — no layout-mode attribute | Deferred |
 | Cross | `system` theme: `<aared-viewer>` listens for OS flips; `preview()`/hooks rely on the host re-forwarding appearance | Deferred |
 
 ## Before first publish (open decisions)
 
 Decisions that cost nothing to change now and a major version to change
 later. AGENTS.md "Pre-release breaking changes" expires at first publish, so
-resolve each of these first. Add to this list as new ones surface; delete an
-entry (and record the outcome in DECISION_LOG) when it is settled.
+resolve each first. Delete an entry (and record the outcome in DECISION_LOG)
+when it is settled.
 
-The name is taken: `@aared/viewer@0.0.0` is a placeholder (DECISION_LOG §42,
-git tag `v0.0.0`). What remains is the first real release at `0.1.0`: rename
-the packages to `@aared/viewer` / `@aared/fonts`, drop `private`, pack-check,
-maintainer publishes, tag `v0.1.0`. HANDOFF "Publishing" has the checklist.
+The name is taken: `@aared/viewer@0.0.0` on npm is a name-holding placeholder
+(README only; org `aared`, owner `mego0eid`; §42, git tag `v0.0.0`). The
+repo's packages are still named `aared` / `aared-fonts`, `private: true`,
+`0.0.0`; nothing of the real code is public.
+
+### Release checklist (`0.1.0`), in one piece of work
+
+1. Settle the open decision below.
+2. Rename `aared` to `@aared/viewer`. `aared-fonts` is frozen and stays
+   unpublished (§53); it keeps its workspace name, and its `aared/core`
+   import renames with the rest. Imports become `@aared/viewer/pptx`,
+   `/xlsx`, `/docx`, `/preview`, `/react`, `/element`, `/worker`. Touch the
+   `package.json` name and `exports`, every import in `bench/`, `site/`,
+   `tools/` and the tests, `tsdown.config.ts`,
+   `tools/check-consumer-build.ts`, the API reference page (docs-parity), the
+   README install block, and the site's install card and playground
+   snippets. The `<aared-viewer>` tag name does not change.
+3. Drop `private` and add `publishConfig.access: "public"` (the `files`
+   list, `["dist"]`, is already there); run `bun run build`, the unit and
+   visual tests,
+   `bun tools/check-consumer-build.ts` and `npm pack --dry-run` (the tarball
+   has `dist/` and no fixtures or sources you did not intend).
+4. The maintainer runs `npm publish` in their own terminal (2FA on; no token
+   is ever given to an agent), then `git tag -a v0.1.0` on the release
+   commit. What changes after it is in AGENTS.md "Pre-release breaking
+   changes".
 
 ### Are the resolved model types a public contract?
 
@@ -144,28 +106,23 @@ maintainer publishes, tag `v0.1.0`. HANDOFF "Publishing" has the checklist.
 
 `read()` returns the parser's resolved models, and `aared/core` exports about
 60 types describing them (`ShapeModel`, `TextRunModel`, `TableModel`,
-`SheetRangeModel`, `CellModel`, `DocxParagraphNode`, …). The API reference
-documents them under "Resolved models". Exporting and documenting them makes
-the parser's internal output a public contract: after publish, renaming a
-field, splitting a node type, changing a unit, or making a field required
-breaks every consumer that reads the models. The parser is still moving (see
-the fidelity gaps above: two unpainted gradient kinds, heuristic DOCX
-layout), so a promise made now is one you keep paying for. Changed since
-this entry was written: `SlideLayoutModel` was added (shared **by
-reference** across slides, so treat it as read-only), and the fill work
-(DECISION_LOG §28) replaced `ImageBackgroundModel` with `PictureFillModel`
-and turned `TableModel.cellFills` from colour strings into fills — exactly
-the kind of reshaping a stability promise would have forbidden.
+`SheetRangeModel`, `CellModel`, `DocxParagraphNode`, …), documented under
+"Resolved models" in the API reference. That makes the parser's output a
+public contract: after publish, renaming a field, splitting a node type,
+changing a unit, or making a field required breaks every consumer that reads
+the models. The parser is still moving — the fill work replaced
+`ImageBackgroundModel` with `PictureFillModel` (§28), and DOCX pictures traded
+`float` for `anchor` and `floats` (§55) — exactly the reshaping a stability
+promise would forbid.
 
-Why the models are public at all: `render()` accepts a handle *or* a model,
-and `read()` is the seam the renderers themselves consume. That justifies
-`read()` existing. It does not by itself justify a stability promise on every
-model shape.
+`render()` accepts a handle *or* a model, and `read()` is the seam the
+renderers themselves consume. That justifies `read()` existing, not a
+stability promise on every model shape.
 
 Options:
 
-1. **Stable public API.** Keep every model type exported and documented as
-   stable; any change after publish is a semver-major with a migration note.
+1. **Stable public API.** Every model type exported and documented as stable;
+   any change after publish is a semver-major with a migration note.
 2. **Tiered (leaning this way).** Keep the XLSX range types
    (`SheetRangeModel`, `CellModel`, `CellRange`) stable — `sheet.read("A1:M200")`
    is a headline use and the only place data reading is a natural need. Mark
@@ -186,67 +143,56 @@ the stability tier per format, and label experimental types), trim
 `aared/core` exports if going with option 3, update `docs-parity.test.ts`
 accordingly, and record the outcome in DECISION_LOG.
 
-### Bundle size
+## Follow-ups (observed, not scheduled)
 
-Status: decided — single self-contained worker (41 KB gzip minified for all
-three formats; per-format workers were re-checked with measured numbers and
-rejected again — DECISION_LOG §20). Main-thread code is already lazy per
-format at runtime. Measured against the other libraries (download size,
-BENCHMARKS.md): smallest for XLSX and for all three formats; about 8 KB
-behind docx-preview + jszip for DOCX; well behind mdurbar for PPTX, whose
-lightness comes from dropping most preset shapes and RTL. Remaining risk:
-Worker URL resolution under Vite/webpack (HANDOFF.md). Deferred unless a
-real consumer size budget demands it: per-format `preview`/`react` subpaths
-and an element registry variant.
+### Bundle and memory
 
-Memory follow-ups (weighed, not scheduled — DECISION_LOG §39): one Blob per
-shared PPTX picture; the PPTX-only geometry evaluator's `import()` out of
-the shared session chunk; a detached layout/master skeleton instead of the
-full trees.
+Deferred unless a real consumer size budget demands it: per-format
+`preview`/`react` subpaths and an element registry variant. Memory follow-ups (weighed, not scheduled —
+§39): one Blob per shared PPTX picture; the PPTX-only geometry evaluator's
+`import()` out of the shared session chunk; a detached layout/master skeleton
+instead of the full trees.
 
-### Search follow-ups (observed, not scheduled)
+### Search
 
 - No Arabic-aware matching anywhere (tashkeel, alef/hamza, ya/alef-maqsura,
   digit forms): search is a plain case-insensitive substring.
 - PPTX search skips notes; grouped-shape text is covered (groups recurse).
 - A Worker-side text-only `search` message would cut the cold first search
-  (see DECISION_LOG §16).
+  (§16).
+
+### XLSX content size
+
+- No single content-size getter: a consumer that wants a sheet's natural
+  width and height must add up `columnWidths`, `defaultRowHeight` and each
+  row's own `height` from the read model. A `contentSize()` (inches, or CSS
+  px at scale 1) on the read model or the render handle would remove that
+  sum.
+- The numbers exclude the viewer's own chrome (row-number column, column
+  letters, sheet tabs), so a caller sizing a box to the sheet has to add the
+  chrome by hand. `fit-width` and `fit-page` already account for it.
 
 ## Not yet scheduled
 
 - Viewer decorations API (`decorations: [{ range, kind }]`) — viewer-only
-  annotations overlaying rendered content; deferred from v1, revisit when a
-  real consumer needs it
+  annotations overlaying rendered content; revisit when a real consumer
+  needs it
 - Search-text highlighting — headless `search()` already returns model ranges;
   what's missing is painting them as a non-mutating overlay (ranges in,
   highlight layer out, source text untouched). Small job; rides on the
   decorations overlay when that lands, or ships standalone before it
 - Headless thumbnail export (nice to have) — render a slide/page/sheet to an
   image without a browser, for agent pipelines that need a fast high-fidelity
-  glance instead of a full view. Open design, not scheduled: output format
-  (SVG serialize vs raster), DOM-free requirement, per-format scope
-  (slides/pages/sheets), and fidelity-vs-speed contract all undecided.
-  Do not promise until the mechanism is proven. For DOCX the DOM-free
-  paginator's estimator (`core/docx/pagination.ts`) is the natural fit: it is
-  the only page layout that runs with no browser, so a headless render takes
-  its page breaks from it. That is why the estimator stays even after the
-  browser renderer moves to DOM-measured pagination (DECISION_LOG §21) — and
-  why its accuracy then needs a real bar of its own instead of today's
-  constants fitted to one fixture (for example measured font metrics injected
-  into it)
-- Shape-fidelity batch — diagnosed Sep 2026 from slide 3 of
-  `pptx-coverage.pptx` vs PowerPoint and aiden0z: (a) shipped — the full ECMA-376 preset catalog (176 presets, 16 of them proven symmetry aliases, in one eager table shipped only in the `aared/pptx` entry, oracle-checked endpoint-by-endpoint against LibreOffice's independent conversion) resolves through the deferred-geometry engine (DECISION_LOG §26 and its addendum); the 11 hand-coded fast-path presets stay worker-side; (b) shipped — unsupported geometry renders an empty
-  dashed outline (like picture/chart fallbacks) instead of a filled rect
-  that reads as a wrong shape; (c) shipped — custGeom path commands (moveTo/lnTo/arcTo/quadBezTo/cubicBezTo/close, guide-computed coordinates included) evaluate through the same engine; (d) `grpSp` rendering — shipped:
-  groups parse to `GroupModel` and render nested with child-space mapping
-  (pinned by `pptx-group.test.ts` + the group visual test; group-level
-  effects and `grpFill` inheritance stay unresolved); (e) shipped — the
-  `line` preset was invisible because a sub-pixel authored axis rounded the
-  SVG viewport to zero (fixed with a 1px-minimum viewport + viewBox growth
-  that keeps 96px per inch), and `ellipse` painted zero-area (fixed with two
-  half-arcs). Golden path-string unit tests pin the fast-path formulas; the
-  oracle snapshot pins the engine; DOM re-read tests cover marking,
-  visibility, and layer painting
+  glance instead of a full view. Open design: output format (SVG serialize vs
+  raster), DOM-free requirement, per-format scope, and fidelity-vs-speed
+  contract all undecided. Do not promise until the mechanism is proven. For
+  DOCX the DOM-free paginator's estimator (`core/docx/pagination.ts`) is the
+  natural fit: it is the only page layout that runs with no browser, which is
+  why it stays now that the browser renderer measures in the DOM (§21) — and
+  why its accuracy needs a real bar of its own instead of constants fitted to
+  one fixture
+- PPTX group residuals — group-level effects and `grpFill` inheritance are
+  unresolved
 - Chart fidelity (PPTX, and XLSX through the same `core/chart.ts`) —
   diagnosed Sep 2026 from `post-production-review.pptx` slide 4 vs
   PowerPoint. Today the chart XML turns straight into drawing primitives on a
@@ -256,10 +202,37 @@ full trees.
   and number formats, `autoTitleDeleted` and manual `c:layout` are ignored;
   stacked and percent bars draw clustered; a combo chart keeps one type;
   doughnut draws as a pie; area, scatter, radar, stock and chartex show the
-  dashed placeholder. Two paths, not yet chosen:
-  (a) quick fix, about a day, keeping the current structure — nice-number
-  axis scaling, tick marks, authored text sizes in points, centred legend,
-  `gapWidth`, `showVal` + `numFmt`, `autoTitleDeleted`; brings slide 4 close;
+  dashed placeholder. The maintainer takes this in isolation (Sep 2026), with
+  size and performance as first-class goals: the chart code is shared with
+  XLSX (`core/chart.ts`, `src/chart-svg.ts`), so any change is checked against
+  both formats' captures, and it should not grow the Worker: check what
+  `core/chart.ts` adds to the shared session chunk (the geometry table set the
+  precedent of keeping bulk out of it, §26).
+  Two paths:
+  (a) quick fix, about a day, keeping the current structure. The list, each
+  item small and independent, in the order that moves slide 4 the most:
+  1. nice-number value-axis scaling (round the data max up to a 1/2/5 step,
+     five or so gridlines; PowerPoint draws 0 to 45 by 5 where aared draws
+     0 to 42 in fours), and honour `c:scaling` `min`/`max`/`majorUnit` when
+     the file states them;
+  2. tick marks and axis line from `c:majorTickMark`, and `c:delete` for an
+     axis the author hid;
+  3. authored text sizes in points from each `c:txPr`, not the fixed ones;
+  4. legend position from `c:legendPos` (right, top, bottom, left) with the
+     plot area making room, centred on its side;
+  5. `c:gapWidth` and `c:overlap` for bar widths;
+  6. data labels (`showVal`, `showPercent`) with `c:numFmt`, reusing the XLSX
+     number-format code so a `0.0%` or `#,##0` reads as Excel prints it;
+  7. `c:autoTitleDeleted`, and a single-series chart's title from the series
+     name when the title is automatic;
+  8. stacked and percent-stacked bars (`c:grouping`) and a real doughnut hole
+     (`c:holeSize`), the two shapes a reader sees wrong most often.
+  Leave placeholders for area, scatter, radar, stock and chartex; leave manual
+  `c:layout` ignored. Each item gets a DOM test that re-reads the painted
+  SVG (`chart-svg.ts`), the coverage deck's charts as the fixture, and the
+  paired PowerPoint capture of `post-production-review.pptx` slide 4 as the
+  review; the `unsupported` placeholder keeps its marker so nothing paints
+  silently wrong;
   (b) rebuild, multi-week — a semantic chart model in core (plot groups,
   axes with scaling/format/ticks/gridlines, data labels, legend, text and
   theme/chart-style colours), Excel-compatible auto axis scaling and number
@@ -268,8 +241,47 @@ full trees.
   `c:layout`), then more types step by step (stacked/percent, area, scatter,
   true doughnut, radar, combo with secondary axes, trendlines, error bars)
   and a picture fallback for chartex from `mc:AlternateContent`
-- Publishing to npm (name/scope already reserved — see
-  [DECISION_LOG.md](DECISION_LOG.md) and `AGENTS.md`)
-- VitePress or similar docs-site build (plain Markdown is enough for now)
-- Any editing capability — explicitly out of scope, see
-  [../DECISION_LOG.md §4](../DECISION_LOG.md#4-view-only-permanently--not-a-phased-in-decision)
+- CSV/TSV preview — considered Sep 2026, may or may not land. Open a
+  `.csv`/`.tsv` as a one-sheet workbook through `aared/xlsx`, the way Excel
+  does. The renderer side is nearly free: a parsed CSV is a plain
+  `SheetModel` (default 8.43-character columns, default row height, no
+  styles) that the XLSX renderer already paints, overflow, frozen panes and
+  dark mode included. The cost is all on the input side:
+  (a) routing — the Worker's `detect` and `open` both start with
+  `OpcPackage.open`, so non-ZIP bytes fail today as `invalid-document`, and
+  `sourceBytes` drops `File.name`, `Blob.type` and the URL before the Worker
+  sees anything; the element, `preview()` and `aared/xlsx`'s `open()` would
+  carry that hint through, and a CSV Worker session has no package behind it
+  (the media route assumes one);
+  (b) detection needs a positive signal (`.csv`/`.tsv`, `text/csv`,
+  `text/tab-separated-values`, or an explicit type) confirmed by a content
+  check — bytes alone are unsafe: a 200-status HTML login page or a JSON body
+  is valid text, and an encrypted `.xlsx` or a legacy `.xls` (OLE,
+  `D0 CF 11 E0`) is not a ZIP either; none of them may paint as a one-column
+  sheet;
+  (c) encoding — byte-order mark, then strict UTF-8, then `windows-1256`
+  (Bun's `TextDecoder` decodes it headless, so `core` stays testable without
+  a browser). This is the Arabic win: classic Excel reads a BOM-less UTF-8
+  CSV as the system code page and garbles it — confirm on current Excel 365
+  before claiming that anywhere public;
+  (d) parsing — RFC 4180 quoting (delimiters and newlines inside quoted
+  fields); delimiter auto-detected among `,` `;` tab `|`, honouring a `sep=`
+  first line (Excel's own convention; otherwise Excel uses the locale's list
+  separator); cut at the `isInsideGrid` bounds with a visible `unsupported`
+  entry; the tab name is the file name without its extension;
+  (e) sheet direction — a CSV carries no right-to-left signal (Excel follows
+  its own "default direction" option), so a content heuristic or a render
+  option; any Arabic-range test goes through `core/chars.ts` (shipped JS
+  stays Latin-1).
+  Open decisions: `info.format` stays `"xlsx"` (preferred — a one-sheet
+  workbook like Excel, no new entrypoint, events or API-page entries) or a
+  new `"csv"` `DocumentFormat`; cell values shown verbatim, with number
+  detection used only for General alignment (preferred — Excel's inference
+  drops leading zeros, turns long IDs into `1.23457E+11` and some text into
+  dates) or Excel-style inference; and the fixture — rule 4 wants an Arabic
+  fixture with a table, and a CSV cannot live inside the existing coverage
+  workbooks, so it would be a new file in `fixtures/` and needs sign-off.
+  Ground truth: `tools/excel-render/` can open the CSV in Excel for the
+  paired review, but Excel's result depends on that machine's list
+  separator, ANSI code page and default direction, so a capture only counts
+  as an oracle when it records those regional settings

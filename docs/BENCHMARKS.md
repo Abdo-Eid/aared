@@ -121,13 +121,11 @@ harness. Hand-editing a number without re-running is a docs bug.
 
 | Fixture | Renderer | cold open ms (med) | warm open ms (med / p95) | one move ms (med) | all units ms (med) | memory, repeat open MB (page + Workers) | memory, first open MB | memory after a full read MB | left after destroy MB | idle Worker kept MB | elements painted |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| pptx-coverage.pptx | aared | 85 | 32 / 32 | 33.6 | 582 | 0.9 (0.2 + 0.7) | 2.3 | 1.2 | 0.0 | 1.3 | 65 |
 | pptx-coverage.pptx | pptxviewjs | 226 | 99 / 118 | 33.2 | 332 | 1.5 (1.5 + 0.0) | 5.8 | 1.5 | 1.5 | — | 1 |
 | pptx-coverage.pptx | silurus | 420 | 250 / 312 | 33.5 | 333 | 2.0 (1.1 + 0.9) | 4.8 | 2.8 | 0.0 | — | 1 |
 | pptx-coverage.pptx | aiden0z | 398 | 135 / 151 | 33.1 | 327 | 4.4 (4.4 + 0.0) | 8.9 | 5.0 | 0.0 | — | 575 |
 | pptx-coverage.pptx | mdurbar | 147 | 77 / 102 | 33.3 | 321 | 1.2 (1.2 + 0.0) | 1.9 | 1.2 | 0.0 | — | 153 |
 | pptx-coverage.pptx | omni | 422 | 116 / 145 | 33.2 | 320 | 3.7 (3.7 + 0.0) | 8.6 | 3.8 | 0.0 | — | 740 |
-| post-production-review.pptx | aared | 86 | 32 / 33 | 33.2 | 232 | 0.6 (0.1 + 0.5) | 2.0 | 0.8 | 0.0 | 1.2 | 39 |
 | post-production-review.pptx | pptxviewjs | 218 | 92 / 138 | 33.3 | 232 | 0.9 (0.9 + 0.0) | 4.9 | 0.9 | 0.9 | — | 1 |
 | post-production-review.pptx | silurus | 370 | 248 / 340 | 33.3 | 233 | 1.2 (0.3 + 0.9) | 3.9 | 2.7 | 0.0 | — | 1 |
 | post-production-review.pptx | aiden0z | 521 | 138 / 176 | 33.2 | 217 | 4.4 (4.4 + 0.0) | 9.6 | 4.9 | 0.0 | — | 738 |
@@ -138,30 +136,32 @@ harness. Hand-editing a number without re-running is a docs bug.
 | post-production-tracker.xlsx | xlscalc | 441 | 116 / 118 | 33.2 | 132 | 0.9 (0.9 + 0.0) | 6.7 | 0.6 | 0.0 | — | 292 |
 | post-production-tracker.xlsx | spreadsheet-preview | 768 | 449 / 482 | 32.9 | 132 | 1.1 (1.1 + 0.0) | 10.7 | 1.1 | 0.1 | — | 43 |
 | post-production-tracker.xlsx | omni | 128 | 32 / 34 | 31.5 | 32 | 1.1 (1.1 + 0.0) | 3.5 | 1.1 | 0.0 | — | 309 |
-| xlsx-coverage.xlsx | aared | 109 | 26 / 40 | 34.0 | 167 | 0.7 (0.6 + 0.1) | 1.9 | 0.9 | 0.0 | 1.0 | 202 |
 | xlsx-coverage.xlsx | sheetjs | 203 | 118 / 136 | 32.5 | 122 | 4.1 (4.1 + 0.0) | 6.3 | 4.2 | 0.0 | — | 69 |
 | xlsx-coverage.xlsx | xlscalc | 540 | 169 / 200 | 33.5 | 149 | 4.5 (4.5 + 0.0) | 10.5 | 4.7 | 0.0 | — | 68 |
 | xlsx-coverage.xlsx | spreadsheet-preview | 912 | 549 / 582 | 33.1 | 132 | 1.1 (1.1 + 0.0) | 10.8 | 1.1 | 0.1 | — | 43 |
 | xlsx-coverage.xlsx | omni | 233 | 120 / 140 | 25.3 | 25 | 4.3 (4.3 + 0.0) | 6.7 | 4.3 | 0.0 | — | 81 |
-| docx-coverage.docx | aared | 211 | 33 / 43 | — | — | 1.0 (0.9 + 0.2) | 2.5 | 1.2 | 0.5 | 1.0 | 616 |
 | docx-coverage.docx | docx-preview | 293 | 98 / 115 | — | — | 1.0 (1.0 + 0.0) | 2.1 | 1.0 | 0.0 | — | 647 |
 | docx-coverage.docx | docx-renderer | 926 | 548 / 684 | — | — | 1.9 (1.9 + 0.0) | 4.4 | 1.9 | 1.0 | — | 710 |
 | docx-coverage.docx | omni | 304 | 98 / 99 | — | — | 1.4 (1.4 + 0.0) | 2.7 | 1.4 | 0.0 | — | 599 |
-| large-300-slides.pptx | aared | 96 | 31 / 33 | — | — | 1.3 (0.2 + 1.1) | 2.7 | — | 0.0 | 1.1 | 39 |
 | large-300-slides.pptx | pptxviewjs | 2994 | 2500 / 2822 | — | — | 38.4 (38.4 + 0.0) | 61.4 | — | 38.4 | — | 1 |
 | large-300-slides.pptx | silurus | 1527 | 1297 / 1364 | — | — | 1.3 (0.4 + 0.9) | 4.1 | — | 0.0 | — | 1 |
 | large-300-slides.pptx | aiden0z | 5823 | 4886 / 5465 | — | — | 152.1 (152.1 + 0.0) | 159.6 | — | 0.0 | — | 31706 |
 | large-300-slides.pptx | mdurbar | 1862 | 1596 / 1725 | — | — | 9.7 (9.7 + 0.0) | 10.6 | — | -0.0 | — | 42 |
 | large-300-slides.pptx | omni | 3497 | 2919 / 3203 | — | — | 134.3 (134.3 + 0.0) | 142.7 | — | 30.2 | — | 39270 |
 | large-13-sheets.xlsx | sheetjs | 2978 | 2379 / 2525 | — | — | 55.0 (55.0 + 0.0) | 59.4 | — | 0.0 | — | 69 |
-| large-13-sheets.xlsx | aared | 62 | 29 / 31 | — | — | 2.3 (0.6 + 1.8) | 3.5 | — | 0.0 | 1.0 | 202 |
 | large-13-sheets.xlsx | xlscalc | 13012 | 12748 / 13366 | — | — | 161.9 (161.9 + 0.0) | 168.0 | — | 0.0 | — | 68 |
 | large-13-sheets.xlsx | spreadsheet-preview | 3019 | 2749 / 2832 | — | — | 115.7 (115.7 + 0.0) | 125.8 | — | 43.7 | — | 61 |
 | large-13-sheets.xlsx | omni | 2798 | 2493 / 2619 | — | — | 56.9 (56.9 + 0.0) | 61.5 | — | 0.0 | — | 90 |
-| large-40x.docx | aared | 637 | 367 / 616 | — | — | 15.4 (15.1 + 0.3) | 14.8 | 32.1 | 15.0 | 1.1 | 18340 |
 | large-40x.docx | docx-preview | 2021 | 1776 / 1940 | — | — | 24.4 (24.4 + 0.0) | 23.3 | 24.7 | 0.0 | — | 16940 |
 | large-40x.docx | omni | 2109 | 1845 / 2016 | — | — | 34.7 (34.7 + 0.0) | 33.9 | 35.1 | 0.0 | — | 17459 |
 | large-40x.docx | docx-renderer | *Cannot read properties of undefined (reading 'length')* | | | | | | | | | |
+| pptx-coverage.pptx | aared | 91 | 31 / 33 | 33.5 | 583 | 0.9 (0.2 + 0.7) | 2.5 | 1.0 | 0.0 | 1.3 | 65 |
+| post-production-review.pptx | aared | 98 | 32 / 33 | 33.4 | 233 | 0.6 (0.1 + 0.5) | 2.1 | 0.8 | 0.0 | 1.2 | 39 |
+| xlsx-coverage.xlsx | aared | 112 | 26 / 40 | 34.5 | 171 | 0.7 (0.6 + 0.1) | 1.9 | 0.9 | 0.0 | 1.0 | 202 |
+| docx-coverage.docx | aared | 310 | 43 / 49 | — | — | 1.0 (0.8 + 0.2) | 2.8 | 1.2 | 0.5 | 1.1 | 614 |
+| large-300-slides.pptx | aared | 118 | 32 / 45 | — | — | 1.3 (0.2 + 1.1) | 2.9 | — | 0.0 | 1.1 | 39 |
+| large-13-sheets.xlsx | aared | 111 | 26 / 43 | — | — | 2.3 (0.6 + 1.8) | 3.5 | — | 0.0 | 1.0 | 202 |
+| large-40x.docx | aared | 1119 | 611 / 712 | — | — | 15.4 (15.1 + 0.3) | 15.3 | 33.0 | 14.9 | 1.2 | 19241 |
 <!-- /generated:open -->
 
 <!-- generated:search -->
@@ -173,27 +173,32 @@ harness. Hand-editing a number without re-running is a docs bug.
 <!-- /generated:search -->
 
 <!-- generated:size -->
-> Size `size-20260924-231918.json` from the bench's production build.
+> Size `size-20260928-121600.json` from the bench's production build.
 
 | Format | Renderer | version | gzip KiB | brotli KiB | main thread KiB (gzip) | Workers KiB (gzip) | WASM KiB (gzip) | files |
 |---|---|---|---|---|---|---|---|---|
-| pptx | aared | 0.0.0 | 81.6 | 68.8 | 39.2 | 42.4 | — | 6 |
-| pptx | pptxviewjs | 1.1.9 | 253.1 | 204.2 | 253.1 | — | — | 3 |
-| pptx | silurus | 0.87.0 | 922.3 | 674.6 | 255.9 | — | 666.4 | 2 |
-| pptx | aiden0z | 1.3.0 | 381.7 | 315.6 | 381.7 | — | — | 4 |
+| pptx | aared | 0.0.0 | 83.9 | 70.8 | 41.0 | 42.9 | — | 6 |
+| pptx | pptxviewjs | 1.1.9 | 253.2 | 204.5 | 253.2 | — | — | 4 |
+| pptx | silurus | 0.87.0 | 922.3 | 674.3 | 255.9 | — | 666.4 | 2 |
+| pptx | aiden0z | 1.3.0 | 381.7 | 315.8 | 381.7 | — | — | 5 |
 | pptx | mdurbar | 0.2.2 | 28.7 | 24.5 | 28.7 | — | — | 1 |
-| pptx | omni | 0.2.0 | 441.0 | 360.1 | 441.0 | — | — | 6 |
-| xlsx | aared | 0.0.0 | 62.2 | 54.7 | 19.8 | 42.4 | — | 6 |
+| pptx | pptx-browser | 4.1.5 | 48.8 | 41.0 | 48.8 | — | — | 1 |
+| pptx | extend | 0.2.1 | 494.8 | 406.8 | 269.0 | 2.1 | 223.8 | 13 |
+| pptx | omni | 0.2.0 | 441.1 | 360.4 | 441.1 | — | — | 7 |
+| xlsx | aared | 0.0.0 | 63.0 | 55.4 | 20.1 | 42.9 | — | 5 |
 | xlsx | sheetjs | 0.20.3 | 160.3 | 132.1 | 160.3 | — | — | 1 |
-| xlsx | xlscalc | 0.4.0 | 319.6 | 257.5 | 319.6 | — | — | 2 |
+| xlsx | xlscalc | 0.4.0 | 323.2 | 261.1 | 323.2 | — | — | 4 |
 | xlsx | spreadsheet-preview | 0.1.0 | 428.1 | 293.1 | 428.1 | — | — | 1 |
-| xlsx | omni | 0.2.0 | 174.6 | 144.8 | 174.6 | — | — | 3 |
-| docx | aared | 0.0.0 | 60.2 | 52.9 | 17.9 | 42.4 | — | 6 |
-| docx | docx-preview | 0.4.0 | 50.2 | 44.4 | 50.2 | — | — | 3 |
-| docx | docx-renderer | 0.2.2 | 132.3 | 113.2 | 132.3 | — | — | 3 |
-| docx | omni | 0.2.0 | 63.5 | 56.2 | 63.5 | — | — | 5 |
-| all three | aared | — | 105.3 | 90.1 | 62.9 | 42.4 | — | 9 |
-| all three | mdurbar (pptx) + sheetjs (xlsx) + docx-preview (docx) | — | 239.3 | 201.0 | 239.3 | — | — | 5 |
+| xlsx | extend | 0.16.6 | 2477.5 | 1855.9 | 787.8 | 38.3 | 1651.3 | 13 |
+| xlsx | omni | 0.2.0 | 174.6 | 144.9 | 174.6 | — | — | 3 |
+| docx | aared | 0.0.0 | 63.2 | 55.5 | 20.2 | 42.9 | — | 5 |
+| docx | docx-preview | 0.4.0 | 50.3 | 44.5 | 50.3 | — | — | 4 |
+| docx | docx-renderer | 0.2.2 | 132.4 | 113.2 | 132.4 | — | — | 4 |
+| docx | apollo | 0.9.0 | 52.4 | 46.4 | 52.4 | — | — | 4 |
+| docx | extend | 0.9.2 | 620.4 | 480.4 | 171.3 | 4.0 | 445.2 | 13 |
+| docx | omni | 0.2.0 | 63.6 | 56.4 | 63.6 | — | — | 6 |
+| all three | aared | — | 108.5 | 92.8 | 65.5 | 42.9 | — | 8 |
+| all three | mdurbar (pptx) + sheetjs (xlsx) + docx-preview (docx) | — | 239.4 | 201.1 | 239.4 | — | — | 6 |
 <!-- /generated:size -->
 
 ## Limits

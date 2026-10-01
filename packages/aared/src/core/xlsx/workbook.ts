@@ -10,7 +10,7 @@ import type { XmlElement } from "../xml.js";
 import type { OpcPackage } from "../opc.js";
 import { readDrawingTheme } from "../theme.js";
 import type { DrawingTheme } from "../theme.js";
-import { throwIfAborted } from "../errors.js";
+import { damagedDocument, throwIfAborted } from "../errors.js";
 import { readXlsxStyles } from "./styles.js";
 import type { XlsxStyles } from "./styles.js";
 
@@ -53,7 +53,7 @@ export async function indexXlsx(pkg: OpcPackage, signal?: AbortSignal): Promise<
   const part = await pkg.officeDocument("xlsx", signal);
   throwIfAborted(signal);
   const root = await pkg.readXml(part, signal);
-  if (root.local !== "workbook") throw new Error("aared/core: xl/workbook.xml root must be <workbook>");
+  if (root.local !== "workbook") throw damagedDocument("xl/workbook.xml root must be <workbook>");
   const relationships = await pkg.relationships(part, signal);
   throwIfAborted(signal);
   const sheets = firstChild(root, "sheets");
@@ -112,7 +112,7 @@ export async function readSharedStrings(pkg: OpcPackage, workbookPart: string, s
     },
   });
   if (root === undefined) return [];
-  if (root.local !== "sst") throw new Error("aared/core: xl/sharedStrings.xml root must be <sst>");
+  if (root.local !== "sst") throw damagedDocument("xl/sharedStrings.xml root must be <sst>");
   return strings;
 }
 

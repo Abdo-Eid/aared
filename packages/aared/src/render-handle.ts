@@ -13,7 +13,7 @@
  * into it.
  */
 
-import type { ZoomValue } from "./core/index.js";
+import type { RenderWarning, ZoomValue } from "./core/index.js";
 
 /** A numeric zoom the DOM can use: finite and positive, else 1. A `0` or `NaN` would otherwise collapse the content. */
 export function safeScale(zoom: number): number {
@@ -103,6 +103,7 @@ export abstract class RenderHandleBase<TAppearance> extends EventTarget {
   #zoom: ZoomValue;
   #scale = 1;
   #destroyed = false;
+  #warnings: readonly RenderWarning[] = [];
   #applyZoom: () => number = () => this.#scale;
   #destroyHook: () => void = () => {};
   /** What `setAppearance` runs once the painter has attached it; a no-op before that. */
@@ -126,6 +127,20 @@ export abstract class RenderHandleBase<TAppearance> extends EventTarget {
   /** The scale actually painted: the explicit scale, or what the fit mode computed. */
   get scale(): number {
     return this.#scale;
+  }
+
+  /**
+   * Non-fatal things this render noticed about its own output (DOCX
+   * pagination edge cases, a font this render couldn't actually paint with —
+   * see `RenderWarning`). Empty unless the painter set some.
+   */
+  get warnings(): readonly RenderWarning[] {
+    return this.#warnings;
+  }
+
+  /** @internal Set once by the painter once it has finished. */
+  setWarnings(warnings: readonly RenderWarning[]): void {
+    this.#warnings = warnings;
   }
 
   /** Change zoom. Always re-applies; fires `zoomchange` only when the value actually changes. */

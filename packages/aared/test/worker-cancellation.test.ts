@@ -109,6 +109,49 @@ test("worker cancellation stops after a controlled inflate checkpoint before XML
     expect(closedSession.ok).toBe(false);
     if (closedSession.ok) throw new Error("expected closed session failure");
     expect(closedSession.error.message).toContain("document session is closed");
+    // A usage error, never a cancellation that `isAbort()` would swallow.
+    expect(closedSession.error.code).toBe("closed");
+
+    // Every failure leaves the Worker typed: an aared bug is `internal` (never
+    // "the file may be damaged"), with the original error for the bug report;
+    // a corrupt deflate stream is the file's fault.
+    const typedSession = 43;
+    dispatch({ type: "open", sessionId: typedSession, requestId: 6, bytes: await Bun.file(FIXTURE_PATH).arrayBuffer() });
+    expect((await responseFor(responses, onResponse, 6, typedSession)).ok).toBe(true);
+    // An unexpected throw on aared's side (here: the decompressor cannot even be built).
+    class ExplodingDecompressionStream {
+      constructor(_format: string) {
+        throw new RangeError("decompressor exploded");
+      }
+    }
+    Object.defineProperty(globalThis, "DecompressionStream", { configurable: true, value: ExplodingDecompressionStream });
+    dispatch({ type: "unit", sessionId: typedSession, requestId: 7, index: 1 });
+    const bug = await responseFor(responses, onResponse, 7, typedSession);
+    Object.defineProperty(globalThis, "DecompressionStream", { configurable: true, value: originalDecompressionStream });
+    if (bug.ok) throw new Error("expected the broken decompressor to fail the read");
+    expect(bug.error.code).toBe("internal");
+    expect(bug.error.message).toBe("aared/core: the viewer failed while reading this file (RangeError: decompressor exploded)");
+    expect(bug.error.message).not.toContain("re-saving");
+    expect(bug.error.cause).toMatchObject({ name: "RangeError", message: "decompressor exploded" });
+    expect(bug.error.cause?.stack).toContain("decompressor exploded");
+
+    class CorruptDecompressionStream {
+      constructor(_format: string) {
+        return new TransformStream<Uint8Array, Uint8Array>({
+          transform() {
+            throw new TypeError("invalid block type");
+          },
+        });
+      }
+    }
+    Object.defineProperty(globalThis, "DecompressionStream", { configurable: true, value: CorruptDecompressionStream });
+    dispatch({ type: "unit", sessionId: typedSession, requestId: 8, index: 2 });
+    const corrupt = await responseFor(responses, onResponse, 8, typedSession);
+    Object.defineProperty(globalThis, "DecompressionStream", { configurable: true, value: originalDecompressionStream });
+    if (corrupt.ok) throw new Error("expected the corrupt stream to fail the read");
+    expect(corrupt.error.code).toBe("invalid-document");
+    expect(corrupt.error.message).toContain("entry data is not valid deflate (invalid block type)");
+    dispatch({ type: "close", sessionId: typedSession });
   } finally {
     Object.defineProperty(globalThis, "DecompressionStream", { configurable: true, value: originalDecompressionStream });
     Object.defineProperty(globalThis, "TextDecoder", { configurable: true, value: originalTextDecoder });

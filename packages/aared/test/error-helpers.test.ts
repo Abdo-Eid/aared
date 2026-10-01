@@ -35,7 +35,6 @@ test("messageFor maps known codes to human-readable strings", () => {
   expect(messageFor(new AaredError("unsupported-format", "x"))).toBe("This file format is not supported");
   expect(messageFor(new AaredError("invalid-document", "x"))).toBe("This file is not a valid or supported document");
   expect(messageFor(new AaredError("media-error", "x"))).toBe("A media resource could not be loaded");
-  expect(messageFor(new AaredError("font-error", "x"))).toBe("A required font could not be loaded");
   expect(messageFor(new AaredError("invalid-range", "x"))).toBe("The requested range is invalid");
   expect(messageFor(new AaredError("unsupported-feature", "x"))).toBe("This feature is not supported");
 });
@@ -53,20 +52,29 @@ test("isAbort narrows to Error so callers read name and message without a cast",
   expect(error.message).toBe("test: cancelled");
 });
 
-test("itemAt returns an in-range item and refuses everything else with the caller's wording", () => {
+test("itemAt returns an in-range item: a whole number outside is not-found, anything else invalid-argument", () => {
   const list = ["a", "b"];
   expect(itemAt(list, 0, () => "unused")).toBe("a");
   expect(itemAt(list, 1, () => "unused")).toBe("b");
-  for (const index of [-1, 2, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-    let caught: unknown;
+  const failure = (index: number): AaredError => {
     try {
-      itemAt(list, index, () => `item ${String(index)} is outside this ${list.length}-item list`);
+      itemAt(list, index, () => `test: item ${String(index)} is outside this ${list.length}-item list`);
     } catch (error) {
-      caught = error;
+      return error as AaredError;
     }
+    throw new Error("expected itemAt to throw");
+  };
+  for (const index of [-1, 2]) {
+    const caught = failure(index);
     expect(caught).toBeInstanceOf(AaredError);
-    expect((caught as AaredError).code).toBe("not-found");
-    expect((caught as AaredError).message).toBe(`item ${String(index)} is outside this 2-item list`);
+    expect(caught.code).toBe("not-found");
+    expect(caught.message).toBe(`test: item ${index} is outside this 2-item list`);
+  }
+  // Not an index at all: the call is wrong, in the caller's scope.
+  for (const index of [1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    const caught = failure(index);
+    expect(caught.code).toBe("invalid-argument");
+    expect(caught.message).toBe(`test: an index must be a whole number; received ${String(index)}`);
   }
   // An undefined item is out of range too, even at a valid integer index.
   expect(() => itemAt([undefined, "b"], 0, () => "hole")).toThrow("hole");

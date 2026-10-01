@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { AaredError } from "../src/core/index.js";
 import { open } from "../src/xlsx/index.js";
 import { rejection } from "./harness.js";
+import { storedZipFromTuples } from "./zip.js";
 
 const XLSX_FIXTURE = `${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`;
 const PPTX_FIXTURE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
@@ -126,4 +127,70 @@ test("rejects non-XLSX files", async () => {
   const error = await rejection(open(await Bun.file(PPTX_FIXTURE).arrayBuffer()));
   expect((error as AaredError).code).toBe("unsupported-format");
   expect(error.message).toContain("aared/pptx");
+});
+
+/** A one-sheet workbook around `sheet` (worksheet XML); a damaged sheet is something Excel never writes. */
+function workbookWithSheet(sheet: string): ArrayBuffer {
+  return storedZipFromTuples([
+    [
+      "[Content_Types].xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>`,
+    ],
+    [
+      "_rels/.rels",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`,
+    ],
+    [
+      "xl/workbook.xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets><sheet name="Damaged" sheetId="1" r:id="rId1"/></sheets>
+</workbook>`,
+    ],
+    [
+      "xl/_rels/workbook.xml.rels",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>`,
+    ],
+    ["xl/worksheets/sheet1.xml", sheet],
+  ]);
+}
+
+test("a damaged sheet keeps what it can read and says what it skipped", async () => {
+  // Two cells and a merge with unreadable addresses, a hyperlink and a
+  // conditional-format range likewise: each used to vanish without a trace.
+  const workbook = await open(workbookWithSheet(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData>
+<row r="1"><c r="A1" t="inlineStr"><is><t>kept</t></is></c><c r="??" t="inlineStr"><is><t>lost</t></is></c><c r="1A" t="inlineStr"><is><t>lost</t></is></c></row>
+</sheetData>
+<mergeCells count="2"><mergeCell ref="A2:B2"/><mergeCell ref="B?:C3"/></mergeCells>
+<conditionalFormatting sqref="??"><cfRule type="cellIs" dxfId="0" priority="1" operator="equal"><formula>1</formula></cfRule></conditionalFormatting>
+<hyperlinks><hyperlink ref="!!" location="Damaged!A1"/></hyperlinks>
+</worksheet>`));
+  try {
+    const sheet = await workbook.sheets.get(0).read();
+    expect(sheet.rows[0]?.cells.map((entry) => entry.cell.formatted)).toEqual(["kept"]);
+    expect(sheet.merges).toHaveLength(1);
+    const damaged = sheet.unsupported.filter((entry) => entry.kind === "damaged").map((entry) => entry.detail);
+    expect(damaged).toEqual([
+      "2 cells could not be read and were skipped; the file may be damaged",
+      "1 hyperlink could not be read and was skipped; the file may be damaged",
+      "1 merged range could not be read and was skipped; the file may be damaged",
+      "1 conditional-format range could not be read and was skipped; the file may be damaged",
+    ]);
+  } finally {
+    workbook.close();
+  }
 });

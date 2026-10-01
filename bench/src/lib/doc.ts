@@ -31,7 +31,10 @@ export type BaselineRenderer =
   | "mdurbar"
   | "docx-renderer"
   | "spreadsheet-preview"
-  | "xlscalc";
+  | "xlscalc"
+  | "apollo"
+  | "extend"
+  | "pptx-browser";
 
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

@@ -141,12 +141,14 @@ describe("DOCX flow parser", () => {
     // Footnotes resolve onto the last section in reference order; separators never arrive.
     const footnotes = root.filter((node) => node.type === "footnote");
     expect(footnotes.map((node) => (node.type === "footnote" ? node.label : "?"))).toEqual(["1", "2"]);
-    // The single authored page break survives as a mandatory break node; the
-    // three `lastRenderedPageBreak` hints Word saved ride along as soft ones.
+    // The authored page breaks survive as mandatory break nodes (the brief's
+    // one, plus one opening each of the two picture-wrapping pages); the
+    // `lastRenderedPageBreak` hints Word saved ride along as soft ones (three
+    // in the brief, one more on each wrapping page).
     const breaks = root.filter((node) => node.type === "pageBreak");
-    expect(breaks).toHaveLength(4);
-    expect(breaks.filter((node) => node.type === "pageBreak" && node.strength === "mandatory")).toHaveLength(1);
-    expect(breaks.filter((node) => node.type === "pageBreak" && node.strength === "preferred")).toHaveLength(3);
+    expect(breaks).toHaveLength(8);
+    expect(breaks.filter((node) => node.type === "pageBreak" && node.strength === "mandatory")).toHaveLength(3);
+    expect(breaks.filter((node) => node.type === "pageBreak" && node.strength === "preferred")).toHaveLength(5);
     // The pull quote keeps its gold left border from `w:pBdr`.
     const quote = root.find(
       (node): node is DocxParagraphNode =>
@@ -206,6 +208,7 @@ describe("DOCX flow parser", () => {
       [1, "2. Technical Specifications"],
       [1, "3. Schedule"],
       [1, "4. Contacts"],
+      [1, "5. Delivery tracker / متابعة التسليم"],
       [1, "Appendix A — Shot List, Episode 04"],
     ]);
   });
@@ -235,6 +238,42 @@ describe("DOCX flow parser", () => {
     expect(spec.rows[3]?.cells).toHaveLength(3);
   });
 
+  /**
+   * The delivery tracker (section 5) is a Word-authored right-to-left table
+   * (`w:bidiVisual`, probe docx-bidi-visual): Word wrote the thick border
+   * set on its physical right as `w:left` (the start side) and kept the
+   * 0.3in cell margin set on its physical left as `w:left`.
+   */
+  test("reads Word's right-to-left table flag and keeps cells in logical order", async () => {
+    const sections = await fixture();
+    const table = await findBlock(sections, "rtl-table");
+    if (table.type !== "table") throw new Error("fixture selector rtl-table expected a table");
+    expect(table.direction).toBe("rtl");
+    expect(table.rows[0]?.cells.map((cell) => cellText(cell))).toEqual(["الحلقة", "موقع التصوير", "المدة", "الحالة"]);
+    expect(table.rows[4]?.cells[0]?.columnSpan).toBe(2);
+    expect(table.borders?.left).toMatchObject({ widthPt: 3, color: "#1E3A5A" });
+    expect(table.borders?.right).toMatchObject({ widthPt: 0.5, color: "#C8C8C8" });
+    expect(table.cellMargins).toEqual({ top: 0, bottom: 0, left: 432 / 1440, right: 72 / 1440 });
+    // `w:tblInd` (25 dxa) is measured from the start side.
+    expect(table.indent).toBeCloseTo(25 / 1440, 6);
+  });
+
+  // Word keeps a run without `w:rtl` together left to right inside a
+  // right-to-left paragraph: "15 Oct 2026" and "71%" as written (probe
+  // run-direction). Runs with `w:rtl` follow the bidi algorithm alone.
+  test("marks left-to-right runs inside a right-to-left paragraph", async () => {
+    const sections = await fixture();
+    const paragraph = allRoot(sections).find((node) => node.type === "paragraph" && joined(node).startsWith("آخر تحديث"));
+    if (paragraph?.type !== "paragraph") throw new Error(`expected the tracker update line: ${summaries(sections)}`);
+    expect(paragraph.direction).toBe("rtl");
+    expect(paragraph.runs.map((run) => [run.text, run.ltrRun ?? false])).toEqual([
+      ["آخر تحديث ", false],
+      ["15 Oct 2026", true],
+      [" بنسبة إنجاز ", false],
+      ["71%", true],
+    ]);
+  });
+
   test("groups numbering into lists with resolved markers and levels", async () => {
     const sections = await fixture();
     const bullets = await findBlock(sections, "bullet-list");
@@ -262,7 +301,7 @@ describe("DOCX flow parser", () => {
       if (image.type !== "image") continue;
       expect(image.width).toBeGreaterThan(0);
       expect(image.height).toBeGreaterThan(0);
-      expect(image.float).toBeUndefined();
+      expect(image.anchor).toBeUndefined();
     }
     // Both document images sit in centered paragraphs, so Word centers them.
     expect(images.map((node) => (node.type === "image" ? node.align : undefined))).toEqual(["center", "center"]);
@@ -277,9 +316,11 @@ describe("DOCX flow parser", () => {
     // (last) section keeps the pre-section output: header/footer once, with
     // PAGE/NUMPAGES marked as live fields that keep their cached text.
     const appendix = sections[sections.length - 1]!;
-    // The logo is an inline drawing beside the wordmark, so the header is one
-    // paragraph whose first run carries the picture.
-    expect(appendix.header).toHaveLength(1);
+    // The logo is an inline drawing beside the wordmark, so the wordmark is
+    // one paragraph whose first run carries the picture; a Heading 1 styled
+    // mark follows it (a heading outside the outline).
+    expect(appendix.header).toHaveLength(2);
+    expect(appendix.header?.[1]).toMatchObject({ type: "heading", text: "Appendix / ملحق" });
     const logo = allRuns(appendix.header ?? []).find((run) => run.image !== undefined);
     expect(logo?.image).toMatchObject({ contentType: "image/png" });
     expect(appendix.footer).toHaveLength(1);
@@ -291,8 +332,9 @@ describe("DOCX flow parser", () => {
     expect(footerText).toContain("Page 4 of 4");
     const fieldRuns = allRuns(appendix.footer ?? []).filter((run) => run.field !== undefined);
     expect(fieldRuns.map((run) => run.field).sort()).toEqual(["NUMPAGES", "PAGE"]);
-    // The front section keeps its own portrait references (even/default/first headers).
-    expect(sections[0]?.properties.headerRefs).toHaveLength(3);
+    // The front section keeps its own portrait reference. (Word's even/first
+    // headers held only the org label marking and were stripped with it.)
+    expect(sections[0]?.properties.headerRefs).toHaveLength(1);
     expect(sections[0]?.properties.footerRefs).toHaveLength(1);
   });
 
@@ -412,8 +454,10 @@ describe("DOCX flow parser", () => {
         `<w:p><w:r><w:drawing><wp:inline><wp:extent cx="914400" cy="914400"/><wp:docPr id="1" descr="inline art"/>` +
         `${picture("rIdImage", "inline art")}</wp:inline></w:drawing></w:r></w:p>` +
         `<w:p><w:r><w:t xml:space="preserve">before </w:t></w:r>` +
-        `<w:r><w:drawing><wp:anchor><wp:extent cx="914400" cy="457200"/><wp:docPr id="2" descr="anchored art"/>` +
-        `<wp:positionH><wp:align>right</wp:align></wp:positionH>` +
+        `<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="91440" distR="182880" behindDoc="0"><wp:extent cx="914400" cy="457200"/><wp:docPr id="2" descr="anchored art"/>` +
+        `<wp:positionH relativeFrom="column"><wp:align>right</wp:align></wp:positionH>` +
+        `<wp:positionV relativeFrom="paragraph"><wp:posOffset>76200</wp:posOffset></wp:positionV>` +
+        `<wp:wrapSquare wrapText="bothSides"/>` +
         `${picture("rIdImage", "anchored art")}</wp:anchor></w:drawing></w:r>` +
         `<w:r><w:t xml:space="preserve"> after</w:t></w:r></w:p>` +
         `<w:p><w:r><w:drawing><wp:inline><wp:extent cx="914400" cy="914400"/><wp:docPr id="3" descr="sales chart"/>` +
@@ -423,10 +467,11 @@ describe("DOCX flow parser", () => {
       `<Relationship Id="rIdImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/art.png"/>`,
       { "word/media/art.png": PIXEL_PNG },
     );
+    // The anchored picture belongs to its paragraph: the text around it stays one paragraph.
     const kinds = allRoot(sections).map((node) => node.type);
-    expect(kinds).toEqual(["image", "paragraph", "image", "paragraph", "unsupported"]);
-    const [inline, before, floated, after, chart] = allRoot(sections);
-    if (inline?.type !== "image" || floated?.type !== "image" || chart?.type !== "unsupported") {
+    expect(kinds).toEqual(["image", "paragraph", "unsupported"]);
+    const [inline, host, chart] = allRoot(sections);
+    if (inline?.type !== "image" || host?.type !== "paragraph" || chart?.type !== "unsupported") {
       throw new Error(`unexpected drawing blocks: ${summaries(sections)}`);
     }
     expect(inline).toMatchObject({
@@ -436,11 +481,19 @@ describe("DOCX flow parser", () => {
       height: 1,
       alt: "inline art",
     });
-    expect(inline.float).toBeUndefined();
-    // The anchored drawing splits its paragraph and floats right.
-    expect(blockText(before!)).toBe("before ");
-    expect(blockText(after!)).toBe(" after");
-    expect(floated).toMatchObject({ float: "right", width: 1, height: 0.5, alt: "anchored art" });
+    expect(inline.anchor).toBeUndefined();
+    // The anchored drawing rides on its paragraph without splitting the text.
+    expect(blockText(host)).toBe("before  after");
+    expect(host.floats).toHaveLength(1);
+    expect(host.floats![0]).toMatchObject({ width: 1, height: 0.5, alt: "anchored art" });
+    expect(host.floats![0]!.anchor).toEqual({
+      wrap: "square",
+      behind: false,
+      wrapText: "bothSides",
+      horizontal: { from: "column", align: "right" },
+      vertical: { from: "paragraph", offset: 76200 / 914400 },
+      distance: { top: 0, bottom: 0, left: 0.1, right: 0.2 },
+    });
     // Charts adapt to the shared-contract fallback; DOCX ships no chart engine.
     expect(chart).toMatchObject({ source: "chart", label: "sales chart" });
   });
@@ -451,7 +504,8 @@ describe("DOCX flow parser", () => {
         `<w:p><w:r><w:t xml:space="preserve">front</w:t></w:r></w:p>` +
         `<w:p><w:r><w:br w:type="page"/></w:r></w:p>` +
         `<w:p><w:pPr><w:pageBreakBefore/><w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:pPr><w:r><w:t xml:space="preserve">middle</w:t></w:r></w:p>` +
-        `<w:p><w:r><w:t xml:space="preserve">tail</w:t><w:lastRenderedPageBreak/></w:r></w:p>` +
+        `<w:p><w:r><w:lastRenderedPageBreak/><w:t xml:space="preserve">tail</w:t></w:r></w:p>` +
+        `<w:p><w:r><w:t xml:space="preserve">split </w:t><w:lastRenderedPageBreak/><w:t xml:space="preserve">line</w:t></w:r></w:p>` +
         `<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/></w:sectPr>` +
         `</w:body></w:document>`,
     );
@@ -461,10 +515,12 @@ describe("DOCX flow parser", () => {
     expect(sections[0]?.root.map((node) => node.type)).toEqual(["paragraph", "pageBreak", "pageBreak", "paragraph"]);
     expect(sections[0]?.root[1]).toMatchObject({ strength: "mandatory" });
     expect(sections[0]?.properties.page.orientation).toBe("portrait");
-    // Section 1 carries the soft hint after `tail`; the trailing sectPr
-    // makes it landscape.
-    expect(sections[1]?.root.map((node) => node.type)).toEqual(["paragraph", "pageBreak"]);
-    expect(sections[1]?.root[1]).toMatchObject({ strength: "preferred" });
+    // Section 1: a rendered-page-break hint before any text is a preferred
+    // break before its paragraph; one mid-paragraph (Word's line-level layout
+    // cache) never splits the text. The trailing sectPr makes it landscape.
+    expect(sections[1]?.root.map((node) => node.type)).toEqual(["pageBreak", "paragraph", "paragraph"]);
+    expect(sections[1]?.root[0]).toMatchObject({ strength: "preferred" });
+    expect(sections[1]?.root[2]).toMatchObject({ runs: [{ text: "split " }, { text: "line" }] });
     expect(sections[1]?.properties.page.orientation).toBe("landscape");
   });
 
@@ -494,7 +550,7 @@ describe("DOCX flow parser", () => {
       `<wp:inline><wp:extent cx="914400" cy="914400"/><wp:docPr id="1" descr="art"/>` +
       `${picture}</wp:inline>`;
     const drawingAnchor = `<wp:anchor><wp:extent cx="914400" cy="914400"/><wp:docPr id="2" descr="art"/>` +
-      `<wp:positionH><wp:align>right</wp:align></wp:positionH>${picture}</wp:anchor>`;
+      `<wp:positionH><wp:align>right</wp:align></wp:positionH><wp:wrapSquare wrapText="bothSides"/>${picture}</wp:anchor>`;
     const sections = await parseSynthetic(
       `<?xml version="1.0" encoding="UTF-8"?>` +
         `<w:document ${WORD_NS}><w:body>` +
@@ -505,15 +561,20 @@ describe("DOCX flow parser", () => {
       `<Relationship Id="rIdImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/art.png"/>`,
       { "word/media/art.png": PIXEL_PNG },
     );
-    const images = allRoot(sections).filter((node) => node.type === "image");
-    expect(images).toHaveLength(3);
+    const root = allRoot(sections);
+    const images = root.filter((node) => node.type === "image");
+    // The anchored picture is carried by its (otherwise empty) paragraph, not placed in the flow.
+    expect(images).toHaveLength(2);
+    const host = root[2];
+    if (host?.type !== "paragraph") throw new Error(`expected a paragraph carrying the float, got ${summaries(sections)}`);
+    expect(host.runs).toEqual([]);
+    expect(host.floats).toHaveLength(1);
     // Plain paragraph: no alignment carried. Centered paragraph: centered
-    // image. Centered paragraph with an anchored float: float wins.
-    expect(images.map((node) => (node.type === "image" ? [node.align, node.float] : []))).toEqual([
-      [undefined, undefined],
-      ["center", undefined],
-      [undefined, "right"],
-    ]);
+    // image. Centered paragraph with an anchored picture: paragraph alignment
+    // never positions it, the anchor does.
+    expect(images.map((node) => (node.type === "image" ? node.align : []))).toEqual([undefined, "center"]);
+    expect(host.floats![0]!.align).toBeUndefined();
+    expect(host.floats![0]!.anchor?.horizontal.align).toBe("right");
   });
 
   test("rejects an already-aborted parser request with AbortError", async () => {
@@ -579,6 +640,78 @@ describe("DOCX Word-fidelity parsing", () => {
     ]);
   });
 
+  test("keeps each paragraph's line rule, every level replacing the one it inherits", async () => {
+    const para = (properties: string): string => `<w:p><w:pPr>${properties}</w:pPr><w:r><w:t>x</w:t></w:r></w:p>`;
+    const sections = await parseSynthetic(
+      documentOf(
+        para("") +
+          para(`<w:pStyle w:val="Multiple"/>`) +
+          para(`<w:pStyle w:val="Floor"/>`) +
+          para(`<w:pStyle w:val="Floor"/><w:spacing w:line="300" w:lineRule="exact"/>`) +
+          para(`<w:pStyle w:val="Floor"/><w:spacing w:line="276" w:lineRule="auto"/>`),
+      ),
+      STYLES_REL,
+      {
+        "word/styles.xml": stylesOf(
+          `<w:docDefaults><w:pPrDefault><w:pPr><w:spacing w:line="280" w:lineRule="exact"/></w:pPr></w:pPrDefault></w:docDefaults>` +
+            `<w:style w:type="paragraph" w:styleId="Multiple"><w:pPr><w:spacing w:line="360" w:lineRule="auto"/></w:pPr></w:style>` +
+            `<w:style w:type="paragraph" w:styleId="Floor"><w:pPr><w:spacing w:line="320" w:lineRule="atLeast"/></w:pPr></w:style>`,
+        ),
+      },
+    );
+    const spacing = paragraphsOf(sections).map(({ lineSpacing, lineSpacingPt, lineSpacingAtLeast }) => ({ lineSpacing, lineSpacingPt, lineSpacingAtLeast }));
+    expect(spacing).toEqual([
+      // The docDefaults' exact 14pt pitch.
+      { lineSpacing: undefined, lineSpacingPt: 14, lineSpacingAtLeast: undefined },
+      // A style's multiple replaces the inherited exact pitch rather than sitting beside it.
+      { lineSpacing: 1.5, lineSpacingPt: undefined, lineSpacingAtLeast: undefined },
+      // `atLeast` is a floor, not a pitch.
+      { lineSpacing: undefined, lineSpacingPt: 16, lineSpacingAtLeast: true },
+      // Direct exact over an at-least style is exact again.
+      { lineSpacing: undefined, lineSpacingPt: 15, lineSpacingAtLeast: undefined },
+      // Direct `auto` clears both inherited point fields.
+      { lineSpacing: 1.15, lineSpacingPt: undefined, lineSpacingAtLeast: undefined },
+    ]);
+  });
+
+  test("composes a direct paragraph border with its style's, side by side", async () => {
+    const edge = (side: string, color: string): string => `<w:${side} w:val="single" w:sz="8" w:space="1" w:color="${color}"/>`;
+    const sections = await parseSynthetic(
+      documentOf(`<w:p><w:pPr><w:pStyle w:val="Boxed"/><w:pBdr>${edge("left", "00FF00")}</w:pBdr></w:pPr><w:r><w:t>x</w:t></w:r></w:p>`),
+      STYLES_REL,
+      { "word/styles.xml": stylesOf(`<w:style w:type="paragraph" w:styleId="Boxed"><w:pPr><w:pBdr>${edge("top", "FF0000")}</w:pBdr></w:pPr></w:style>`) },
+    );
+    const borders = paragraphsOf(sections)[0]?.borders;
+    expect(borders?.top).toMatchObject({ color: "#FF0000" });
+    expect(borders?.left).toMatchObject({ color: "#00FF00" });
+  });
+
+  test("shrinks justified spaces only in Word 2013 layout (compatibility mode 15)", async () => {
+    const SETTINGS_REL = `<Relationship Id="rIdSettings" Type="${RELATIONSHIP}/settings" Target="settings.xml"/>`;
+    const settingsOf = (mode: string): string =>
+      `${XML}<w:settings xmlns:w="${MAIN_NS}"><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="${mode}"/></w:compat></w:settings>`;
+    const body = documentOf(
+      `<w:p><w:pPr><w:jc w:val="both"/></w:pPr><w:r><w:t>a</w:t></w:r></w:p>` +
+        `<w:p><w:pPr><w:bidi/><w:jc w:val="distribute"/></w:pPr><w:r><w:t>b</w:t></w:r></w:p>` +
+        `<w:p><w:r><w:t>c</w:t></w:r></w:p>`,
+    );
+    const shrinks = async (settings?: string): Promise<Array<true | undefined>> => {
+      const sections = settings === undefined
+        ? await parseSynthetic(body)
+        : await parseSynthetic(body, SETTINGS_REL, { "word/settings.xml": settings });
+      return paragraphsOf(sections).map((node) => node.justifyShrink);
+    };
+    // Justified and distributed, either direction; never a left-aligned paragraph.
+    expect(await shrinks(settingsOf("15"))).toEqual([true, true, undefined]);
+    // Word 2010 layout (probe docx-justify) and a document with no mode never shrink.
+    expect(await shrinks(settingsOf("14"))).toEqual([undefined, undefined, undefined]);
+    expect(await shrinks()).toEqual([undefined, undefined, undefined]);
+    // The coverage fixture is saved by Word in mode 15: its justified paragraphs shrink.
+    const justified = allRoot(await fixture()).filter((node): node is DocxParagraphNode => node.type === "paragraph" && node.align === "justify");
+    expect(justified.length).toBeGreaterThan(0);
+    expect(justified.every((node) => node.justifyShrink === true)).toBe(true);
+  });
+
   test("reads caps and character spacing, with all caps outranking small caps", async () => {
     const run = (properties: string, text: string): string => `<w:r><w:rPr>${properties}</w:rPr><w:t>${text}</w:t></w:r>`;
     const sections = await parseSynthetic(documentOf(
@@ -618,6 +751,31 @@ describe("DOCX Word-fidelity parsing", () => {
     expect(table.rows[0]?.cells[1]?.margins).toBeUndefined();
   });
 
+  test("reads a leading w:lastRenderedPageBreak on a row's first cell as its own page-break-before marker", async () => {
+    const BREAK = `<w:r><w:lastRenderedPageBreak/></w:r>`;
+    const cell = (text: string, lead?: string): string => `<w:tc><w:p>${lead ?? ""}<w:r><w:t>${text}</w:t></w:r></w:p></w:tc>`;
+    const sections = await parseSynthetic(documentOf(
+      `<w:tbl><w:tblGrid><w:gridCol w:w="4560"/><w:gridCol w:w="4560"/></w:tblGrid>` +
+        // Row 0: no marker.
+        `<w:tr>${cell("a1")}${cell("b1")}</w:tr>` +
+        // Row 1: the marker leads the FIRST cell — a real row-start signal.
+        `<w:tr>${cell("a2", BREAK)}${cell("b2")}</w:tr>` +
+        // Row 2: the marker leads only the SECOND cell — first cell has none,
+        // so this row is not marked (the common, unambiguous case only).
+        `<w:tr>${cell("a3")}${cell("b3", BREAK)}</w:tr>` +
+        // Row 3: the marker sits after real text in the first cell's first
+        // paragraph — mid-paragraph, dropped exactly like a plain paragraph's
+        // (DECISION_LOG §44/§45), never promoted to a row marker.
+        `<w:tr><w:tc><w:p><w:r><w:t>a4</w:t></w:r><w:r><w:lastRenderedPageBreak/></w:r><w:r><w:t> more</w:t></w:r></w:p></w:tc>${cell("b4")}</w:tr>` +
+        `</w:tbl>`,
+    ));
+    const table = allRoot(sections).find((node) => node.type === "table");
+    if (table?.type !== "table") throw new Error(`expected a table: ${summaries(sections)}`);
+    expect(table.rows.map((row) => row.pageBreakBefore)).toEqual([undefined, true, undefined, undefined]);
+    // The mid-paragraph occurrence is dropped, not spliced into the text.
+    expect(joined(table.rows[3]!.cells[0]!.nodes[0] as DocxParagraphNode)).toBe("a4 more");
+  });
+
   test("carries a list level's marker formatting and suffix onto its items", async () => {
     const item = (level: number): string =>
       `<w:p><w:pPr><w:numPr><w:ilvl w:val="${level}"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>item</w:t></w:r></w:p>`;
@@ -642,6 +800,26 @@ describe("DOCX Word-fidelity parsing", () => {
     expect(second?.markerSuffix).toBe("space");
   });
 
+  test("Word's default Symbol bullet becomes a Unicode bullet with no symbol font", async () => {
+    const sections = await parseSynthetic(
+      documentOf(`<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>item</w:t></w:r></w:p>`),
+      NUMBERING_REL,
+      {
+        // What Word writes for its default bullet list: Symbol's private-use U+F0B7.
+        "word/numbering.xml": `${XML}<w:numbering xmlns:w="${MAIN_NS}"><w:abstractNum w:abstractNumId="0">` +
+          `<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val=""/>` +
+          `<w:rPr><w:rFonts w:ascii="Symbol" w:hAnsi="Symbol" w:hint="default"/></w:rPr></w:lvl>` +
+          `</w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>`,
+      },
+    );
+    const list = allRoot(sections).find((node) => node.type === "list");
+    if (list?.type !== "list") throw new Error(`expected a list: ${summaries(sections)}`);
+    const item = list.items[0]!;
+    expect(item.marker).toBe("•");
+    expect(item.markerRun?.text).toBe("•");
+    expect(item.markerRun?.fontFamily).toBeUndefined();
+  });
+
   test("paints a TOC's own links as plain text but keeps the Hyperlink style elsewhere", async () => {
     const link = `<w:hyperlink w:anchor="_Toc1"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t>Entry</w:t></w:r></w:hyperlink>`;
     const sections = await parseSynthetic(
@@ -662,6 +840,27 @@ describe("DOCX Word-fidelity parsing", () => {
     expect(toc?.color).toBeUndefined();
     expect(toc?.underline).toBeUndefined();
     expect(plain).toMatchObject({ hyperlink: "#_Toc1", color: "#0563C1", underline: true });
+  });
+
+  test("space in lines is 12pt a line, inherits apart from points, and wins when above zero", async () => {
+    // Ground truth: Word's own PDF export of these exact cases (probe line-spacing-units). A style's
+    // 1 line beats a paragraph's own 6pt; `beforeLines="0"` means "in points"; lines alone need no
+    // points; Word's own save of "1 line" carries both and agrees.
+    const para = (spacing: string, style = ""): string => `<w:p><w:pPr>${style}<w:spacing ${spacing}/></w:pPr><w:r><w:t>x</w:t></w:r></w:p>`;
+    const lineStyle = `<w:pStyle w:val="LineStyle"/>`;
+    const sections = await parseSynthetic(
+      documentOf(
+        para(`w:before="120"`, lineStyle) +
+          para(`w:beforeLines="0" w:before="120"`, lineStyle) +
+          para(`w:beforeLines="50"`) +
+          para(`w:beforeLines="100" w:before="240" w:afterLines="25" w:after="0"`),
+      ),
+      STYLES_REL,
+      { "word/styles.xml": stylesOf(`<w:style w:type="paragraph" w:styleId="LineStyle"><w:pPr><w:spacing w:beforeLines="100"/></w:pPr></w:style>`) },
+    );
+    expect(paragraphsOf(sections).map((node) => [node.spaceBeforePt, node.spaceAfterPt])).toEqual([
+      [12, undefined], [6, undefined], [6, undefined], [12, 3],
+    ]);
   });
 
   test("an empty theme complex-script slot resolves to the theme's Arab script font, as Word paints it", async () => {

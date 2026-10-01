@@ -4,26 +4,34 @@
  * pages, so the two pair directly. Reads the source, so no build is needed.
  *
  *   bun tools/word-render/capture.ts fixtures/docx-coverage.docx tools/word-render/out/bidi
+ *   bun tools/word-render/capture.ts fixtures/docx-coverage.docx tools/word-render/out/bidi --absent-fonts
  *
  * Writes aared-page-N.png beside Word's word-page-N.png when pointed at the
- * same directory `index.ts` used. The page here has no host CSS reset; a
+ * same directory `index.ts` used. With `--absent-fonts` it writes
+ * aared-absent-page-N.png instead: the document as a device without Office's
+ * fonts paints it, through the real aared-fonts resolver (network; see
+ * packages/aared/test/absent-fonts.ts). The page here has no host CSS reset; a
  * consumer's reset (Tailwind's `img { display: block }` did bite) is a
  * separate thing to check in the bench.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { absentFontsModule } from "../../packages/aared/test/absent-fonts.js";
 import { serveDocx } from "../../packages/aared/test/docx-harness.js";
 
-const [fixtureArg, outputArg] = process.argv.slice(2);
+const [fixtureArg, outputArg] = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
+const absent = process.argv.includes("--absent-fonts");
 if (fixtureArg === undefined || outputArg === undefined) {
-  throw new Error("Usage: bun tools/word-render/capture.ts <fixture.docx> <output-dir>");
+  throw new Error("Usage: bun tools/word-render/capture.ts <fixture.docx> <output-dir> [--absent-fonts]");
 }
 const outputDir = resolve(outputArg);
 await mkdir(outputDir, { recursive: true });
 
 const { server, sections } = await serveDocx(resolve(fixtureArg), `<!doctype html><style>html,body{margin:0;background:#fff;overflow:hidden}#host{position:absolute;left:0;top:0}</style><main id="host"></main><script type="module">
       import { render } from "/docx.mjs";
+      ${absent ? 'import "/absent-fonts.mjs";' : ""}
       window.paint = async (model) => {
+        ${absent ? "model = await window.simulateAbsentFonts(model);" : ""}
         const handle = await render({
           document: model, target: document.querySelector("#host"), pagination: { mode: "layout" },
           mediaResolver: async (id) => (await fetch("/media/" + id.split("/").at(-1))).arrayBuffer(),
@@ -42,7 +50,7 @@ const { server, sections } = await serveDocx(resolve(fixtureArg), `<!doctype htm
         host.style.top = (parseFloat(host.style.top || "0") - box.top) + "px";
         return { width: Math.round(box.width), height: Math.round(box.height) };
       };
-    </script>`);
+    </script>`, absent ? { "/absent-fonts.mjs": await absentFontsModule() } : {});
 
 try {
   await using view = new Bun.WebView({ width: 1200, height: 1200 });
@@ -52,7 +60,7 @@ try {
     const size = (await view.evaluate(`showPage(${index})`)) as { width: number; height: number };
     await view.resize(size.width, size.height);
     await new Promise((resolve) => setTimeout(resolve, 150));
-    await writeFile(join(outputDir, `aared-page-${index + 1}.png`), await view.screenshot({ encoding: "buffer", format: "png" }));
+    await writeFile(join(outputDir, `aared-${absent ? "absent-" : ""}page-${index + 1}.png`), await view.screenshot({ encoding: "buffer", format: "png" }));
     console.log(`page ${index + 1}: ${size.width}x${size.height}`);
   }
 } finally {

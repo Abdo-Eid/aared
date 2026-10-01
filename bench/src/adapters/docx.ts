@@ -79,23 +79,19 @@ async function readMaxSectionWidthPx(bytes: Uint8Array): Promise<number> {
   return max > 0 ? max * TWIPS_TO_PX : 0;
 }
 /**
- * Baseline DOCX renderer (docx-preview). Bytes go in directly — never a Blob,
- * because docx-preview's JSZip would read it through `new FileReader()`, which
- * pptxviewjs replaces (see ../adapters/pptx.ts). The style container lives beside the
- * body container so clearing one document never wipes the next one's styles.
+ * Shared mount for the docx-preview lineage (docx-preview, docx-renderer,
+ * apollo): a hidden style container beside the body container — so clearing
+ * one document never wipes the next one's styles — then the library's own
+ * render call, then pages, fit width and outline read back from the DOM it
+ * painted. `render` is the only per-library part.
  */
-export async function openDocx(
+export async function mountDocxPreviewLineage(
   bytes: Uint8Array,
   host: HTMLElement,
   signal: AbortSignal,
+  t0: number,
+  render: (bodyHost: HTMLElement, styleHost: HTMLElement) => Promise<unknown>,
 ): Promise<OpenedDoc> {
-  const t0 = performance.now();
-  if (!hasZipSignature(bytes)) {
-    throw new Error("Not a readable Word document (missing zip signature).");
-  }
-  const { renderAsync } = await import("docx-preview");
-  if (signal.aborted) throw abortError();
-
   host.replaceChildren();
   const styleHost = document.createElement("div");
   styleHost.className = "bench-docx-styles";
@@ -107,31 +103,17 @@ export async function openDocx(
   // Section widths parse concurrently with the render so the fit width
   // costs no extra wall time.
   const sectionWidth = maxSectionWidthPx(bytes);
-  await renderAsync(bytes, bodyHost, styleHost, {
-    className: "bench-docx",
-    inWrapper: true,
-    breakPages: true,
-    ignoreLastRenderedPageBreak: false,
-    renderHeaders: true,
-    renderFooters: true,
-    renderFootnotes: true,
-    useBase64URL: false,
-  });
+  await render(bodyHost, styleHost);
   if (signal.aborted) throw abortError();
 
   const sections = Array.from(bodyHost.querySelectorAll("section.docx"));
-  const pages =
-    sections.length > 0
-      ? sections
-      : Array.from(bodyHost.querySelectorAll("section"));
-  const first = pages[0];
+  const pages = (
+    sections.length > 0 ? sections : Array.from(bodyHost.querySelectorAll("section"))
+  ).filter((element): element is HTMLElement => element instanceof HTMLElement);
   // Fit the document's true widest page (file sections), not just the
   // widest rendered one: a renderer that flows a landscape section onto
   // portrait-width pages must still open at the aared column's zoom.
-  const paperWidth = Math.max(
-    first instanceof HTMLElement ? first.offsetWidth : 0,
-    await sectionWidth,
-  );
+  const paperWidth = Math.max(pages[0]?.offsetWidth ?? 0, await sectionWidth);
 
   const outline: OutlineEntry[] = [];
   scrapeDocxOutline(bodyHost, outline);
@@ -140,9 +122,7 @@ export async function openDocx(
   return {
     format: "docx",
     pageCount: Math.max(pages.length, 1),
-    pages: pages
-      .filter((element): element is HTMLElement => element instanceof HTMLElement)
-      .map((element) => ({ width: element.offsetWidth, height: element.offsetHeight })),
+    pages: pages.map((element) => ({ width: element.offsetWidth, height: element.offsetHeight })),
     ms,
     outline,
     paperWidth,
@@ -150,4 +130,39 @@ export async function openDocx(
       host.replaceChildren();
     },
   };
+}
+
+/** The zip check every docx-preview-lineage adapter runs before importing. */
+export function assertZip(bytes: Uint8Array): void {
+  if (!hasZipSignature(bytes)) {
+    throw new Error("Not a readable Word document (missing zip signature).");
+  }
+}
+
+/**
+ * Baseline DOCX renderer (docx-preview). Bytes go in directly — never a Blob,
+ * because docx-preview's JSZip would read it through `new FileReader()`, which
+ * pptxviewjs replaces (see ../adapters/pptx.ts).
+ */
+export async function openDocx(
+  bytes: Uint8Array,
+  host: HTMLElement,
+  signal: AbortSignal,
+): Promise<OpenedDoc> {
+  const t0 = performance.now();
+  assertZip(bytes);
+  const { renderAsync } = await import("docx-preview");
+  if (signal.aborted) throw abortError();
+  return mountDocxPreviewLineage(bytes, host, signal, t0, (bodyHost, styleHost) =>
+    renderAsync(bytes, bodyHost, styleHost, {
+      className: "bench-docx",
+      inWrapper: true,
+      breakPages: true,
+      ignoreLastRenderedPageBreak: false,
+      renderHeaders: true,
+      renderFooters: true,
+      renderFootnotes: true,
+      useBase64URL: false,
+    }),
+  );
 }

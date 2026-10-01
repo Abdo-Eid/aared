@@ -46,15 +46,19 @@ function hash(text: string): string {
  * with fixed strings only — a per-render value (a width, a colour) would grow
  * the registry without bound; those stay inline or go through the
  * `--aared-*` tokens. Rules are emitted in registration order, so a modifier
- * declared after its base wins at equal specificity.
+ * declared after its base wins at equal specificity. With `pseudoElements`
+ * the declarations style those pseudo-elements instead of the element.
  */
-export function cssClass(declarations: string): string {
-  const key = declarations.trim();
+export function cssClass(declarations: string, pseudoElements: readonly ("::before" | "::after")[] = []): string {
+  const key = `${pseudoElements.join("")}${declarations.trim()}`;
   let name = registry.get(key);
   if (name === undefined) {
     name = `aared-${hash(key)}`;
     registry.set(key, name);
-    rules += `.${name}${BUMP}{${key}}\n`;
+    const selectors = pseudoElements.length === 0
+      ? `.${name}${BUMP}`
+      : pseudoElements.map((pseudo) => `.${name}${BUMP}${pseudo}`).join(",");
+    rules += `${selectors}{${declarations.trim()}}\n`;
     version += 1;
   }
   return name;

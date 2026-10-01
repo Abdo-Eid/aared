@@ -40,9 +40,9 @@ import type { XlsxDocument, XlsxRenderHandle } from "../xlsx/index.js";
 import type { DocxDocument, DocxPageInfo, DocxPagination, DocxRenderHandle, HeadingInfo } from "../docx/index.js";
 import { AaredError } from "../core/index.js";
 import { sourceBytes, WorkerSession } from "../core/session.js";
-import { throwIfAborted } from "../core/errors.js";
+import { isAbort, throwIfAborted } from "../core/errors.js";
 import { sameZoom } from "../render-handle.js";
-import { DEFAULT_ZOOM, announceUnit, followSheet, forwardRenderEvents, openFormat } from "../format-route.js";
+import { DEFAULT_ZOOM, announceUnit, assertHasUnits, followSheet, forwardRenderEvents, openFormat } from "../format-route.js";
 import type { AnyDocument, RenderHandle } from "../format-route.js";
 
 export type { DocxPageInfo, DocxPagination, HeadingInfo, SoftBreakPolicy } from "../docx/index.js";
@@ -121,7 +121,10 @@ export interface PreviewHandle extends EventTarget {
    * `AaredError` outside `0 <= index < info.count`. Emits `indexchange`
    * plus the format-native sibling (`slidechange` for PPTX, `sheetchange`
    * for XLSX, both `{ index, title }`); going to the unit already shown
-   * emits nothing. Zoom and appearance carry over.
+   * emits nothing. Zoom and appearance carry over. A failure rejects and
+   * also fires `error` (`{ message, cause }`, as `<aared-viewer>` does), so
+   * whoever holds the handle hears it even when the caller drops the promise;
+   * the unit on screen stays. After `destroy()` it rejects with `closed`.
    */
   goTo(index: number): Promise<void>;
   /** Change zoom; fires `zoomchange` only when the value changes. Kept across `goTo()`. */
@@ -172,12 +175,13 @@ function openOptionsOf(options: PreviewOptions | undefined): OpenOptions | undef
   };
 }
 
+/** A whole number outside the document is `not-found`; anything else is not an index at all. */
 function assertIndex(index: number, count: number): void {
-  if (!Number.isInteger(index) || index < 0 || index >= count) {
-    throw new AaredError(
-      "not-found",
-      `aared/preview: unit index ${String(index)} is outside this ${count}-unit document`,
-    );
+  if (!Number.isInteger(index)) {
+    throw new AaredError("invalid-argument", `aared/preview: a unit index must be a whole number; received ${String(index)}`);
+  }
+  if (index < 0 || index >= count) {
+    throw new AaredError("not-found", `aared/preview: unit index ${index} is outside this ${count}-unit document`);
   }
 }
 
@@ -238,13 +242,30 @@ class PreviewViewer extends EventTarget implements PreviewHandle {
   }
 
   async goTo(index: number): Promise<void> {
-    if (this.#destroyed) return;
-    assertIndex(index, this.document.info.count);
-    if (index === this.#index && this.#rendered !== null) return;
-    await this.renderUnit(index);
-    if (this.#destroyed) return;
+    // A call that can do nothing says so: resolving would tell the caller the unit changed.
+    if (this.#destroyed) throw new AaredError("closed", "aared/preview: goTo() was called after destroy()");
+    try {
+      assertIndex(index, this.document.info.count);
+      if (index === this.#index && this.#rendered !== null) return;
+      // Overtaken by a later goTo() or a destroy(): that call owns `index` and the announcement.
+      if (!(await this.renderUnit(index))) return;
+    } catch (error) {
+      this.#fail(error);
+      throw error;
+    }
     this.#index = index;
     announceUnit(this, this.format, this.document, index);
+  }
+
+  /**
+   * A navigation failed: fire `error` with the shape `<aared-viewer>` uses
+   * (`cause` is what the call rejects with). Cancellations and anything after
+   * `destroy()` are not failures anyone is waiting to hear about.
+   */
+  #fail(cause: unknown): void {
+    if (isAbort(cause) || this.#destroyed) return;
+    const message = cause instanceof Error ? cause.message : String(cause);
+    this.dispatchEvent(new CustomEvent("error", { detail: { message, cause } }));
   }
 
   setZoom(zoom: ZoomValue): void {
@@ -274,7 +295,8 @@ class PreviewViewer extends EventTarget implements PreviewHandle {
     this.target.replaceChildren();
   }
 
-  private async renderUnit(index: number): Promise<void> {
+  /** Paint unit `index`; false when a later render or `destroy()` overtook this one (nothing changed). */
+  private async renderUnit(index: number): Promise<boolean> {
     const generation = ++this.#generation;
     const stale = (): boolean => this.#destroyed || generation !== this.#generation;
     const { appearance, mediaResolver } = this.options ?? {};
@@ -290,15 +312,15 @@ class PreviewViewer extends EventTarget implements PreviewHandle {
     let next: RenderHandle;
     if (this.format === "pptx") {
       const renderer = await import("../pptx/index.js");
-      if (stale()) return;
+      if (stale()) return false;
       next = await renderer.render({ ...common, slide: (this.document as PptxDocument).slides.get(index) });
     } else if (this.format === "xlsx") {
       const renderer = await import("../xlsx/index.js");
-      if (stale()) return;
+      if (stale()) return false;
       next = await renderer.render({ ...common, sheet: (this.document as XlsxDocument).sheets.get(index) });
     } else {
       const renderer = await import("../docx/index.js");
-      if (stale()) return;
+      if (stale()) return false;
       const pagination = this.options?.pagination;
       next = await renderer.render({
         ...common,
@@ -308,15 +330,16 @@ class PreviewViewer extends EventTarget implements PreviewHandle {
     }
     if (stale()) {
       next.destroy();
-      return;
+      return false;
     }
     // A zoom set while this unit was rendering was announced by the old
     // handle; apply it before forwarding is attached so it isn't announced twice.
     if (this.#zoom !== undefined && !sameZoom(next.zoom, this.#zoom)) next.setZoom(this.#zoom);
     this.#rendered?.destroy();
     this.#rendered = next;
-    this.#xlsx = this.format === "xlsx" ? xlsxControls(next as unknown as XlsxRenderHandle) : null;
-    this.#docx = this.format === "docx" ? docxControls(next as unknown as DocxRenderHandle, this.document as DocxDocument) : null;
+    const report = (error: unknown): void => this.#fail(error);
+    this.#xlsx = this.format === "xlsx" ? xlsxControls(next as unknown as XlsxRenderHandle, report) : null;
+    this.#docx = this.format === "docx" ? docxControls(next as unknown as DocxRenderHandle, this.document as DocxDocument, report) : null;
     this.#forwardController?.abort();
     this.#forwardController = new AbortController();
     forwardRenderEvents(next, this, this.#forwardController.signal);
@@ -327,30 +350,53 @@ class PreviewViewer extends EventTarget implements PreviewHandle {
       this.#index = sheet;
       announceUnit(this, this.format, this.document, sheet);
     });
+    return true;
   }
 }
 
 /** One stable controls object per rendered sheet, delegating to its handle. */
-function xlsxControls(handle: XlsxRenderHandle): XlsxPreviewControls {
+function xlsxControls(handle: XlsxRenderHandle, report: (error: unknown) => void): XlsxPreviewControls {
   return {
     get selection() {
       return handle.selection;
     },
-    goToCell: (cell) => handle.goToCell(cell),
-    scrollTo: (target) => handle.scrollTo(target),
-    focus: (cell) => handle.focus(cell),
+    goToCell: (cell) => reported(report, () => handle.goToCell(cell)),
+    scrollTo: (target) => reported(report, () => handle.scrollTo(target)),
+    focus: (cell) => reported(report, () => handle.focus(cell)),
   };
 }
 
 /** One stable controls object per rendered document, delegating to its handle. */
-function docxControls(handle: DocxRenderHandle, document: DocxDocument): DocxPreviewControls {
+function docxControls(handle: DocxRenderHandle, document: DocxDocument, report: (error: unknown) => void): DocxPreviewControls {
   return {
     pageCount: handle.pageCount,
     pages: handle.pages,
     headings: document.headings.list(),
-    goToHeading: (target) => handle.goToHeading(target),
-    goToPage: (index) => handle.goToPage(index),
+    goToHeading: (target) => reported(report, () => handle.goToHeading(target)),
+    goToPage: (index) => reported(report, () => handle.goToPage(index)),
   };
+}
+
+/**
+ * Run one navigation inside the unit; when it fails, `report` it (the
+ * viewer's `error` event) and still throw or reject for the caller, the way
+ * `goTo()` does, so a failure is heard even when the caller drops it.
+ */
+function reported<T>(report: (error: unknown) => void, run: () => T): T {
+  let result: T;
+  try {
+    result = run();
+  } catch (error) {
+    report(error);
+    throw error;
+  }
+  if (result instanceof Promise) {
+    return result.catch((error: unknown) => {
+      report(error);
+      throw error;
+    }) as T;
+  }
+  return result;
 }
 
 /**
@@ -377,14 +423,9 @@ export async function preview(
   const document = await openFormat(format, bytes, openOptionsOf(options));
   const viewer: PreviewViewer = new PreviewViewer(format, document, target, options);
   try {
-    if (document.info.count === 0) {
-      throw new AaredError(
-        "invalid-document",
-        "aared/preview: this document has no slides, sheets, or sections to show",
-      );
-    }
+    assertHasUnits("aared/preview", document);
     await viewer.mount(signal);
-    if (signal?.aborted === true) throw new AaredError("aborted", "aared/preview: request was cancelled");
+    throwIfAborted(signal);
     return viewer;
   } catch (error) {
     viewer.destroy();

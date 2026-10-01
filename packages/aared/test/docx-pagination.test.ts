@@ -35,24 +35,25 @@ async function productionBrief(): Promise<DocumentSection[]> {
 }
 
 describe("DOCX layout pagination", () => {
-  test("bidi-coverage fixture paginates to four structural pages", async () => {
+  test("bidi-coverage fixture paginates to four structural pages and two picture-wrapping pages", async () => {
     const layout = paginate(await productionBrief());
     expect(layout.warnings).toEqual([]);
-    expect(layout.pages).toHaveLength(4);
-    expect(layout.pages.map((page) => page.orientation)).toEqual([
-      "portrait",
-      "portrait",
-      "portrait",
-      "landscape",
-    ]);
+    // The brief's own four pages, then the seven wrapping cases appended to the
+    // landscape appendix section on two pages (four, then three).
+    expect(layout.pages).toHaveLength(6);
+    expect(layout.pages.map((page) => page.orientation)).toEqual(["portrait", "portrait", "portrait", "landscape", "landscape", "landscape"]);
     expect(layout.pages.map((page) => page.startReason)).toEqual([
       "document",
       "explicit-page-break",
-      "overflow",
+      // Word's rendered-page-break hint at the top of page 3 (a preferred
+      // break before its paragraph, honored past the page's half).
+      "explicit-page-break",
       "section-next-page",
+      "explicit-page-break",
+      "explicit-page-break",
     ]);
-    expect(layout.pages.map((page) => page.index)).toEqual([1, 2, 3, 4]);
-    expect(layout.pages.map((page) => page.sectionIndex)).toEqual([0, 0, 0, 1]);
+    expect(layout.pages.map((page) => page.index)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(layout.pages.map((page) => page.sectionIndex)).toEqual([0, 0, 0, 1, 1, 1]);
     // Real section geometry drives every page, not a fixed body padding.
     expect(layout.pages[0]?.widthPx).toBeCloseTo(793.73, 0);
     expect(layout.pages[0]?.heightPx).toBeCloseTo(1122.53, 0);
@@ -168,6 +169,116 @@ describe("DOCX layout pagination", () => {
     const layout = paginate(sections);
     expect(layout.pages).toHaveLength(1);
     expect(layout.warnings.map((warning) => warning.code)).toEqual(["oversize-block"]);
+  });
+
+  // Word breaks a long table between rows. aared used to move a table taller
+  // than a page to a fresh page whole, which left the page before it blank
+  // (a `pageBreakBefore` paragraph alone) and clipped the table's tail.
+  test("a table taller than a page breaks between rows, never inside a vertical merge", () => {
+    const row = (text: string, rowSpan?: number) => ({
+      height: 1,
+      cells: [{ nodes: [{ type: "paragraph" as const, direction: "ltr" as const, runs: [{ text }] }], ...(rowSpan === undefined ? {} : { rowSpan }) }],
+    });
+    // 1in rows on a 9in body: rows 8-9 are one vertical merge, so the first
+    // break falls after row 7, not inside the merge.
+    const rows = Array.from({ length: 20 }, (_, index) => row(`row ${index + 1}`, index === 7 ? 2 : undefined));
+    const sections: DocumentSection[] = [{
+      properties: {
+        breakType: "nextPage",
+        page: {
+          widthTwips: 12240, heightTwips: 15840, orientation: "portrait",
+          margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720, gutter: 0 },
+        },
+        headerRefs: [], footerRefs: [],
+      },
+      root: [
+        { type: "paragraph", direction: "ltr", runs: [{ text: "lead" }] },
+        { type: "table", direction: "ltr", columns: [6.5], rows },
+      ],
+    }];
+    const layout = paginate(sections);
+    expect(layout.warnings).toEqual([]);
+    const rowsPerPage = layout.pages.map((page) => page.body.filter((node) => node.type === "table").map((node) => node.type === "table" ? node.rows.length : 0));
+    // Every page carries rows (no blank page) and every row is placed once.
+    expect(rowsPerPage.every((counts) => counts.length === 1 && counts[0]! > 0)).toBe(true);
+    expect(rowsPerPage.flat().reduce((sum, count) => sum + count, 0)).toBe(20);
+    expect(pageText(layout.pages[0]!)).toContain("lead");
+    // The first page holds rows 1-7: row 8 starts a merge that row 9 closes.
+    expect(pageText(layout.pages[0]!)).toContain("row 7");
+    expect(pageText(layout.pages[0]!)).not.toContain("row 8");
+    expect(pageText(layout.pages[1]!).startsWith("row 8")).toBe(true);
+  });
+
+  // Word's own saved layout can mark exactly where it broke a long table
+  // (DECISION_LOG §45): that boundary wins over the later one aared's own
+  // measurement would otherwise prefer, whenever both agree it is valid
+  // (clean of a vertical merge, no `w:keepNext` chain) and it still fits.
+  test("a row Word's own layout marked wins the table split over a later boundary that also fits", () => {
+    const row = (text: string, pageBreakBefore?: true) => ({
+      height: 1,
+      cells: [{ nodes: [{ type: "paragraph" as const, direction: "ltr" as const, runs: [{ text }] }] }],
+      ...(pageBreakBefore === undefined ? {} : { pageBreakBefore }),
+    });
+    // Same 20-row, 1in-row table as above (breaks after row 7 unmarked), but
+    // row 5 (index 4) carries Word's own marker.
+    const rows = Array.from({ length: 20 }, (_, index) => row(`row ${index + 1}`, index === 4 ? true : undefined));
+    const sections: DocumentSection[] = [{
+      properties: {
+        breakType: "nextPage",
+        page: {
+          widthTwips: 12240, heightTwips: 15840, orientation: "portrait",
+          margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720, gutter: 0 },
+        },
+        headerRefs: [], footerRefs: [],
+      },
+      root: [
+        { type: "paragraph", direction: "ltr", runs: [{ text: "lead" }] },
+        { type: "table", direction: "ltr", columns: [6.5], rows },
+      ],
+    }];
+    const layout = paginate(sections);
+    expect(pageText(layout.pages[0]!)).toContain("row 4");
+    expect(pageText(layout.pages[0]!)).not.toContain("row 5");
+    expect(pageText(layout.pages[1]!).startsWith("row 5")).toBe(true);
+  });
+
+  // A table whose whole first row is marked (not a split boundary Word chose
+  // mid-table, but the table itself starting on a fresh page) is honoured
+  // the same way a top-level `w:lastRenderedPageBreak` hint is: only once
+  // the current page is already more than half full.
+  test("a table marked to start a fresh page opens one once the current page is over half full", () => {
+    const table = (marked: boolean): FlowNode => ({
+      type: "table",
+      direction: "ltr",
+      columns: [6.5],
+      rows: [{
+        height: 1,
+        cells: [{ nodes: [{ type: "paragraph", direction: "ltr", runs: [{ text: "first row" }] }] }],
+        ...(marked ? { pageBreakBefore: true as const } : {}),
+      }],
+    });
+    const page = (
+      widthTwips: number, heightTwips: number, marked: boolean,
+    ): DocumentSection => ({
+      properties: {
+        breakType: "nextPage",
+        page: {
+          widthTwips, heightTwips, orientation: "portrait",
+          margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720, gutter: 0 },
+        },
+        headerRefs: [], footerRefs: [],
+      },
+      // Enough short paragraphs to push well past half the 9in body before the table.
+      root: [
+        ...Array.from({ length: 40 }, (_, index): FlowNode => ({ type: "paragraph", direction: "ltr", runs: [{ text: `filler ${index}` }] })),
+        table(marked),
+      ],
+    });
+    const unmarked = paginate([page(12240, 15840, false)]);
+    expect(unmarked.pages).toHaveLength(1);
+    const marked = paginate([page(12240, 15840, true)]);
+    expect(marked.pages).toHaveLength(2);
+    expect(pageText(marked.pages[1]!)).toContain("first row");
   });
 
   test("estimator folds margins and wraps cells in column widths", async () => {

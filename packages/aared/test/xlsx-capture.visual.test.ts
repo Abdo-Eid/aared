@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { open } from "../src/xlsx/index.js";
+import { ABSENT_FONTS, absentFontsModule } from "./absent-fonts.js";
 
 const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const RETAIN_ARTIFACTS = process.env.AARED_VISUAL_ARTIFACTS === "1";
@@ -150,6 +151,7 @@ const HOST_PAGE = `<!doctype html><style>
   [data-aared-element="sheet-scroll"]::-webkit-scrollbar{display:none !important}
 </style><div id="viewport"><div id="pad"><main id="host"></main></div></div><script type="module">
   import { render } from "/xlsx.mjs";
+  ${ABSENT_FONTS ? 'import "/absent-fonts.mjs";' : ""}
   window.renderedSheet = null;
   const FIT_W = ${PAGE.width - PAGE.left - PAGE.right};
   const FIT_H = ${PAGE.height - PAGE.top - PAGE.bottom};
@@ -210,8 +212,9 @@ const HOST_PAGE = `<!doctype html><style>
     };
     poll();
   });
-  window.renderFull = async (model, media) => {
+  window.renderFull = async (model, media, absent) => {
     window.renderedSheet?.destroy();
+    if (absent) model = await window.simulateAbsentFonts(model);
     const host = document.querySelector("#host");
     host.style.transform = "";
     host.style.width = "auto";
@@ -221,6 +224,9 @@ const HOST_PAGE = `<!doctype html><style>
       appearance: { spreadsheet: { headers: true, fill: false } },
       mediaResolver: resolverFor(media),
     });
+    // A sheet loads a delivered face only once its text lays out: let that
+    // happen before waiting for the fonts in flight.
+    await raf3();
     await document.fonts.ready;
     await waitForDrawings();
     await raf3();
@@ -347,14 +353,15 @@ async function writeReview(reference: ExcelRender, fixtureFile: string, fixtureH
       <h2>Sheet ${index + 1} — ${sheet.name} (${sheet.direction ?? "unknown direction"})</h2>
       <div class="pair">
         <figure><figcaption>Excel ${reference.excelVersion} print</figcaption>${native?.file === null || native === undefined ? "<p>Empty sheet.</p>" : `<img src="${native.file}">`}</figure>
-        <figure><figcaption>aared DOM grid on A4 (scale ${sheet.scale})</figcaption><img src="${sheet.file}"></figure>
+        <figure><figcaption>aared DOM grid on A4 (scale ${sheet.scale})</figcaption><img src="${sheet.file}"></figure>${ABSENT_FONTS ? `
+        <figure><figcaption>aared, no Office fonts (aared-fonts substitutes)</figcaption><img src="aared-absent-${sheet.file.slice("aared-".length)}"></figure>` : ""}
       </div>${partPairs}
     </section>`;
   }).join("\n");
   await Promise.all([
     writeFile(join(reference.outputDir, "review.html"), `<!doctype html>
 <meta charset="utf-8"><title>aared XLSX visual review</title>
-<style>body{margin:24px;background:#f4f4f4;color:#111;font:16px system-ui,sans-serif}h1{margin:0 0 8px}.pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}figure{margin:0 0 16px;background:#fff;padding:12px}figcaption{font-weight:700;margin-bottom:8px}img{display:block;width:100%;height:auto}@media(max-width:900px){.pair{grid-template-columns:1fr}}</style>
+<style>body{margin:24px;background:#f4f4f4;color:#111;font:16px system-ui,sans-serif}h1{margin:0 0 8px}.pair{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:16px}figure{margin:0 0 16px;background:#fff;padding:12px}figcaption{font-weight:700;margin-bottom:8px}img{display:block;width:100%;height:auto}@media(max-width:900px){.pair{grid-template-columns:1fr}}</style>
 <h1>aared XLSX visual review — ${fixtureFile}</h1><p>Native A4 print vs aared A4 fit, scaled to equal display width. Human review only, never pixel diffs. Parts are scrolled viewports into the live grid (same content as the full sheet, at full resolution); row ranges label each part. The formula notice is viewer chrome hidden here for print parity (covered by DOM tests).</p>${cards}`),
     writeFile(join(reference.outputDir, "review.json"), JSON.stringify({
       fixture: fixtureFile,
@@ -378,11 +385,15 @@ async function writeReview(reference: ExcelRender, fixtureFile: string, fixtureH
 
 visual("visual review: XLSX pairs Excel print with aared full sheets and parts", async () => {
   const xlsx = await browserRenderer();
+  const absentFonts = ABSENT_FONTS ? await absentFontsModule() : "";
   const server = Bun.serve({
     port: 0,
     fetch(request) {
       if (new URL(request.url).pathname === "/xlsx.mjs") {
         return new Response(xlsx, { headers: { "content-type": "text/javascript; charset=utf-8" } });
+      }
+      if (new URL(request.url).pathname === "/absent-fonts.mjs") {
+        return new Response(absentFonts, { headers: { "content-type": "text/javascript; charset=utf-8" } });
       }
       return new Response(HOST_PAGE, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
@@ -439,6 +450,12 @@ visual("visual review: XLSX pairs Excel print with aared full sheets and parts",
             await mkdir(reference.outputDir, { recursive: true });
             await writeFile(join(reference.outputDir, fullFile), screenshot);
           }
+          if (ABSENT_FONTS) {
+            await within(`rendering ${plan.file} sheet ${index + 1} without Office fonts`, view.evaluate(`renderFull(${JSON.stringify(model)}, ${JSON.stringify(media)}, true)`), 60_000);
+            const screenshot = await within(`capturing ${plan.file} sheet ${index + 1} without Office fonts`, view.screenshot({ encoding: "buffer", format: "png" }), 30_000);
+            await mkdir(reference.outputDir, { recursive: true });
+            await writeFile(join(reference.outputDir, `aared-absent-sheet-${index + 1}.png`), screenshot);
+          }
           const parts: AaredPart[] = [];
           for (const part of plan.parts[index] ?? []) {
             // Fresh render per part: bandPart mutates drawing boxes
@@ -475,4 +492,4 @@ visual("visual review: XLSX pairs Excel print with aared full sheets and parts",
   } finally {
     server.stop();
   }
-}, 300_000);
+}, ABSENT_FONTS ? 600_000 : 300_000);

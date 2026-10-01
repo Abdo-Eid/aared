@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { open } from "../src/pptx/index.js";
+import { ABSENT_FONTS, absentFontsModule } from "./absent-fonts.js";
 import { pngSize, within } from "./harness.js";
 
 const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
@@ -51,13 +52,14 @@ async function writeReview(output: PowerPointRender, fixtureHash: string): Promi
       <h2>Slide ${index + 1}</h2>
       <div class="pair">
         <figure><figcaption>PowerPoint ${output.powerpointVersion}</figcaption><img src="powerpoint-slide-${index + 1}.png"></figure>
-        <figure><figcaption>aared DOM/SVG</figcaption><img src="aared-slide-${index + 1}.png"></figure>
+        <figure><figcaption>aared DOM/SVG</figcaption><img src="aared-slide-${index + 1}.png"></figure>${ABSENT_FONTS ? `
+        <figure><figcaption>aared, no Office fonts (aared-fonts substitutes)</figcaption><img src="aared-absent-slide-${index + 1}.png"></figure>` : ""}
       </div>
     </section>`).join("\n");
   await Promise.all([
     writeFile(join(output.outputDir, "review.html"), `<!doctype html>
 <meta charset="utf-8"><title>aared visual review</title>
-<style>body{margin:24px;background:#f4f4f4;color:#111;font:16px system-ui,sans-serif}h1{margin:0 0 8px}.pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}figure{margin:0;background:#fff;padding:12px}figcaption{font-weight:700;margin-bottom:8px}img{display:block;width:100%;height:auto}@media(max-width:900px){.pair{grid-template-columns:1fr}}</style>
+<style>body{margin:24px;background:#f4f4f4;color:#111;font:16px system-ui,sans-serif}h1{margin:0 0 8px}.pair{display:grid;grid-template-columns:repeat(${ABSENT_FONTS ? 3 : 2},minmax(0,1fr));gap:16px}figure{margin:0;background:#fff;padding:12px}figcaption{font-weight:700;margin-bottom:8px}img{display:block;width:100%;height:auto}@media(max-width:900px){.pair{grid-template-columns:1fr}}</style>
 <h1>aared visual review</h1><p>PowerPoint export and aared capture are both ${output.width} × ${output.height}px.</p>${cards}`),
     writeFile(join(output.outputDir, "review.json"), JSON.stringify({
       fixture: "pptx-coverage.pptx",
@@ -94,16 +96,22 @@ visual("visual review: PPTX produces same-size PowerPoint and aared slide captur
     }
 
     const pptx = await browserRenderer();
+    const absentFonts = ABSENT_FONTS ? await absentFontsModule() : "";
     const server = Bun.serve({
       port: 0,
       fetch(request) {
         if (new URL(request.url).pathname === "/pptx.mjs") {
           return new Response(pptx, { headers: { "content-type": "text/javascript; charset=utf-8" } });
         }
+        if (new URL(request.url).pathname === "/absent-fonts.mjs") {
+          return new Response(absentFonts, { headers: { "content-type": "text/javascript; charset=utf-8" } });
+        }
         return new Response(`<!doctype html><style>html,body,#host{margin:0;width:100%;height:100%;overflow:hidden}</style><main id="host"></main><script type="module">
           import { render } from "/pptx.mjs";
+          ${ABSENT_FONTS ? 'import "/absent-fonts.mjs";' : ""}
           const decode = (base64) => Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)).buffer;
-          window.renderSlide = async (model, media) => {
+          window.renderSlide = async (model, media, absent) => {
+            if (absent) model = await window.simulateAbsentFonts(model);
             await render({
               slide: model,
               target: document.querySelector("#host"),
@@ -158,6 +166,11 @@ visual("visual review: PPTX produces same-size PowerPoint and aared slide captur
         if (RETAIN_ARTIFACTS) {
           await writeFile(join(reference.outputDir, `aared-slide-${index + 1}.png`), screenshot);
         }
+        if (ABSENT_FONTS) {
+          await within(`rendering slide ${index + 1} without Office fonts`, view.evaluate(`renderSlide(${JSON.stringify(slide)}, ${JSON.stringify(media)}, true)`), 30_000);
+          const absent = await within(`capturing slide ${index + 1} without Office fonts`, view.screenshot({ encoding: "buffer", format: "png" }), 10_000);
+          await writeFile(join(reference.outputDir, `aared-absent-slide-${index + 1}.png`), absent);
+        }
       }
       if (RETAIN_ARTIFACTS) {
         const fixtureHash = createHash("sha256").update(new Uint8Array(await Bun.file(FIXTURE_PATH).arrayBuffer())).digest("hex");
@@ -169,4 +182,4 @@ visual("visual review: PPTX produces same-size PowerPoint and aared slide captur
   } finally {
     if (!RETAIN_ARTIFACTS) await rm(reference.outputDir, { recursive: true, force: true });
   }
-}, 45_000);
+}, ABSENT_FONTS ? 300_000 : 45_000);

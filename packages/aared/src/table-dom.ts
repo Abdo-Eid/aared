@@ -2,8 +2,8 @@
  * The table shell PPTX and DOCX both paint: a CSS grid in the table's own
  * direction, with cells that span and align vertically. Renderer-side. What
  * differs per format stays with the format: PPTX pads in physical left/right
- * and falls back to a faint grid; DOCX pads in inline-start/end and collapses
- * shared edges.
+ * and falls back to a faint grid; DOCX pads in physical left/right too, draws
+ * its side borders on the inline start/end, and collapses shared edges.
  */
 
 import type { TextDirection } from "./core/model.js";

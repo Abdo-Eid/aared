@@ -25,3 +25,5 @@ export const LEFT_TO_RIGHT_MARK = /* @__PURE__ */ char("200e");
 export const RIGHT_TO_LEFT_MARK = /* @__PURE__ */ char("200f");
 /** U+21A9, the footnote back-link glyph. */
 export const RETURN_ARROW = /* @__PURE__ */ char("21a9");
+/** U+FE0E, the text-style selector after a symbol-font stand-in a phone may draw as colour emoji. */
+export const TEXT_PRESENTATION = /* @__PURE__ */ char("fe0e");

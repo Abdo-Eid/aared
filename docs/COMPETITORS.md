@@ -9,8 +9,11 @@
 reasonable (`docx-preview`, ExcelJS), but every one that tries to *paint*
 rather than build a real DOM gives up paragraph-level RTL correctness to do
 it — and nothing spans all three formats at aared's target weight with DOM/SVG
-output. The all-in-one options that do exist are full office suites, WASM
-Canvas engines, or commercial SDKs — not lightweight previewers.
+output. The all-in-one options are mostly full office suites, WASM Canvas
+engines, or commercial SDKs — not lightweight previewers. The one exception
+found so far, Extend's `@extend-ai/react-*` family (DOM/SVG for PPTX and
+DOCX), is React-only, several times aared's weight, editor-capable for
+DOCX/XLSX, and measured below on how its RTL holds up.
 "RTL verified" below means a specific public implementation claim was found;
 "not verified" does not mean unsupported, only that no affirmative evidence
 was found. Sizes are given only where published; otherwise "not published".
@@ -22,11 +25,14 @@ was found. Sizes are given only where published; otherwise "not published".
 | **aared** (this) | PPTX, XLSX, DOCX | ✅ | DOM/SVG | ✅ (design goal — see [DECISION_LOG.md §3](DECISION_LOG.md#3-text-is-rendered-by-the-browser-never-rasterized--the-load-bearing-decision)) | Apache-2.0 | Targeting small — per-format lazy load |
 | [`@silurus/ooxml`](https://github.com/yukiyokotani/office-open-xml-viewer) | PPTX, XLSX, DOCX | ✅ | Canvas 2D (Rust→WASM parsers) | Verified fixes (DOCX RTL-number, UAX#9 mixed-text; Arabic-layout test work) | MIT | Published per-format: DOCX ~4.0 MB / 1.2 MB gzip; XLSX ~2.6 / 0.82 MB; PPTX ~2.5 / 0.78 MB |
 | [`@opentf/office-docs-viewer`](https://github.com/Open-Tech-Foundation/office-docs-viewer) | DOCX today; PPTX/XLSX slot in as engine modules | ✅ | Canvas (`ImageBitmap` LRU, DPR-correct) + Worker host | Not verified | Check repo (engine Rust→WASM + TS core/react) | Not published |
+| [`@extend-ai/react-pptx` / `react-docx` / `react-xlsx`](https://github.com/extend-hq) | PPTX (+legacy `.ppt`), DOCX, XLSX — one package each | ✅ (Rust/WASM parsers in Workers) | React components: DOM/SVG for PPTX and DOCX (selectable text); XLSX grid on canvas by default (`experimentalCanvas={false}` for DOM) | Mixed, measured Sep 2026: PPTX sets `direction:rtl` per paragraph; DOCX sets none (Arabic paragraphs compute `ltr`, browser bidi only); XLSX ignores sheet `rightToLeft` (grid not mirrored) | MIT | Measured gzip: PPTX 495 KB, DOCX 620 KB, XLSX 2478 KB (mostly WASM) — see [BENCHMARKS.md](BENCHMARKS.md) |
 | [`omni-doc-viewer`](https://github.com/akbhuker/omni-doc-viewer) | DOCX/XLSX/PPTX (+PDF/image/md/csv) | ✅ | Per-format engines (docx-preview, SheetJS, pptx-preview+emf-converter) behind one API, lazy-loaded | Inherits per-engine limits | Permissive (wraps permissively-licensed engines) | Small core, engines lazy-loaded |
 | [`docx-preview`](https://github.com/VolodymyrBaydalka/docxpreview) | DOCX | ✅ | DOM | ✅ (`w:bidi`/`w:rtl` → `direction:rtl`; real DOM, CSS-fixable) | Apache-2.0 | Small |
+| [`@apollo-design/docx-preview`](https://github.com/apollocmh/docx-preview) | DOCX | ✅ | DOM (docx-preview fork) + measured `paginate` reflow | ✅ inherited from docx-preview; verified on `docx-coverage.docx` | Apache-2.0 | Measured 52 KB gzip (JSZip included) |
 | [`mammoth`](https://github.com/mwilliamson/mammoth.js) | DOCX | ✅ | DOM (semantic HTML, not visual-fidelity) | Known gap — [no default `dir=rtl`](https://github.com/mwilliamson/mammoth.js/issues/336) | BSD-2 | Small |
 | [`@aiden0z/pptx-renderer`](https://github.com/aiden0z/pptx-renderer) | PPTX | ✅ | DOM (HTML/SVG, selectable text; charts via ECharts canvas) | Minimal, verified: parses `a:pPr rtl` → CSS `direction` + `textAlign`; no bidi algorithm or table-cell `dir` — browser-bidi-reliant | Apache-2.0 | Measured entry ~774 KB / 169 KB gzip (standalone ESM ~1783 KB bundles JSZip+ECharts) — see [BENCHMARKS.md](BENCHMARKS.md) |
 | [`pptx-preview`](https://www.npmjs.com/package/pptx-preview) | PPTX | ✅ | DOM (front-end viewer from ArrayBuffer) | Not verified | npm says ISC, but README has restrictive source-use language — legal review needed | Not published (ECharts, JSZip, Lodash) |
+| [`pptx-browser`](https://www.npmjs.com/package/pptx-browser) | PPTX | ✅ | Canvas 2D, zero dependencies (SVG/PDF export as separate subpaths) | Not verified — text shapes fail to draw in 4.1.5 (see PPTX-only) | MIT | Measured 49 KB gzip |
 | [`pptxviewjs`](https://www.npmjs.com/package/pptxviewjs) | PPTX | ✅ | Canvas | ❌ — drops paragraph `algn`/`rtl` entirely; see [DECISION_LOG.md §1](DECISION_LOG.md#1-why-this-project-exists-at-all) | MIT | Medium (bundles Chart.js unconditionally) |
 | [`@datagridxl/spreadsheet-preview`](https://github.com/DataGridXL/spreadsheet-preview) | XLSX | ✅ | Grid (self-described "PDF.js for spreadsheets") | Not verified | Community badge / commercial to remove | Not published |
 | [`@xlscalc/xlsx-preview`](https://github.com/Victor-EU/xls-renderer-calc) | XLSX | ✅ (+Worker path) | DOM grid (React `ExcelView` / `renderToHtml`), recomputes formulas | Not verified | MIT | Not published |
@@ -76,6 +82,43 @@ unpublished, not as aared-measured.
   covering all three formats with view *and* edit/round-trip. A3S claims RTL
   overrides/complex-script handling (independently unverified). Both are
   editor-weight, not previewer-weight.
+- **Extend `@extend-ai/react-pptx` / `react-docx` / `react-xlsx`** (MIT,
+  active, benched as `extend`) — the closest structural peer: Rust/WASM
+  parsers running in their own Workers, a normalized model, and DOM/SVG
+  painting for PPTX and DOCX, one package per format. Differences from aared:
+  React-only (peer `react`/`react-dom`, a CSS import for PPTX), per-format
+  WASM binaries (the PPTX parser also opens legacy `.ppt` natively; EMF/WMF
+  become bitmaps), and DOCX/XLSX ship editing, export and formula
+  recalculation beside the read-only viewer. Per their repos (cited by a
+  research pass, not re-checked): a PPTX text-layout test expects `dir="rtl"`
+  on Arabic paragraphs, and `react-docx` has script-aware font fallback for
+  `w:rtl`/`w:cs` runs.
+  Verified in the bench (Sep 2026, react-pptx 0.2.1 / react-docx 0.9.2 /
+  react-xlsx 0.16.6):
+  - PPTX, `pptx-coverage.pptx`: all 11 slides open and page through the
+    controller; Arabic paragraphs get CSS `direction:rtl` (no `dir`
+    attribute), bullets sit on the right as RTL expects, and the table
+    slide renders. An empty bulleted paragraph still draws its bullet,
+    which PowerPoint doesn't.
+  - DOCX, `docx-coverage.docx`: 4 pages including the landscape section;
+    headings live in its model, not its DOM. No right-to-left direction
+    anywhere in the DOM: every sampled Arabic element computes
+    `direction:ltr`, leaving ordering to the browser's bidi inside
+    left-to-right blocks. It does its own line layout, so how far that
+    shows visually (alignment, list numbers) needs the paired Word capture.
+  - XLSX — its strongest format and the closest to aared's output. On
+    `post-production-tracker.xlsx` cell styles, merges, number formats,
+    Arabic headings and the chart all come through; the conditional-format
+    fills on the "% locked" column don't (aared paints them). On
+    `xlsx-coverage.xlsx` (4 sheets, switchable) the RTL sheet renders
+    left-to-right (column A on the left) and the merged title row clips.
+    The default grid paints to canvas, so cell text is not in the DOM.
+  - Weight: 495 / 620 / 2478 KB gzip for PPTX / DOCX / XLSX, of which
+    224 / 445 / 1651 KB is WASM — against aared's 84 / 63 / 63 KB.
+  - Verdict from the side-by-side bench review: aared is ahead in all three
+    formats; XLSX is where the gap is smallest (RTL sheet mirroring,
+    conditional-format fills, DOM text, and weight), PPTX and DOCX are
+    further behind.
 - **`omni-doc-viewer`** — one API + format detection (extension → MIME →
   zip-magic sniffing `word/`/`ppt/`/`xl/`) + per-format lazy load over proven
   engines: PPTX via `pptx-preview` (DOM output, `pages` re-sorted to
@@ -90,14 +133,31 @@ unpublished, not as aared-measured.
 ## DOCX-only
 
 - **`docx-preview` / `docxjs`** proves the DOM-first approach works for one
-  format and handles `w:bidi`/`w:rtl`. Section fidelity gap, verified
-  Sep 2026 on `docx-coverage.docx` (A4 portrait + A4 landscape
-  sections): its `breakPages` pagination flows the landscape section onto
-  portrait-width pages (2 pages, all 794px — the 1122px landscape page
-  never surfaces), while aared paginates it as a true landscape page.
+  format and handles `w:bidi`/`w:rtl`. Section handling, re-checked
+  28 Sep 2026 on the current `docx-coverage.docx` (A4 portrait + A4
+  landscape sections): 5 pages, the landscape section surfaces as a true
+  1123px page. (An earlier September check recorded 2 pages, all 794px,
+  with the landscape section flowed onto portrait width; that no longer
+  reproduces.) Page breaks still
+  come only from breaks stored in the file, not measured layout.
   aared's DOCX tier targets this level
   of fidelity (see [ARCHITECTURE.md](ARCHITECTURE.md#fidelity-contract)) but
   as one renderer inside a shared `core`, not a standalone library.
+- **`@apollo-design/docx-preview`** (Apache-2.0, fork of docxjs, benched as
+  `apollo`) — the most reworked docx-preview fork: a `paginate` pass
+  reflows rendered content into page-sized sections after render (tables
+  split by row, paragraphs by line, `PAGE`/`NUMPAGES` refilled per page),
+  ECMA-376 Agile password decryption (`decryptDocx`), and legacy
+  `.doc`/`.wps` detected and refused with a message. Same `renderAsync` API
+  and output as docx-preview, so paragraph `w:bidi` → `direction:rtl`
+  carries over. Verified in the bench (Sep 2026, 0.9.0) on
+  `docx-coverage.docx`: 4 pages, the landscape section surfaces as a true
+  1123px page, Arabic paragraphs compute `rtl`. Its reflow breaks earlier than aared's
+  Word-matched layout (the first heading moves to page 2), so its page
+  breaks need the paired Word capture before being called right or wrong.
+  Packaging fault: the `development` export condition points at an
+  unshipped `./src/docx-preview.ts`, which Vite dev resolves first — the
+  bench pins the built `dist/docx-preview.mjs`.
 - **`docx-renderer`** (fork of `docx-preview-sync` → `docx-preview`, for
   Recon) — paginated HTML DOM, headers/footers/footnotes, nested tables,
   anchored drawings, tracked changes, overlay system. No longer synced
@@ -140,13 +200,28 @@ unpublished, not as aared-measured.
 - **`PPTXjs`** (mesheshа) — local JS/JSZip→HTML `div`s + D3/NVD3 charts +
   optional Reveal.js mode. DOM output but legacy jQuery-era stack. RTL not
   verified.
-- **`pptx-browser`** — zero-dependency Canvas renderer (native
-  `DecompressionStream` + `DOMParser` + Canvas 2D). Interesting weight data
-  point; Canvas, so same RTL objection as `pptxviewjs`.
-- **`ChristopherVR/pptx-viewer`** — full TS monorepo (core + React/Vue/
-  Angular/Svelte/vanilla) parsing, rendering as HTML/CSS/SVG, editing,
-  presenting, collaboration (Yjs), export. Editor-suite weight, not
-  previewer weight.
+- **`pptx-browser`** (MIT, benched) — zero-dependency Canvas renderer
+  (native `DecompressionStream` + `DOMParser` + Canvas 2D), with SVG, PDF,
+  slideshow, text extraction and a PPTX writer as separate subpath exports.
+  Interesting weight data point (49 KB gzip); Canvas, so same RTL objection
+  as `pptxviewjs`. Verified broken in the bench (Sep 2026, 4.1.5) on
+  `pptx-coverage.pptx`: `src/render.js` reads `defRPr` six lines before its
+  `const` declaration, so every paragraph with an `<a:pPr>` throws
+  `ReferenceError` and its whole shape is skipped — slides 1–2 paint blank
+  white, later slides only their non-text shapes. Like mdurbar, its weight
+  is not evidence that a smaller renderer is possible at equal coverage.
+- **`ChristopherVR/pptx-viewer`** (Apache-2.0; `yunfeizhu/pptx-viewer` is a
+  fork of it) — full TS monorepo (core + React/Vue/Angular/Svelte/vanilla)
+  parsing, rendering as HTML/CSS/SVG, editing, presenting, collaboration
+  (Yjs), export. Published as `pptx-viewer-core`, `pptx-react-viewer`,
+  `pptx-vanilla-viewer` and siblings (not the `pptx-viewer` npm name, which
+  is mdurbar's). PNG/JPEG/PDF export rasterizes through `html2canvas-pro`,
+  so exports lose CSS the rasterizer can't reproduce. No RTL evidence
+  found. Editor-suite weight, not previewer-weight — not benched.
+- **`@kandiforge/pptx-renderer`** — React component, canvas slide rendering
+  with a filmstrip, MUI/Emotion UI and `canvg`. npm license `UNLICENSED`
+  (no public license grant); no RTL evidence found. Not benched: nobody can
+  depend on it, and canvas output repeats `pptxviewjs`'s RTL objection.
 - **`pptx-preview` / `pptxviewjs`** prove canvas rendering is *fast* and
   *simple to ship* — and prove exactly why that trade fails for RTL content.
   This is the evidence base the whole project sits on. Note the
@@ -164,7 +239,9 @@ unpublished, not as aared-measured.
   is exactly the thing that needs fixing. (`sheet_to_html` is a plain table
   dump, not a grid.)
 - **Grids that need a parser:** `FortuneSheet` (MIT, React spreadsheet UI),
-  `x-data-spreadsheet` / `x-spreadsheet` (MIT, ~1.2 MB unpacked),
+  `Luckysheet` + `LuckyExcel` (in-browser XLSX → Luckysheet import; the
+  team moved on to Univer), `x-data-spreadsheet` / `x-spreadsheet` (MIT,
+  ~1.2 MB unpacked; the grid under `@vue-office/excel`),
   `Handsontable` (commercial/source-available since 7.x; MIT ended at
   6.2.2) — all view/edit grids, XLSX normally via SheetJS, RTL unverified.
 - **View-only previews (most comparable):** `@datagridxl/
@@ -179,7 +256,8 @@ unpublished, not as aared-measured.
   `@xlscalc/xlsx-preview` (MIT, Worker path, DOM grid, *recomputes* formulas
   in-browser, `renderToHtml` shares style composition with the React
   renderer); `@hewliyang/xlsx-preview` (Rust WASM extraction → Canvas);
-  `@extend-ai/react-xlsx` (viewer + optional editing, worker parsing);
+  `@extend-ai/react-xlsx` (viewer + optional editing, WASM parsing in a
+  Worker; measured under the Extend family above);
   `@nuptechs/nup-xlsx-preview` (commercial, CSS-grid renderer, virtual
   scroll, 7 themes).
 - **Commercial grid:** **SpreadJS** (fully client-side, verified worksheet
@@ -218,17 +296,22 @@ unpublished, not as aared-measured.
 - **Wrapper components** (`@cyntler/react-doc-viewer` — unmaintained,
   Office via MS iframe + public URLs only; `@iamjariwala/react-doc-viewer`
   — maintained fork, local DOCX via docx-preview + local XLSX table, other
-  Office via Office Online; `react-file-viewer-v2`) wire per-format
-  renderers together but add no engine of their own.
+  Office via Office Online; `react-file-viewer-v2`; `@vue-office/*` and
+  `@js-preview/*`, which wrap docx-preview, x-spreadsheet and a PPTX
+  renderer behind one API) wire per-format renderers together but add no
+  engine of their own.
 
 ## Reading the table
 
-- **Three-format DOM/SVG whitespace is real:** docx-preview/docx-renderer/
-  Mammoth cover DOCX; PPTXjs/PPTX2HTML/pptx-preview/pptx-react-renderer/
-  mdurbar/aiden0z cover PPTX; SheetJS's `sheet_to_html` covers basic
-  XLSX→table. Most are single-format, incomplete-fidelity, or lack explicit
-  Arabic/bidi assurances — spanning all three with demonstrated bidi is
-  still the gap.
+- **Three-format DOM/SVG whitespace is narrowing, not closed:**
+  docx-preview/docx-renderer/apollo/Mammoth cover DOCX;
+  PPTXjs/PPTX2HTML/pptx-preview/pptx-react-renderer/mdurbar/aiden0z cover
+  PPTX; SheetJS's `sheet_to_html` covers basic XLSX→table. Extend's family
+  is the first three-format set that paints DOM/SVG, but measured, its bidi
+  holds only for PPTX (DOCX paragraphs stay `ltr`, the XLSX grid isn't
+  mirrored and paints to canvas), it needs React, and it weighs 6–40× aared
+  per format. Spanning all three with demonstrated bidi, framework-free, at
+  previewer weight is still the gap.
 - **Correct Arabic/bidi is a meaningful differentiator but no longer
   unique.** Direct evidence exists for docx-preview paragraph bidi,
   silurus's UAX#9 fixes, Apryse, and SpreadJS; Univer has explicit bidi work
@@ -242,8 +325,16 @@ unpublished, not as aared-measured.
 - **Authoring/template packages** (`PptxGenJS`, `docx` npm, `docxtemplater`)
   generate/mutate files rather than render an opened document — not
   renderers.
-- **ExcelJS / Handsontable / x-spreadsheet** are models or grids, not OOXML
-  renderers by themselves (XLSX ingestion normally via SheetJS).
+- **ExcelJS / Handsontable / x-spreadsheet / Luckysheet / FortuneSheet** are
+  models or grids, not OOXML renderers by themselves (XLSX ingestion
+  normally via SheetJS or LuckyExcel) — not benched for that reason.
+- **Not benched, with reasons:** `mammoth` (semantic HTML by design, no page
+  fidelity to compare), Univer (editor runtime; its open-source XLSX import
+  runs through its server), `pptx-preview` on its own (license wording needs
+  review; its engine is benched inside `omni`), PPTXjs/PPTX2HTML (jQuery-era,
+  unmaintained), `@kandiforge/pptx-renderer` (`UNLICENSED`),
+  `ChristopherVR`/`yunfeizhu` `pptx-viewer` (editor suite), and the wrapper
+  components (no engine of their own; their engines are benched directly).
 - **GroupDocs, TX Text Control, ONLYOFFICE, Collabora, Microsoft/Google
   viewers** are buying alternatives, not substitutes for a no-server,
   local-file renderer.

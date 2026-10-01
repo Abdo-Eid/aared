@@ -24,7 +24,7 @@ test("search finds table-cell text with cell coordinates", async () => {
     expect(arabic[0]).toMatchObject({
       kind: "table",
       section: 1,
-      heading: { index: 6, title: "Appendix A — Shot List, Episode 04" },
+      heading: { index: 7, title: "Appendix A — Shot List, Episode 04" },
       table: { index: 0, row: 3, col: 2 },
     });
   } finally {

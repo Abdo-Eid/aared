@@ -78,18 +78,25 @@ function closedError(scope: string): AaredError {
   return new AaredError("closed", `${scope}: document is closed`);
 }
 
-function deserializeError(serialized: SerializedError): Error {
-  // Worker-side cancellation arrives as a named AbortError without a code;
-  // restore the typed form so `error.code === "aborted"` holds everywhere.
-  if (serialized.code !== undefined) {
-    return new AaredError(serialized.code, serialized.message);
-  }
-  if (serialized.name === "AbortError") {
-    return new AaredError("aborted", serialized.message);
-  }
-  const error = new Error(serialized.message);
-  error.name = serialized.name;
-  return error;
+/**
+ * The Worker only knows it is `aared/core`; the caller opened through
+ * `aared/pptx` (or `xlsx`, `docx`, `preview`, `element`). Its failures read in
+ * the caller's entrypoint, like every main-thread error. Cancellation keeps
+ * its one wording on both sides of the Worker.
+ */
+function rescope(message: string, scope: string): string {
+  return message.startsWith("aared/core:") ? `${scope}:${message.slice("aared/core:".length)}` : message;
+}
+
+/** A Worker failure as the caller sees it: always an `AaredError` (the Worker typed it), in the caller's scope. */
+function deserializeError(serialized: SerializedError, scope: string): AaredError {
+  const message = serialized.code === "aborted" ? serialized.message : rescope(serialized.message, scope);
+  if (serialized.cause === undefined) return new AaredError(serialized.code, message);
+  // An `internal` failure carries the Worker's original error for the bug report.
+  const cause = new Error(serialized.cause.message);
+  cause.name = serialized.cause.name;
+  if (serialized.cause.stack !== undefined) cause.stack = serialized.cause.stack;
+  return new AaredError(serialized.code, message, { cause });
 }
 
 function postError(scope: string, error: unknown): Error {
@@ -97,11 +104,27 @@ function postError(scope: string, error: unknown): Error {
   return new AaredError("worker-error", `${scope}: failed to post a Worker request: ${detail}`);
 }
 
+/** The browser refused to construct the Worker: typed, with what to do about the usual cause. */
+function workerStartError(scope: string, error: unknown): AaredError {
+  const detail = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
+  return new AaredError(
+    "worker-error",
+    `${scope}: the browser refused to start the Worker (${detail}). A Worker script on another origin, such as scripts served from a CDN, is always refused: serve the Worker chunk from the page's origin, or start it through the "worker" option (API reference, "Worker override")`,
+    { cause: error },
+  );
+}
+
 class WorkerBridge {
   private readonly worker: Worker;
   private readonly pending = new Map<number, PendingRequest>();
   private nextRequestId = 1;
   private stopped = false;
+  /**
+   * Why the bridge stopped: `closed` after a normal close, `worker-error`
+   * after a crash. Later requests reject with it, so a call after a crash
+   * still reports the crash rather than reading as a use-after-close bug.
+   */
+  private stoppedWith: Error | undefined;
   private ready: Promise<void>;
   private resolveReady!: () => void;
   private rejectReady!: (reason: Error) => void;
@@ -126,12 +149,20 @@ class WorkerBridge {
     // silently defeated detection, so production builds copied worker.mjs
     // verbatim and every open() hung. Never fold
     // the branches back together.
-    if (typeof workerInit === "function") {
-      this.worker = workerInit();
-    } else if (typeof workerInit === "string" || workerInit instanceof URL) {
-      this.worker = new Worker(workerInit, { type: "module" });
-    } else {
-      this.worker = new Worker(new URL("./worker.mjs", import.meta.url), { type: "module" });
+    try {
+      if (typeof workerInit === "function") {
+        this.worker = workerInit();
+      } else if (typeof workerInit === "string" || workerInit instanceof URL) {
+        this.worker = new Worker(workerInit, { type: "module" });
+      } else {
+        this.worker = new Worker(new URL("./worker.mjs", import.meta.url), { type: "module" });
+      }
+    } catch (error) {
+      // The constructor throws, rather than reporting `onerror`, when the
+      // browser refuses the script outright: a Worker script on another origin
+      // (scripts served from a CDN, webpack `publicPath` or Next.js
+      // `assetPrefix` on another host) is refused even with CORS headers.
+      throw workerStartError(scope, error);
     }
     this.workerClass = Worker;
     this.ready = new Promise<void>((resolve, reject) => {
@@ -145,7 +176,11 @@ class WorkerBridge {
     // A dead worker is never a cancellation: it used to report "aborted",
     // which made every abort check (notably usePreview's) swallow boot
     // failures and left the UI loading forever. "worker-error" surfaces.
-    this.worker.onerror = () => this.fail(new AaredError("worker-error", `${this.scope}: worker failed to start or stopped unexpectedly`));
+    // The browser's event rides along as `cause`, with its message when it has one.
+    this.worker.onerror = (event: ErrorEvent) => {
+      const detail = typeof event.message === "string" && event.message !== "" ? ` (${event.message.replace(/\.$/, "")})` : "";
+      this.fail(new AaredError("worker-error", `${this.scope}: worker failed to start or stopped unexpectedly${detail}`, { cause: event }));
+    };
   }
 
   /** Take the bridge for a new document: its messages name the new entrypoint. */
@@ -168,7 +203,7 @@ class WorkerBridge {
     signal?: AbortSignal,
     transfer?: Transferable[],
   ): Promise<T> {
-    if (this.stopped) return Promise.reject(closedError(this.scope));
+    if (this.stopped) return Promise.reject(this.stoppedWith ?? closedError(this.scope));
     if (signal?.aborted === true) return Promise.reject(abortError());
     const requestId = this.nextRequestId++;
     const request = { ...message, sessionId, requestId } as WorkerRequest;
@@ -234,7 +269,7 @@ class WorkerBridge {
     if (candidate === undefined || candidate.sessionId !== message.sessionId) return;
     const pending = this.takePending(message.requestId)!;
     if (message.ok) pending.resolve(message.result);
-    else pending.reject(deserializeError(message.error));
+    else pending.reject(deserializeError(message.error, this.scope));
   }
 
   private fail(error: Error): void {
@@ -247,6 +282,7 @@ class WorkerBridge {
   terminate(error: Error = closedError(this.scope)): void {
     if (this.stopped) return;
     this.stopped = true;
+    this.stoppedWith = error;
     for (const pending of this.pending.values()) {
       if (pending.signal !== undefined && pending.abort !== undefined) {
         pending.signal.removeEventListener("abort", pending.abort);
@@ -412,7 +448,10 @@ export async function sourceBytes(
       return bytes;
     } catch (error) {
       throwIfAborted(signal);
-      throw error;
+      if (isAbort(error) || error instanceof AaredError) throw error;
+      // The connection dropped mid-body: the platform rejects with a bare TypeError.
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new AaredError("network-error", `${scope}: the download of "${source}" stopped partway: ${detail}`, { cause: error });
     }
   }
   const total = source instanceof ArrayBuffer ? source.byteLength : source.size;
@@ -744,7 +783,17 @@ export class WorkerSession {
         requestedFontFamilies(model).map((family) => {
           let resolved = this.resolvedFonts.get(family);
           if (resolved === undefined) {
-            resolved = Promise.resolve(this.fontResolver!(family));
+            // A font is cosmetic: a resolver that throws or rejects leaves the family to the
+            // browser's fallback, which the render handle's `warnings` then names
+            // (`font-unavailable`, measured from what painted). It never fails the read, and the
+            // failure is not cached, so a later read asks again.
+            const attempt = Promise.resolve()
+              .then(() => this.fontResolver!(family))
+              .catch(() => {
+                if (this.resolvedFonts.get(family) === attempt) this.resolvedFonts.delete(family);
+                return undefined;
+              });
+            resolved = attempt;
             this.resolvedFonts.set(family, resolved);
           }
           return resolved;

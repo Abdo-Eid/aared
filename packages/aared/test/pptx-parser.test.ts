@@ -3,7 +3,7 @@ import { OpcPackage } from "../src/core/opc.js";
 import { indexPptx, parsePptxSlide, parseTextBody, resolveStyleRef } from "../src/core/pptx.js";
 import { attr, childElements, firstChild, parseXml } from "../src/core/xml.js";
 import type { XmlElement } from "../src/core/xml.js";
-import { findCoverageSlide, findShapesWithPreset, findShapeWithText, findTableWithText, joined } from "./fixture.js";
+import { findCoverageSlide, flattenElements, findShapesWithPreset, findShapeWithText, findTableWithText, joined } from "./fixture.js";
 
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 
@@ -28,7 +28,7 @@ describe("PPTX DrawingML parser", () => {
   test("re-reads slides and RTL text from the real Arabic fixture", async () => {
     const doc = await fixture();
     expect(doc.deck.size).toEqual({ width: 12192000 / 914400, height: 6858000 / 914400 });
-    expect(doc.deck.slideParts).toHaveLength(10);
+    expect(doc.deck.slideParts).toHaveLength(12);
     expect(doc.deck.theme.colors.dk1).toBe("#000000");
     expect(doc.deck.theme.fonts.minor.scripts.Arab).toBe("Arial");
     // Medium Style 2 Accent 1, every region read: fills, text, fonts and all six edges.
@@ -114,6 +114,22 @@ describe("PPTX DrawingML parser", () => {
     expect(title.text.autofit).toBeUndefined();
   });
 
+  // A subtitle placeholder inherits the master's body style, not `otherStyle`:
+  // PowerPoint paints its lines at 90% with 10 pt before each paragraph, while
+  // date/footer/slide-number keep the plain other style.
+  test("gives a subtitle placeholder the master body spacing and the slide number none", async () => {
+    const doc = await fixture();
+    const { slide } = await findCoverageSlide(doc.slides, "rtl-text");
+    const subtitle = findShapeWithText(slide, "Nile Frame Studio");
+    const number = flattenElements(slide.elements).find((element) => element.kind === "shape" && element.placeholder?.type === "sldNum");
+    if (subtitle.text === undefined || number?.kind !== "shape" || number.text === undefined) throw new Error("fixture structure changed: expected subtitle and slide-number shapes");
+
+    expect(subtitle.placeholder?.type).toBe("subTitle");
+    for (const paragraph of subtitle.text.paragraphs) expect(paragraph).toMatchObject({ lineSpacing: 0.9, spaceBeforePt: 10 });
+    expect(number.text.paragraphs[0]?.lineSpacing).toBeUndefined();
+    expect(number.text.paragraphs[0]?.spaceBeforePt).toBeUndefined();
+  });
+
   test("inherits each missing text-frame inset without overriding an explicit zero", async () => {
     const doc = await fixture();
     const text = parseTextBody(
@@ -128,6 +144,63 @@ describe("PPTX DrawingML parser", () => {
     );
 
     expect(text.insets).toEqual({ left: 0.1, right: 0.2, top: 0.05, bottom: 0 });
+  });
+
+  // Ground truth: tools/probe/line-spacing-units (PowerPoint's own PDF of nine
+  // stored-scale boxes). PowerPoint never re-measures on open: only the stored
+  // `fontScale` / `lnSpcReduction` change what it paints.
+  test("applies the autofit scale and line-spacing cut PowerPoint stored, and nothing else", async () => {
+    const doc = await fixture();
+    const body = (autofit: string, paragraphs: string) => parseTextBody(
+      parseXml(`<a:txBody><a:bodyPr>${autofit}</a:bodyPr><a:lstStyle/>${paragraphs}</a:txBody>`),
+      doc.deck.theme,
+    );
+    const run = (size: number) => `<a:r><a:rPr sz="${size}"/><a:t>text</a:t></a:r>`;
+
+    // Each size is scaled and rounded half up to a whole point; the scale is on the model too.
+    const scaled = body(`<a:normAutofit fontScale="92500"/>`, `<a:p>${run(1800)}</a:p><a:p>${run(2800)}</a:p>`);
+    expect(scaled.autofit).toBe("shrinkText");
+    expect(scaled.fontScale).toBe(0.925);
+    expect(scaled.paragraphs.map((paragraph) => paragraph.runs[0]!.fontSizePt)).toEqual([17, 26]);
+    expect(body(`<a:normAutofit fontScale="62500"/>`, `<a:p>${run(2800)}</a:p>`).paragraphs[0]!.runs[0]!.fontSizePt).toBe(18);
+    expect(body(`<a:normAutofit fontScale="47500"/>`, `<a:p>${run(2400)}</a:p>`).paragraphs[0]!.runs[0]!.fontSizePt).toBe(11);
+
+    // The line-spacing cut comes off each paragraph's own spacing (100% when unauthored);
+    // spacing in points is not touched.
+    const cut = body(
+      `<a:normAutofit fontScale="62500" lnSpcReduction="20000"/>`,
+      `<a:p>${run(2800)}</a:p>`
+        + `<a:p><a:pPr><a:lnSpc><a:spcPct val="90000"/></a:lnSpc><a:spcAft><a:spcPts val="600"/></a:spcAft></a:pPr>${run(2800)}</a:p>`
+        + `<a:p><a:pPr><a:lnSpc><a:spcPts val="3000"/></a:lnSpc></a:pPr>${run(2800)}</a:p>`,
+    );
+    expect(cut.lineSpacingReduction).toBe(0.2);
+    expect(cut.paragraphs[0]!.lineSpacing).toBeCloseTo(0.8, 10);
+    expect(cut.paragraphs[1]!.lineSpacing).toBeCloseTo(0.7, 10);
+    expect(cut.paragraphs[1]!.spaceAfterPt).toBe(6);
+    expect(cut.paragraphs[2]).toMatchObject({ lineSpacingPt: 30 });
+    expect(cut.paragraphs[2]!.lineSpacing).toBeUndefined();
+    // A paragraph with no run size scales the size it inherits, so the empty line follows the text.
+    const inherited = body(`<a:normAutofit fontScale="50000"/>`, `<a:p><a:pPr><a:defRPr sz="2000"/></a:pPr><a:endParaRPr sz="2000"/></a:p>`);
+    expect(inherited.paragraphs[0]!.fontSizePt).toBe(10);
+
+    // Bare, absent, and unscaled autofit paint at 100%: an overflowing box is not shrunk on open.
+    for (const autofit of [`<a:normAutofit/>`, `<a:normAutofit fontScale="100000"/>`, `<a:noAutofit/>`, ``]) {
+      const plain = body(autofit, `<a:p>${run(1800)}</a:p>`);
+      expect(plain.paragraphs[0]!.runs[0]!.fontSizePt).toBe(18);
+      expect(plain.fontScale).toBeUndefined();
+      expect(plain.lineSpacingReduction).toBeUndefined();
+      expect(plain.paragraphs[0]!.lineSpacing).toBeUndefined();
+    }
+
+    // A layout's or master's `normAutofit` never carries a slide's scale.
+    const inheritedAutofit = parseTextBody(
+      parseXml(`<a:txBody><a:bodyPr/><a:lstStyle/><a:p>${run(1800)}</a:p></a:txBody>`),
+      doc.deck.theme,
+      { bodies: [parseXml(`<a:txBody><a:bodyPr><a:normAutofit fontScale="50000"/></a:bodyPr></a:txBody>`)] },
+    );
+    expect(inheritedAutofit.autofit).toBe("shrinkText");
+    expect(inheritedAutofit.fontScale).toBeUndefined();
+    expect(inheritedAutofit.paragraphs[0]!.runs[0]!.fontSizePt).toBe(18);
   });
 
   test("preserves table-level RTL separately from explicit LTR cells", async () => {
@@ -371,5 +444,57 @@ describe("PPTX DrawingML parser", () => {
     expect(table.cellFills[1]!.slice(0, 2)).toEqual([{ kind: "solid", color: "#CCD2D8" }, { kind: "solid", color: "#CCD2D8" }]);
     expect(table.cellFills[1]![2]).toEqual({ kind: "pattern", preset: "smGrid", foreground: "#E8A33D", background: "#FFF4E0" });
     expect(table.cellFills[2]![2]).toMatchObject({ kind: "path-gradient", path: "rect", focus: { left: 0.5, top: 0.5, right: 0.5, bottom: 0.5 } });
+  });
+
+  // PowerPoint writes every line and connector as `p:cxnSp` (slide 11,
+  // appended through PowerPoint's object model): they parse as shapes.
+  test("parses connector and line shapes with their dash style", async () => {
+    const doc = await fixture();
+    const { slide } = await findCoverageSlide(doc.slides, "lines");
+    const byName = new Map(flattenElements(slide.elements).filter((element) => element.kind === "shape").map((shape) => [shape.name, shape]));
+    const timeline = byName.get("Timeline");
+    const today = byName.get("Today");
+    const dotted = byName.get("Dotted");
+    const diagonal = byName.get("Diagonal");
+    expect(timeline?.stroke).toMatchObject({ color: "#1E3A5A" });
+    expect(timeline?.stroke?.dash).toBeUndefined();
+    expect(timeline?.bounds?.height).toBe(0);
+    expect(today?.stroke).toMatchObject({ color: "#F59B1E", dash: "dash" });
+    expect(today?.bounds?.width).toBe(0);
+    expect(dotted?.stroke).toMatchObject({ dash: "dot" });
+    expect(diagonal?.transform?.flipVertical).toBe(true);
+    for (const line of [timeline, today, dotted, diagonal]) expect(line?.fill).toBeUndefined();
+  });
+
+  // PowerPoint keeps an en-US run's number together left to right inside a
+  // right-to-left paragraph ("2.1%", never "%2.1"; probe run-direction).
+  test("marks a left-to-right-language run inside a right-to-left paragraph", async () => {
+    const doc = await fixture();
+    const { slide } = await findCoverageSlide(doc.slides, "lines");
+    const paragraph = findShapeWithText(slide, "2.1%").text!.paragraphs[0]!;
+    expect(paragraph.direction).toBe("rtl");
+    expect(paragraph.runs.map((run) => [run.text, run.ltrRun ?? false])).toEqual([
+      ["الإيرادات دون الموازنة بنسبة ", false],
+      ["2.1%", true],
+    ]);
+  });
+
+  // Space before/after in lines (`a:spcPct`, slide 12, set through
+  // PowerPoint's object model) stays in lines; the renderer turns it into
+  // 1.2 x the paragraph's largest run size (probe line-spacing-units).
+  test("keeps paragraph spacing in lines, in text boxes and table cells", async () => {
+    const doc = await fixture();
+    const { slide } = await findCoverageSlide(doc.slides, "paragraph-spacing");
+    const box = findShapeWithText(slide, "نصف سطر قبل هذه الفقرة").text!.paragraphs;
+    expect(box.map((paragraph) => [paragraph.spaceBeforeLines, paragraph.spaceAfterLines])).toEqual([
+      [1, 0], [0.5, 0], [1, 0], [0, 1], [1, 0], [0, 1],
+    ]);
+    for (const paragraph of box) {
+      expect(paragraph.spaceBeforePt).toBeUndefined();
+      expect(paragraph.spaceAfterPt).toBeUndefined();
+    }
+    expect(box[2]!.runs.map((run) => run.fontSizePt)).toContain(28);
+    const cell = findTableWithText(slide, "نصف سطر بعد هذه").rows[0]!.cells[0]!.text.paragraphs;
+    expect(cell.map((paragraph) => [paragraph.spaceBeforeLines, paragraph.spaceAfterLines])).toEqual([[1, 0], [0, 0.5], [0.5, 0]]);
   });
 });

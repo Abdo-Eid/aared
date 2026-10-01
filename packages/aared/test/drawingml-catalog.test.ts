@@ -49,7 +49,15 @@ describe("preset catalog", () => {
     expect(oracle.cases.length).toBeGreaterThan(300);
     for (const entry of oracle.cases) {
       let program = programOf(entry.preset);
-      if (program === undefined) throw new Error(`catalog lacks ${entry.preset}`);
+      if (program === undefined) {
+        // A fast-path preset (hand-coded, so not catalogued) answers to the
+        // oracle too: same endpoints, in order.
+        const fast = geometryForPreset(entry.preset, { width: entry.width, height: entry.height }, entry.adjustments);
+        if (fast === undefined) throw new Error(`catalog lacks ${entry.preset}`);
+        const want = entry.paths.flat().filter((command) => command.length === 3).map((command) => [command[1], command[2]]);
+        expect(pointsOf(fast.path)).toEqual(want as Array<[number, number]>);
+        continue;
+      }
       // Aliases render another preset under a symmetry; endpoints compare
       // as multisets, so a mirrored start vertex still matches.
       let symmetry = "";

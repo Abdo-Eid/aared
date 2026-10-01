@@ -10,8 +10,16 @@
     "ordered-list": { "hasText": "Broadcast master, per the specification" },
     "nested-list": { "hasText": "Vertical 9:16 trailer" },
     "image-caption": { "hasText": "Figure 1 — Calibration strip" },
+    "rtl-table": { "hasText": "موقع التصوير" },
     "footnote": { "hasText": "Measured per EBU R 128" },
     "header": { "hasText": "NILE FRAME STUDIO" },
-    "footer": { "hasText": "Internal — Confidential" }
+    "footer": { "hasText": "Internal — Confidential" },
+    "float-square-left": { "hasText": "التفاف مربع عند الطرف الأيسر" },
+    "float-square-right": { "hasText": "التفاف مربع عند الطرف الأيمن" },
+    "float-top-bottom": { "hasText": "أعلى وأسفل الصورة" },
+    "float-behind": { "hasText": "صورة خلف النص" },
+    "float-tight": { "hasText": "التفاف محكم حول الصورة" },
+    "float-square-centre": { "hasText": "التفاف مربع في الوسط" },
+    "float-through": { "hasText": "التفاف عبر الصورة" }
   }
 }

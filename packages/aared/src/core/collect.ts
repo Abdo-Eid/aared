@@ -53,6 +53,54 @@ export function collectStrings(model: unknown, key: string, into: Set<string>): 
   }
 }
 
+// Arabic script blocks (Arabic, Supplement, Extended-B/A, Presentation Forms A/B). Built from a
+// string, not written as a regex literal: a minifier prints a literal's `\u` escapes back as raw
+// characters, and a single character above U+00FF makes the whole shipped script two bytes per
+// character (see `chars.ts`). The pattern's own `\u` escapes stay as text and RegExp reads them.
+const ARABIC_TEXT = /* @__PURE__ */ new RegExp("[\\u0600-\\u06FF\\u0750-\\u077F\\u0870-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFF]");
+
+/** The CSS `font` shorthand prefix of one style a family paints in. */
+export type FontVariant = "" | "bold " | "italic " | "italic bold ";
+
+/**
+ * Every distinct `fontFamily` in a DOCX or PPTX `model` with the variants it
+ * paints in (a run's own `bold`/`italic`), and whether any of its `text` runs
+ * contains Arabic script — one walk, for the font wait that must know all
+ * three: a delivered face downloads only when something loads it, so the wait
+ * loads exactly the faces the document paints, and an Arabic-limited fallback
+ * face only when the document has Arabic. Not for spreadsheets: no format
+ * that measures text off screen reads a sheet.
+ */
+export function collectFontUse(model: unknown): { families: Map<string, Set<FontVariant>>; arabic: boolean } {
+  const families = new Map<string, Set<FontVariant>>();
+  let arabic = false;
+  const visit = (value: unknown): void => {
+    if (value === null || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    for (const name in record) {
+      const child = record[name];
+      if (typeof child === "string") {
+        if (name === "fontFamily" && child !== "") {
+          const variant: FontVariant = record.italic === true
+            ? (record.bold === true ? "italic bold " : "italic ")
+            : (record.bold === true ? "bold " : "");
+          let variants = families.get(child);
+          if (variants === undefined) families.set(child, (variants = new Set()));
+          variants.add(variant);
+        } else if (!arabic && name === "text") arabic = ARABIC_TEXT.test(child);
+      } else if (child !== null && typeof child === "object") {
+        visit(child);
+      }
+    }
+  };
+  visit(model);
+  return { families, arabic };
+}
+
 /**
  * Every shape geometry in a PPTX model (slide, layout, nested groups) that the
  * worker left for the session to evaluate. See `ShapeGeometryModel.deferred`.

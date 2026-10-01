@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { AaredError, isAaredError } from "../src/core/index.js";
 import { open } from "../src/pptx/index.js";
 import { rejection } from "./harness.js";
+import { storedZipFromTuples } from "./zip.js";
 
 const ARABIC_FIXTURE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 const XLSX_FIXTURE = `${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`;
@@ -11,10 +12,10 @@ test("opens a deck with an addressable slide collection", async () => {
   const deck = await open(await Bun.file(ARABIC_FIXTURE).arrayBuffer());
   try {
     expect(deck.info.format).toBe("pptx");
-    expect(deck.info.count).toBe(10);
+    expect(deck.info.count).toBe(12);
     const slides = deck.slides.list();
-    expect(slides).toHaveLength(10);
-    expect(slides.map((slide) => slide.info.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(slides).toHaveLength(12);
+    expect(slides.map((slide) => slide.info.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     for (const slide of slides) {
       expect(slide.info.title).toContain("Slide");
       expect(slide.info.size.width).toBeGreaterThan(0);
@@ -47,7 +48,7 @@ test("reports unknown slides with a not-found error", async () => {
   }
   const reopened = await open(await Bun.file(ARABIC_FIXTURE).arrayBuffer());
   try {
-    expect(() => reopened.slides.get(19)).toThrow("outside this 10-slide deck");
+    expect(() => reopened.slides.get(19)).toThrow("outside this 12-slide deck");
   } finally {
     reopened.close();
   }
@@ -65,6 +66,43 @@ test("maps corrupt archives to invalid-document errors", async () => {
   expect(error).toBeInstanceOf(AaredError);
   expect((error as AaredError).code).toBe("invalid-document");
   expect(error.message).toContain("not a ZIP archive");
+});
+
+/** A one-part deck around `presentation`: a valid package with a damaged main part (Office never writes one). */
+function deckWithPresentation(presentation: string): ArrayBuffer {
+  return storedZipFromTuples([
+    [
+      "[Content_Types].xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
+</Types>`,
+    ],
+    [
+      "_rels/.rels",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+</Relationships>`,
+    ],
+    ["ppt/presentation.xml", presentation],
+  ]);
+}
+
+test("maps a damaged part inside a valid archive to a typed invalid-document error", async () => {
+  // Malformed XML (the parser's own error) and a missing required element (a
+  // parser's plain throw) used to reach callers with no code at all.
+  const malformed = await rejection(open(deckWithPresentation(`<p:presentation xmlns:p="x"><p:sldSz cx="1" cy="1"/>`)));
+  const incomplete = await rejection(open(deckWithPresentation(`<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>`)));
+  for (const error of [malformed, incomplete]) {
+    expect(error).toBeInstanceOf(AaredError);
+    expect((error as AaredError).code).toBe("invalid-document");
+    // The Worker's failure reads in the entrypoint the caller opened through.
+    expect(error.message.startsWith("aared/pptx: ")).toBe(true);
+    expect(error.message).toContain("re-saving it in Office");
+  }
+  expect(malformed.message).toContain("unterminated <p:presentation>");
 });
 
 test("detects password-protected files as encrypted documents", async () => {

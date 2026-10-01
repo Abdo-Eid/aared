@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="site/public/aared-mark.svg" alt="aared logo" width="120">
+</p>
+
 # aared (عارض)
 
 **Preview real PowerPoint, Excel, and Word files in the browser — correctly,
@@ -32,6 +36,7 @@ Measured numbers (method + generated tables): [`docs/BENCHMARKS.md`](docs/BENCHM
 | Library | Formats | Client-side | Paragraph-level RTL |
 |---|---|---|---|
 | **aared** (this) | PPTX, XLSX, DOCX | ✅ | ✅ (design goal) |
+| Extend `@extend-ai/react-*` | PPTX, DOCX, XLSX (React components) | ✅ | PPTX only — DOCX paragraphs stay LTR, XLSX grid isn't mirrored; 6–40× aared's download |
 | `docx-preview` | DOCX | ✅ | ✅ |
 | `pptxviewjs` / `pptx-preview` | PPTX | ✅ | ❌ — canvas output, no CSS fix |
 | SheetJS (Community Edition) | XLSX (parse only) | ✅ | N/A — styling silently dropped |
@@ -45,8 +50,6 @@ is in [`docs/DECISION_LOG.md §1`](docs/DECISION_LOG.md#1-why-this-project-exist
 
 ```bash
 npm install @aared/viewer
-# optional, for Office fonts nobody has installed locally:
-npm install @aared/fonts
 ```
 
 *(Not released yet — `@aared/viewer` on npm is a name-holding placeholder
@@ -98,16 +101,18 @@ open `/api` (source: `site/src/content/docs/api.mdx`).
 
 ## Fonts
 
-Office files name fonts nobody has installed (Calibri, Sakkal Majalla…).
-Nothing downloads unless you pass a resolver — `aared-fonts` ships the
-ready-made metric-compatible one:
+Office files name fonts nobody has installed (Aptos, Calibri, Sakkal
+Majalla…). aared asks for the font the file names, and where the reader
+doesn't have it, the browser's own fonts paint instead: nothing downloads,
+and on a phone the system's Arabic and Latin faces are both faster and
+easier to read than any substitute. Some lines break a word differently from
+Office; nothing overlaps.
 
-```ts
-import { open } from "aared/pptx";
-import { defaultResolver } from "aared-fonts";
-
-const deck = await open(file, { fontResolver: defaultResolver });
-```
+An app that needs Office's line breaks exactly can pass its own
+`fontResolver` to `open()` (see the API reference). The repo's
+`aared-fonts` package holds calibrated look-alikes for that, but it is
+frozen and not published: on a real phone it made the first page 7 s
+slower and the Arabic harder to read (`docs/DECISION_LOG.md §53`).
 
 Fonts embedded in the file itself are not read yet.
 
@@ -143,10 +148,9 @@ page count, orientations, hard breaks, and per-page headers/footers/footnotes.
 - API reference (`bun run docs:dev`, open `/api`) — the public API
 - [`docs/DECISION_LOG.md`](docs/DECISION_LOG.md) — why, chronologically
 - [`docs/COMPETITORS.md`](docs/COMPETITORS.md) — the landscape
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — what's built, what's next
-- [`HANDOFF.md`](HANDOFF.md) — contributor onboarding
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — current status, open work, what's next
 - [`AGENTS.md`](AGENTS.md) — working charter for anyone (human or agent)
-  contributing code
+  contributing code; start here
 
 ## Develop
 

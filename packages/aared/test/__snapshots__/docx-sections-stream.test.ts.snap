@@ -20,9 +20,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     }
    },
    "headerRefs": [
-    "word/header2.xml",
-    "word/header3.xml",
-    "word/header1.xml"
+    "word/header2.xml"
    ],
    "footerRefs": [
     "word/footer1.xml"
@@ -46,7 +44,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     ],
     "direction": "ltr",
     "fontSizePt": 10.5,
-    "spaceBeforePt": 10
+    "spaceBeforePt": 10,
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
@@ -64,7 +63,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     ],
     "direction": "ltr",
     "fontSizePt": 10.5,
-    "spaceBeforePt": 2
+    "spaceBeforePt": 2,
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
@@ -81,67 +81,14 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     ],
     "direction": "rtl",
     "fontSizePt": 10.5,
-    "spaceAfterPt": 3
+    "spaceAfterPt": 3,
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
     "runs": [
      {
-      "text": "Season ",
-      "fontSizePt": 9.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "2  ·",
-      "fontSizePt": 9.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "  Episodes 04–",
-      "fontSizePt": 9.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "06  ·",
-      "fontSizePt": 9.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "  Draft ",
-      "fontSizePt": 9.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "3.1  ·",
-      "fontSizePt": 9.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "  Revised 12 May 2026",
+      "text": "Season 2  ·  Episodes 04–06  ·  Draft 3.1  ·  Revised 12 May 2026",
       "fontSizePt": 9.5,
       "language": "ar-SA",
       "color": "#5B6470",
@@ -160,7 +107,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "spacePt": 8,
       "style": "solid"
      }
-    }
+    },
+    "styleId": "Normal"
    },
    {
     "type": "table",
@@ -189,7 +137,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          },
          {
           "type": "paragraph",
@@ -205,7 +154,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "rtl",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -224,52 +174,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           "type": "paragraph",
           "runs": [
            {
-            "text": "Nile Heritage Foundation / ",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "مؤسسة",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": " ",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "تراث",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": " ",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "النيل",
+            "text": "Nile Heritage Foundation / مؤسسة تراث النيل",
             "fontSizePt": 10.5,
             "language": "ar-SA",
             "color": "#1B2029",
@@ -279,7 +184,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -312,7 +218,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          },
          {
           "type": "paragraph",
@@ -328,7 +235,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "rtl",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -358,7 +266,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "rtl",
           "fontSizePt": 10.5,
-          "align": "left"
+          "align": "left",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -391,7 +300,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          },
          {
           "type": "paragraph",
@@ -407,7 +317,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "rtl",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -426,25 +337,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           "type": "paragraph",
           "runs": [
            {
-            "text": "Karim ",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "Fahmy  —",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "  Premiere Pro 2026 / DaVinci Resolve 20",
+            "text": "Karim Fahmy  —  Premiere Pro 2026 / DaVinci Resolve 20",
             "fontSizePt": 10.5,
             "language": "ar-SA",
             "color": "#1B2029",
@@ -454,7 +347,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -487,7 +381,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          },
          {
           "type": "paragraph",
@@ -503,7 +398,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "rtl",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -522,61 +418,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           "type": "paragraph",
           "runs": [
            {
-            "text": "3 × 26 ",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "min  ·",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "  UHD 3840×",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "2160  ·",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "  25 ",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "fps  ·",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "  Rec.709",
+            "text": "3 × 26 min  ·  UHD 3840×2160  ·  25 fps  ·  Rec.709",
             "fontSizePt": 10.5,
             "language": "ar-SA",
             "color": "#1B2029",
@@ -586,7 +428,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -651,17 +494,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "type": "paragraph",
     "runs": [
      {
-      "text": "Contents / ",
-      "bold": true,
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "color": "#12171F",
-      "latinTypeface": "Cambria",
-      "complexScriptTypeface": "Cambria",
-      "fontFamily": "Cambria"
-     },
-     {
-      "text": "المحتويات",
+      "text": "Contents / المحتويات",
       "bold": true,
       "fontSizePt": 12,
       "language": "ar-SA",
@@ -674,7 +507,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "direction": "ltr",
     "fontSizePt": 10.5,
     "spaceBeforePt": 16,
-    "spaceAfterPt": 4
+    "spaceAfterPt": 4,
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
@@ -1025,6 +859,10 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "strength": "mandatory"
    },
    {
+    "type": "pageBreak",
+    "strength": "preferred"
+   },
+   {
     "type": "heading",
     "level": 1,
     "text": "1. Project Overview",
@@ -1044,10 +882,6 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "fontSizePt": 15,
     "spaceBeforePt": 18,
     "spaceAfterPt": 3
-   },
-   {
-    "type": "pageBreak",
-    "strength": "preferred"
    },
    {
     "type": "paragraph",
@@ -1074,7 +908,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "spacePt": 6,
       "style": "solid"
      }
-    }
+    },
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
@@ -1092,68 +927,16 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "direction": "ltr",
     "fontSizePt": 10.5,
     "align": "justify",
+    "justifyShrink": true,
     "lineSpacing": 1.25,
-    "spaceAfterPt": 6
+    "spaceAfterPt": 6,
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
     "runs": [
      {
-      "text": "تتابع سلسلة «صوت النهر» ثلاث عائلات ترتبط معيشتها بالنيل بين أسوان ورشيد. تنتقل الحلقات من الرابعة إلى السادسة من التصوير الشخصي إلى الطرح والتحليل، بحيث تحمل كل حلقة سؤالًا واضحًا وتجيب عنه بالصورة قبل الكلام. يجري المونتاج الأولي على برنامج ",
-      "fontSizePt": 11,
-      "language": "ar-SA",
-      "color": "#1B2029",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "بريمير",
-      "fontSizePt": 11,
-      "language": "ar-SA",
-      "color": "#1B2029",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": " ",
-      "fontSizePt": 11,
-      "language": "ar-SA",
-      "color": "#1B2029",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "برو",
-      "fontSizePt": 11,
-      "language": "ar-SA",
-      "color": "#1B2029",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "، بينما تتم عمليات التجميع النهائي وتصحيح الألوان والتسليم على دافينشي ",
-      "fontSizePt": 11,
-      "language": "ar-SA",
-      "color": "#1B2029",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "ريزولف",
-      "fontSizePt": 11,
-      "language": "ar-SA",
-      "color": "#1B2029",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": ".",
+      "text": "تتابع سلسلة «صوت النهر» ثلاث عائلات ترتبط معيشتها بالنيل بين أسوان ورشيد. تنتقل الحلقات من الرابعة إلى السادسة من التصوير الشخصي إلى الطرح والتحليل، بحيث تحمل كل حلقة سؤالًا واضحًا وتجيب عنه بالصورة قبل الكلام. يجري المونتاج الأولي على برنامج بريمير برو، بينما تتم عمليات التجميع النهائي وتصحيح الألوان والتسليم على دافينشي ريزولف.",
       "fontSizePt": 11,
       "language": "ar-SA",
       "color": "#1B2029",
@@ -1166,7 +949,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "fontSizePt": 10.5,
     "align": "left",
     "lineSpacing": 1.3333333333333333,
-    "spaceAfterPt": 10
+    "spaceAfterPt": 10,
+    "styleId": "Normal"
    },
    {
     "type": "heading",
@@ -1690,16 +1474,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "fontFamily": "Arial"
      },
      {
-      "text": "«اقطع على الحركة، لا على ",
-      "fontSizePt": 10.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "الكلمة.»",
+      "text": "«اقطع على الحركة، لا على الكلمة.»",
       "fontSizePt": 10.5,
       "language": "ar-SA",
       "color": "#5B6470",
@@ -1720,7 +1495,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "spacePt": 14,
       "style": "solid"
      }
-    }
+    },
+    "styleId": "Normal"
    },
    {
     "type": "heading",
@@ -1768,7 +1544,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "spacePt": 6,
       "style": "solid"
      }
-    }
+    },
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
@@ -1899,7 +1676,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     ],
     "direction": "ltr",
     "fontSizePt": 10.5,
-    "spaceAfterPt": 8
+    "spaceAfterPt": 8,
+    "styleId": "Normal"
    },
    {
     "type": "table",
@@ -1919,17 +1697,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           "type": "paragraph",
           "runs": [
            {
-            "text": "Parameter / ",
-            "bold": true,
-            "fontSizePt": 9,
-            "language": "ar-SA",
-            "color": "#FFFFFF",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "المعيار",
+            "text": "Parameter / المعيار",
             "bold": true,
             "fontSizePt": 9,
             "language": "ar-SA",
@@ -1941,7 +1709,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -1960,17 +1729,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           "type": "paragraph",
           "runs": [
            {
-            "text": "Picture — ",
-            "bold": true,
-            "fontSizePt": 9,
-            "language": "ar-SA",
-            "color": "#FFFFFF",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "الصورة",
+            "text": "Picture — الصورة",
             "bold": true,
             "fontSizePt": 9,
             "language": "ar-SA",
@@ -1982,7 +1741,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2002,17 +1762,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           "type": "paragraph",
           "runs": [
            {
-            "text": "Sound — ",
-            "bold": true,
-            "fontSizePt": 9,
-            "language": "ar-SA",
-            "color": "#FFFFFF",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "الصوت",
+            "text": "Sound — الصوت",
             "bold": true,
             "fontSizePt": 9,
             "language": "ar-SA",
@@ -2024,7 +1774,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2071,7 +1822,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2102,7 +1854,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2133,7 +1886,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2156,17 +1910,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           "type": "paragraph",
           "runs": [
            {
-            "text": "Codec / ",
-            "bold": true,
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "الترميز",
+            "text": "Codec / الترميز",
             "bold": true,
             "fontSizePt": 10.5,
             "language": "ar-SA",
@@ -2177,7 +1921,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2195,16 +1940,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           "type": "paragraph",
           "runs": [
            {
-            "text": "ProRes",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": " 422 HQ",
+            "text": "ProRes 422 HQ",
             "fontSizePt": 10.5,
             "language": "ar-SA",
             "color": "#1B2029",
@@ -2214,7 +1950,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2242,7 +1979,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2270,7 +2008,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2294,17 +2033,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           "type": "paragraph",
           "runs": [
            {
-            "text": "Resolution / ",
-            "bold": true,
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "الدقة",
+            "text": "Resolution / الدقة",
             "bold": true,
             "fontSizePt": 10.5,
             "language": "ar-SA",
@@ -2315,7 +2044,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2343,7 +2073,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2371,7 +2102,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2393,17 +2125,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           "type": "paragraph",
           "runs": [
            {
-            "text": "Loudness / ",
-            "bold": true,
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "الجهارة",
+            "text": "Loudness / الجهارة",
             "bold": true,
             "fontSizePt": 10.5,
             "language": "ar-SA",
@@ -2414,7 +2136,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2453,7 +2176,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2481,7 +2205,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2499,16 +2224,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           "type": "paragraph",
           "runs": [
            {
-            "text": "True peak ≤ −1 ",
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "dBTP",
+            "text": "True peak ≤ −1 dBTP",
             "fontSizePt": 10.5,
             "language": "ar-SA",
             "color": "#1B2029",
@@ -2518,7 +2234,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2540,17 +2257,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           "type": "paragraph",
           "runs": [
            {
-            "text": "Subtitles / ",
-            "bold": true,
-            "fontSizePt": 10.5,
-            "language": "ar-SA",
-            "color": "#1B2029",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "الترجمة",
+            "text": "Subtitles / الترجمة",
             "bold": true,
             "fontSizePt": 10.5,
             "language": "ar-SA",
@@ -2561,7 +2268,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2590,7 +2298,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "rtl",
           "fontSizePt": 10.5,
-          "align": "left"
+          "align": "left",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2619,7 +2328,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "rtl",
           "fontSizePt": 10.5,
-          "align": "left"
+          "align": "left",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2647,7 +2357,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -2712,7 +2423,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "type": "paragraph",
     "runs": [
      {
-      "text": "Table 1 — Delivery specification by ",
+      "text": "Table 1 — Delivery specification by version",
       "italic": true,
       "fontSizePt": 8.5,
       "language": "ar-SA",
@@ -2722,26 +2433,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "fontFamily": "Arial"
      },
      {
-      "text": "version",
-      "italic": true,
-      "fontSizePt": 8.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "  •",
-      "fontSizePt": 8.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "  ",
+      "text": "  •  ",
       "fontSizePt": 8.5,
       "language": "ar-SA",
       "color": "#5B6470",
@@ -2763,7 +2455,12 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "fontSizePt": 10.5,
     "align": "center",
     "spaceBeforePt": 4,
-    "spaceAfterPt": 12
+    "spaceAfterPt": 12,
+    "styleId": "Normal"
+   },
+   {
+    "type": "pageBreak",
+    "strength": "preferred"
    },
    {
     "type": "image",
@@ -2774,14 +2471,10 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "align": "center"
    },
    {
-    "type": "pageBreak",
-    "strength": "preferred"
-   },
-   {
     "type": "paragraph",
     "runs": [
      {
-      "text": "Figure 1 — Calibration strip shipped at the head of every ",
+      "text": "Figure 1 — Calibration strip shipped at the head of every master",
       "italic": true,
       "fontSizePt": 8.5,
       "language": "ar-SA",
@@ -2791,26 +2484,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "fontFamily": "Arial"
      },
      {
-      "text": "master",
-      "italic": true,
-      "fontSizePt": 8.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "  •",
-      "fontSizePt": 8.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "  ",
+      "text": "  •  ",
       "fontSizePt": 8.5,
       "language": "ar-SA",
       "color": "#5B6470",
@@ -2832,7 +2506,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "fontSizePt": 10.5,
     "align": "center",
     "spaceBeforePt": 4,
-    "spaceAfterPt": 12
+    "spaceAfterPt": 12,
+    "styleId": "Normal"
    },
    {
     "type": "heading",
@@ -2880,7 +2555,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "spacePt": 6,
       "style": "solid"
      }
-    }
+    },
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
@@ -2898,8 +2574,10 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "direction": "ltr",
     "fontSizePt": 10.5,
     "align": "justify",
+    "justifyShrink": true,
     "lineSpacing": 1.25,
-    "spaceAfterPt": 6
+    "spaceAfterPt": 6,
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
@@ -2942,7 +2620,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "align": "right",
       "leader": "dot"
      }
-    ]
+    ],
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
@@ -2985,7 +2664,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "align": "right",
       "leader": "dot"
      }
-    ]
+    ],
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
@@ -3028,7 +2708,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "align": "right",
       "leader": "dot"
      }
-    ]
+    ],
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
@@ -3082,7 +2763,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "align": "right",
       "leader": "dot"
      }
-    ]
+    ],
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
@@ -3125,7 +2807,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "align": "right",
       "leader": "dot"
      }
-    ]
+    ],
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
@@ -3144,7 +2827,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "fontSizePt": 10.5,
     "align": "left",
     "spaceBeforePt": 10,
-    "spaceAfterPt": 6
+    "spaceAfterPt": 6,
+    "styleId": "Normal"
    },
    {
     "type": "heading",
@@ -3192,7 +2876,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "spacePt": 6,
       "style": "solid"
      }
-    }
+    },
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
@@ -3249,7 +2934,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     ],
     "direction": "ltr",
     "fontSizePt": 10.5,
-    "spaceAfterPt": 4
+    "spaceAfterPt": 4,
+    "styleId": "Normal"
    },
    {
     "type": "paragraph",
@@ -3268,7 +2954,630 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "fontSizePt": 10.5,
     "align": "left",
     "lineSpacing": 1.3333333333333333,
-    "spaceAfterPt": 10
+    "spaceAfterPt": 10,
+    "styleId": "Normal"
+   },
+   {
+    "type": "heading",
+    "level": 1,
+    "text": "5. Delivery tracker / متابعة التسليم",
+    "direction": "ltr",
+    "runs": [
+     {
+      "text": "5. Delivery tracker / ",
+      "bold": true,
+      "fontSizePt": 15,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria"
+     },
+     {
+      "text": "متابعة",
+      "bold": true,
+      "fontSizePt": 15,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Times New Roman",
+      "complexScriptTypeface": "Times New Roman",
+      "fontFamily": "Times New Roman"
+     },
+     {
+      "text": " ",
+      "bold": true,
+      "fontSizePt": 15,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria"
+     },
+     {
+      "text": "التسليم",
+      "bold": true,
+      "fontSizePt": 15,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Times New Roman",
+      "complexScriptTypeface": "Times New Roman",
+      "fontFamily": "Times New Roman"
+     }
+    ],
+    "fontSizePt": 15
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "آخر تحديث ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "15 Oct 2026",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Calibri",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Calibri",
+      "ltrRun": true
+     },
+     {
+      "text": " بنسبة إنجاز ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": "71%",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Calibri",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Calibri",
+      "ltrRun": true
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "left",
+    "lineSpacingPt": 18,
+    "styleId": "Normal"
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "حالة حلقات الموسم الثاني حتى تاريخ هذا الملخص",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": ".",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "ltrRun": true
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "left",
+    "styleId": "Normal"
+   },
+   {
+    "type": "table",
+    "direction": "rtl",
+    "columns": [
+     1.7451388888888888,
+     1.7451388888888888,
+     1.7451388888888888,
+     1.7451388888888888
+    ],
+    "rows": [
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "الحلقة",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "shading": "#F4EFE6",
+        "width": 1.7451388888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "موقع التصوير",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "shading": "#F4EFE6",
+        "width": 1.7451388888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "المدة",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "shading": "#F4EFE6",
+        "width": 1.7451388888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "الحالة",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "shading": "#F4EFE6",
+        "width": 1.7451388888888888
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "الحلقة ٤",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "width": 1.7451388888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "أسوان",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "width": 1.7451388888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "52:10",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "width": 1.7451388888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "تسليم نهائي",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "width": 1.7451388888888888
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "الحلقة ٥",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "width": 1.7451388888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "إسنا",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "width": 1.7451388888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "49:35",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "width": 1.7451388888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "تصحيح ألوان",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "width": 1.7451388888888888
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "الحلقة ٦",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "width": 1.7451388888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "الأقصر",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "width": 1.7451388888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "51:02",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "width": 1.7451388888888888
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "مونتاج",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "width": 1.7451388888888888
+       }
+      ]
+     },
+     {
+      "cells": [
+       {
+        "nodes": [
+         {
+          "type": "heading",
+          "level": 2,
+          "text": "الإجمالي",
+          "direction": "rtl",
+          "runs": [
+           {
+            "text": "الإجمالي",
+            "bold": true,
+            "fontSizePt": 12,
+            "language": "ar-SA",
+            "color": "#12171F",
+            "latinTypeface": "Times New Roman",
+            "complexScriptTypeface": "Times New Roman",
+            "fontFamily": "Times New Roman"
+           }
+          ],
+          "fontSizePt": 12,
+          "align": "left"
+         }
+        ],
+        "columnSpan": 2,
+        "width": 3.4902777777777776
+       },
+       {
+        "nodes": [
+         {
+          "type": "paragraph",
+          "runs": [
+           {
+            "text": "152:47",
+            "fontSizePt": 10.5,
+            "language": "ar-SA",
+            "color": "#1B2029",
+            "latinTypeface": "Arial",
+            "complexScriptTypeface": "Arial",
+            "fontFamily": "Arial"
+           }
+          ],
+          "direction": "rtl",
+          "fontSizePt": 10.5,
+          "align": "left",
+          "styleId": "Normal"
+         }
+        ],
+        "width": 1.7451388888888888
+       },
+       {
+        "nodes": [],
+        "width": 1.7451388888888888
+       }
+      ]
+     }
+    ],
+    "width": 6.980555555555555,
+    "borders": {
+     "top": {
+      "color": "#1E3A5A",
+      "widthPt": 1,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "left": {
+      "color": "#1E3A5A",
+      "widthPt": 3,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "bottom": {
+      "color": "#1E3A5A",
+      "widthPt": 1,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "right": {
+      "color": "#C8C8C8",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     },
+     "insideH": {
+      "color": "#C8C8C8",
+      "widthPt": 0.5,
+      "spacePt": 0,
+      "style": "solid"
+     }
+    },
+    "cellMargins": {
+     "top": 0,
+     "bottom": 0,
+     "left": 0.3,
+     "right": 0.05
+    },
+    "indent": 0.017361111111111112
    }
   ],
   "header": [
@@ -3329,7 +3638,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "pos": 6.268055555555556,
       "align": "right"
      }
-    ]
+    ],
+    "styleId": "Normal"
    }
   ],
   "footer": [
@@ -3337,34 +3647,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "type": "paragraph",
     "runs": [
      {
-      "text": "Internal — Confidential / ",
-      "fontSizePt": 8,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "داخلي",
-      "fontSizePt": 8,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": " — ",
-      "fontSizePt": 8,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "سري",
+      "text": "Internal — Confidential / داخلي — سري",
       "fontSizePt": 8,
       "language": "ar-SA",
       "color": "#5B6470",
@@ -3427,7 +3710,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "pos": 6.268055555555556,
       "align": "right"
      }
-    ]
+    ],
+    "styleId": "Normal"
    }
   ],
   "title": "1. Project Overview"
@@ -3458,6 +3742,10 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
   },
   "root": [
    {
+    "type": "pageBreak",
+    "strength": "preferred"
+   },
+   {
     "type": "heading",
     "level": 1,
     "text": "Appendix A — Shot List, Episode 04",
@@ -3477,10 +3765,6 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "fontSizePt": 15,
     "spaceBeforePt": 18,
     "spaceAfterPt": 3
-   },
-   {
-    "type": "pageBreak",
-    "strength": "preferred"
    },
    {
     "type": "paragraph",
@@ -3507,7 +3791,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "spacePt": 6,
       "style": "solid"
      }
-    }
+    },
+    "styleId": "Normal"
    },
    {
     "type": "table",
@@ -3540,7 +3825,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -3570,7 +3856,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -3600,7 +3887,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -3630,7 +3918,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -3660,7 +3949,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -3679,17 +3969,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           "type": "paragraph",
           "runs": [
            {
-            "text": "Notes / ",
-            "bold": true,
-            "fontSizePt": 8.5,
-            "language": "ar-SA",
-            "color": "#FFFFFF",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "ملاحظات",
+            "text": "Notes / ملاحظات",
             "bold": true,
             "fontSizePt": 8.5,
             "language": "ar-SA",
@@ -3700,7 +3980,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -3735,7 +4016,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -3763,7 +4045,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -3792,7 +4075,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "rtl",
           "fontSizePt": 10.5,
-          "align": "left"
+          "align": "left",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -3821,7 +4105,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -3850,7 +4135,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -3868,17 +4154,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           "type": "paragraph",
           "runs": [
            {
-            "text": "Handheld, no ",
-            "italic": true,
-            "fontSizePt": 9,
-            "language": "ar-SA",
-            "color": "#5B6470",
-            "latinTypeface": "Arial",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "stabiliser",
+            "text": "Handheld, no stabiliser",
             "italic": true,
             "fontSizePt": 9,
             "language": "ar-SA",
@@ -3889,7 +4165,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -3923,7 +4200,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -3951,7 +4229,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -3980,7 +4259,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "rtl",
           "fontSizePt": 10.5,
-          "align": "left"
+          "align": "left",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4009,7 +4289,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4038,7 +4319,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4067,7 +4349,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4101,7 +4384,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4129,7 +4413,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4158,7 +4443,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "rtl",
           "fontSizePt": 10.5,
-          "align": "left"
+          "align": "left",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4187,7 +4473,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4216,7 +4503,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4245,7 +4533,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4279,7 +4568,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4307,7 +4597,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4336,7 +4627,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "rtl",
           "fontSizePt": 10.5,
-          "align": "left"
+          "align": "left",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4365,7 +4657,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4394,7 +4687,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4423,7 +4717,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4457,7 +4752,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4485,7 +4781,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4514,7 +4811,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "rtl",
           "fontSizePt": 10.5,
-          "align": "left"
+          "align": "left",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4543,7 +4841,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4572,7 +4871,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
           ],
           "direction": "ltr",
           "fontSizePt": 10.5,
-          "align": "center"
+          "align": "center",
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4601,7 +4901,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
            }
           ],
           "direction": "ltr",
-          "fontSizePt": 10.5
+          "fontSizePt": 10.5,
+          "styleId": "Normal"
          }
         ],
         "verticalAlign": "middle",
@@ -4666,7 +4967,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "type": "paragraph",
     "runs": [
      {
-      "text": "Table 2 — Shot list extract (landscape ",
+      "text": "Table 2 — Shot list extract (landscape section)",
       "italic": true,
       "fontSizePt": 8.5,
       "language": "ar-SA",
@@ -4676,26 +4977,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "fontFamily": "Arial"
      },
      {
-      "text": "section)",
-      "italic": true,
-      "fontSizePt": 8.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "  •",
-      "fontSizePt": 8.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "  ",
+      "text": "  •  ",
       "fontSizePt": 8.5,
       "language": "ar-SA",
       "color": "#5B6470",
@@ -4717,7 +4999,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "fontSizePt": 10.5,
     "align": "center",
     "spaceBeforePt": 4,
-    "spaceAfterPt": 12
+    "spaceAfterPt": 12,
+    "styleId": "Normal"
    },
    {
     "type": "image",
@@ -4731,7 +5014,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "type": "paragraph",
     "runs": [
      {
-      "text": "Figure 2 — Reference frame for shot 05, ",
+      "text": "Figure 2 — Reference frame for shot 05, graded",
       "italic": true,
       "fontSizePt": 8.5,
       "language": "ar-SA",
@@ -4741,26 +5024,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "fontFamily": "Arial"
      },
      {
-      "text": "graded",
-      "italic": true,
-      "fontSizePt": 8.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "  •",
-      "fontSizePt": 8.5,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "  ",
+      "text": "  •  ",
       "fontSizePt": 8.5,
       "language": "ar-SA",
       "color": "#5B6470",
@@ -4782,7 +5046,488 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "fontSizePt": 10.5,
     "align": "center",
     "spaceBeforePt": 4,
-    "spaceAfterPt": 12
+    "spaceAfterPt": 12,
+    "styleId": "Normal"
+   },
+   {
+    "type": "pageBreak",
+    "strength": "mandatory"
+   },
+   {
+    "type": "pageBreak",
+    "strength": "preferred"
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "التفاف مربع عند الطرف الأيسر: النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": " ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "ltrRun": true
+     },
+     {
+      "text": "بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     },
+     {
+      "text": ". ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial",
+      "ltrRun": true
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "justify",
+    "justifyShrink": true,
+    "spaceBeforePt": 4,
+    "spaceAfterPt": 12,
+    "styleId": "Normal",
+    "floats": [
+     {
+      "type": "image",
+      "mediaId": "word/media/image4.png",
+      "contentType": "image/png",
+      "width": 0.75,
+      "height": 0.75,
+      "anchor": {
+       "wrap": "square",
+       "behind": false,
+       "wrapText": "bothSides",
+       "horizontal": {
+        "from": "column",
+        "align": "left"
+       },
+       "vertical": {
+        "from": "paragraph",
+        "offset": 0.08333333333333333
+       },
+       "distance": {
+        "top": 0.125,
+        "bottom": 0.125,
+        "left": 0.125,
+        "right": 0.125
+       }
+      }
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "التفاف مربع عند الطرف الأيمن: النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "justify",
+    "justifyShrink": true,
+    "spaceBeforePt": 4,
+    "spaceAfterPt": 12,
+    "styleId": "Normal",
+    "floats": [
+     {
+      "type": "image",
+      "mediaId": "word/media/image4.png",
+      "contentType": "image/png",
+      "width": 0.75,
+      "height": 0.75,
+      "anchor": {
+       "wrap": "square",
+       "behind": false,
+       "wrapText": "bothSides",
+       "horizontal": {
+        "from": "column",
+        "align": "right"
+       },
+       "vertical": {
+        "from": "paragraph",
+        "offset": 0.08333333333333333
+       },
+       "distance": {
+        "top": 0.125,
+        "bottom": 0.125,
+        "left": 0.125,
+        "right": 0.125
+       }
+      }
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "أعلى وأسفل الصورة: النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "justify",
+    "justifyShrink": true,
+    "spaceBeforePt": 4,
+    "spaceAfterPt": 12,
+    "styleId": "Normal",
+    "floats": [
+     {
+      "type": "image",
+      "mediaId": "word/media/image4.png",
+      "contentType": "image/png",
+      "width": 0.75,
+      "height": 0.75,
+      "anchor": {
+       "wrap": "topAndBottom",
+       "behind": false,
+       "wrapText": "bothSides",
+       "horizontal": {
+        "from": "column",
+        "align": "center"
+       },
+       "vertical": {
+        "from": "paragraph",
+        "offset": 0.4166666666666667
+       },
+       "distance": {
+        "top": 0.125,
+        "bottom": 0.125,
+        "left": 0.125,
+        "right": 0.125
+       }
+      }
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "صورة خلف النص: النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "justify",
+    "justifyShrink": true,
+    "spaceBeforePt": 4,
+    "spaceAfterPt": 12,
+    "styleId": "Normal",
+    "floats": [
+     {
+      "type": "image",
+      "mediaId": "word/media/image4.png",
+      "contentType": "image/png",
+      "width": 0.75,
+      "height": 0.75,
+      "anchor": {
+       "wrap": "none",
+       "behind": true,
+       "wrapText": "bothSides",
+       "horizontal": {
+        "from": "column",
+        "align": "center"
+       },
+       "vertical": {
+        "from": "paragraph",
+        "offset": 0.08333333333333333
+       },
+       "distance": {
+        "top": 0.125,
+        "bottom": 0.125,
+        "left": 0.125,
+        "right": 0.125
+       }
+      }
+     }
+    ]
+   },
+   {
+    "type": "pageBreak",
+    "strength": "mandatory"
+   },
+   {
+    "type": "pageBreak",
+    "strength": "preferred"
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "التفاف محكم حول الصورة: النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "justify",
+    "justifyShrink": true,
+    "spaceBeforePt": 4,
+    "spaceAfterPt": 12,
+    "styleId": "Normal",
+    "floats": [
+     {
+      "type": "image",
+      "mediaId": "word/media/image4.png",
+      "contentType": "image/png",
+      "width": 0.75,
+      "height": 0.75,
+      "anchor": {
+       "wrap": "tight",
+       "behind": true,
+       "wrapText": "bothSides",
+       "horizontal": {
+        "from": "column",
+        "align": "left"
+       },
+       "vertical": {
+        "from": "paragraph",
+        "offset": 0.08333333333333333
+       },
+       "distance": {
+        "top": 0.125,
+        "bottom": 0.125,
+        "left": 0.125,
+        "right": 0.125
+       },
+       "polygon": [
+        [
+         0.3055555555555556,
+         0
+        ],
+        [
+         0,
+         0.1388888888888889
+        ],
+        [
+         0,
+         0.6944444444444444
+        ],
+        [
+         0.1388888888888889,
+         0.8888888888888888
+        ],
+        [
+         0.2777777777777778,
+         0.9722222222222222
+        ],
+        [
+         0.6944444444444444,
+         0.9722222222222222
+        ],
+        [
+         0.8333333333333334,
+         0.8888888888888888
+        ],
+        [
+         0.9722222222222222,
+         0.7222222222222222
+        ],
+        [
+         0.9722222222222222,
+         0.19444444444444445
+        ],
+        [
+         0.6944444444444444,
+         0
+        ],
+        [
+         0.3055555555555556,
+         0
+        ]
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "التفاف مربع في الوسط: النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "justify",
+    "justifyShrink": true,
+    "spaceBeforePt": 4,
+    "spaceAfterPt": 12,
+    "styleId": "Normal",
+    "floats": [
+     {
+      "type": "image",
+      "mediaId": "word/media/image4.png",
+      "contentType": "image/png",
+      "width": 0.75,
+      "height": 0.75,
+      "anchor": {
+       "wrap": "square",
+       "behind": false,
+       "wrapText": "bothSides",
+       "horizontal": {
+        "from": "column",
+        "align": "center"
+       },
+       "vertical": {
+        "from": "paragraph",
+        "offset": 0.08333333333333333
+       },
+       "distance": {
+        "top": 0.125,
+        "bottom": 0.125,
+        "left": 0.125,
+        "right": 0.125
+       }
+      }
+     }
+    ]
+   },
+   {
+    "type": "paragraph",
+    "runs": [
+     {
+      "text": "التفاف عبر الصورة: النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. النسخة الأولية أطول من المطلوب بإحدى عشرة دقيقة، ومعظم الزيادة في الفصل الثاني حيث تتكرر المقابلتان. اختصار مشهد المطبخ يوفّر نحو ست دقائق دون المساس بمواد الأرشيف. ",
+      "fontSizePt": 10.5,
+      "language": "ar-SA",
+      "color": "#1B2029",
+      "latinTypeface": "Arial",
+      "complexScriptTypeface": "Arial",
+      "fontFamily": "Arial"
+     }
+    ],
+    "direction": "rtl",
+    "fontSizePt": 10.5,
+    "align": "justify",
+    "justifyShrink": true,
+    "spaceBeforePt": 4,
+    "spaceAfterPt": 12,
+    "styleId": "Normal",
+    "floats": [
+     {
+      "type": "image",
+      "mediaId": "word/media/image4.png",
+      "contentType": "image/png",
+      "width": 0.75,
+      "height": 0.75,
+      "anchor": {
+       "wrap": "through",
+       "behind": false,
+       "wrapText": "bothSides",
+       "horizontal": {
+        "from": "column",
+        "align": "center"
+       },
+       "vertical": {
+        "from": "paragraph",
+        "offset": 0.08333333333333333
+       },
+       "distance": {
+        "top": 0.125,
+        "bottom": 0.125,
+        "left": 0.125,
+        "right": 0.125
+       },
+       "polygon": [
+        [
+         0.3055555555555556,
+         0
+        ],
+        [
+         0,
+         0.1388888888888889
+        ],
+        [
+         0,
+         0.6944444444444444
+        ],
+        [
+         0.1388888888888889,
+         0.8888888888888888
+        ],
+        [
+         0.2777777777777778,
+         0.9722222222222222
+        ],
+        [
+         0.6944444444444444,
+         0.9722222222222222
+        ],
+        [
+         0.8333333333333334,
+         0.8888888888888888
+        ],
+        [
+         0.9722222222222222,
+         0.7222222222222222
+        ],
+        [
+         0.9722222222222222,
+         0.19444444444444445
+        ],
+        [
+         0.6944444444444444,
+         0
+        ],
+        [
+         0.3055555555555556,
+         0
+        ]
+       ]
+      }
+     }
+    ]
    },
    {
     "type": "footnote",
@@ -4793,43 +5538,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "type": "paragraph",
       "runs": [
        {
-        "text": "Measured per EBU R 128 over the full ",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": "programme",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": ", ",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": "dialogue-gated",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": ". ",
+        "text": "Measured per EBU R 128 over the full programme, dialogue-gated. ",
         "fontSizePt": 8.5,
         "language": "ar-SA",
         "color": "#1B2029",
@@ -4848,7 +5557,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
        }
       ],
       "direction": "ltr",
-      "fontSizePt": 10.5
+      "fontSizePt": 10.5,
+      "styleId": "Normal"
      }
     ],
     "direction": "ltr"
@@ -4862,115 +5572,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "type": "paragraph",
       "runs": [
        {
-        "text": "Lock date assumes archive clearance closes on time / ",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": "يفترض",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": " ",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": "انتهاء",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": " ",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": "تصاريح",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": " ",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": "الأرشيف",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": " ",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": "في",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": " ",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": "موعدها",
-        "fontSizePt": 8.5,
-        "language": "ar-SA",
-        "color": "#1B2029",
-        "latinTypeface": "Arial",
-        "complexScriptTypeface": "Arial",
-        "fontFamily": "Arial"
-       },
-       {
-        "text": ".",
+        "text": "Lock date assumes archive clearance closes on time / يفترض انتهاء تصاريح الأرشيف في موعدها.",
         "fontSizePt": 8.5,
         "language": "ar-SA",
         "color": "#1B2029",
@@ -4980,7 +5582,8 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
        }
       ],
       "direction": "ltr",
-      "fontSizePt": 10.5
+      "fontSizePt": 10.5,
+      "styleId": "Normal"
      }
     ],
     "direction": "ltr"
@@ -5044,7 +5647,37 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "pos": 6.268055555555556,
       "align": "right"
      }
-    ]
+    ],
+    "styleId": "Normal"
+   },
+   {
+    "type": "heading",
+    "level": 1,
+    "text": "Appendix / ملحق",
+    "direction": "ltr",
+    "runs": [
+     {
+      "text": "Appendix / ",
+      "bold": false,
+      "fontSizePt": 8,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Cambria",
+      "complexScriptTypeface": "Cambria",
+      "fontFamily": "Cambria"
+     },
+     {
+      "text": "ملحق",
+      "bold": false,
+      "fontSizePt": 15,
+      "language": "ar-SA",
+      "color": "#12171F",
+      "latinTypeface": "Times New Roman",
+      "complexScriptTypeface": "Times New Roman",
+      "fontFamily": "Times New Roman"
+     }
+    ],
+    "fontSizePt": 15
    }
   ],
   "footer": [
@@ -5052,34 +5685,7 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
     "type": "paragraph",
     "runs": [
      {
-      "text": "Internal — Confidential / ",
-      "fontSizePt": 8,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "داخلي",
-      "fontSizePt": 8,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": " — ",
-      "fontSizePt": 8,
-      "language": "ar-SA",
-      "color": "#5B6470",
-      "latinTypeface": "Arial",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "سري",
+      "text": "Internal — Confidential / داخلي — سري",
       "fontSizePt": 8,
       "language": "ar-SA",
       "color": "#5B6470",
@@ -5142,531 +5748,11 @@ exports[`DOCX sections do not depend on how document.xml is read docx-coverage.d
       "pos": 6.268055555555556,
       "align": "right"
      }
-    ]
+    ],
+    "styleId": "Normal"
    }
   ],
   "title": "Appendix A — Shot List, Episode 04"
- }
-]"
-`;
-
-exports[`DOCX sections do not depend on how document.xml is read docx-outline.docx 1`] = `
-"[
- {
-  "properties": {
-   "breakType": "nextPage",
-   "page": {
-    "widthTwips": 12240,
-    "heightTwips": 15840,
-    "orientation": "portrait",
-    "margins": {
-     "top": 1440,
-     "right": 1440,
-     "bottom": 1440,
-     "left": 1440,
-     "header": 708,
-     "footer": 708,
-     "gutter": 0
-    }
-   },
-   "headerRefs": [
-    "word/header2.xml",
-    "word/header3.xml",
-    "word/header1.xml"
-   ],
-   "footerRefs": [
-    "word/footer2.xml",
-    "word/footer3.xml",
-    "word/footer1.xml"
-   ]
-  },
-  "root": [
-   {
-    "type": "heading",
-    "level": 1,
-    "text": "Introduction / مقدمة",
-    "direction": "ltr",
-    "runs": [
-     {
-      "text": "Introduction / ",
-      "fontSizePt": 20,
-      "language": "ar-SA",
-      "color": "#156082",
-      "latinTypeface": "Aptos Display",
-      "fontFamily": "Aptos Display"
-     },
-     {
-      "text": "مقدمة",
-      "fontSizePt": 20,
-      "language": "ar-SA",
-      "color": "#156082",
-      "latinTypeface": "Aptos Display",
-      "complexScriptTypeface": "Times New Roman",
-      "fontFamily": "Times New Roman"
-     }
-    ],
-    "fontSizePt": 20,
-    "lineSpacing": 1.1583333333333334,
-    "spaceBeforePt": 18,
-    "spaceAfterPt": 4
-   },
-   {
-    "type": "paragraph",
-    "runs": [
-     {
-      "text": "Body text before the details. ",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "fontFamily": "Aptos"
-     },
-     {
-      "text": "نص",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": " ",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "قبل",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": " ",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "التفاصيل",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": ".",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "fontFamily": "Aptos"
-     }
-    ],
-    "direction": "ltr",
-    "fontSizePt": 12,
-    "lineSpacing": 1.1583333333333334,
-    "spaceAfterPt": 8
-   },
-   {
-    "type": "heading",
-    "level": 2,
-    "text": "Details / التفاصيل",
-    "direction": "ltr",
-    "runs": [
-     {
-      "text": "Details / ",
-      "fontSizePt": 16,
-      "language": "ar-SA",
-      "color": "#156082",
-      "latinTypeface": "Aptos Display",
-      "fontFamily": "Aptos Display"
-     },
-     {
-      "text": "التفاصيل",
-      "fontSizePt": 16,
-      "language": "ar-SA",
-      "color": "#156082",
-      "latinTypeface": "Aptos Display",
-      "complexScriptTypeface": "Times New Roman",
-      "fontFamily": "Times New Roman"
-     }
-    ],
-    "fontSizePt": 16,
-    "lineSpacing": 1.1583333333333334,
-    "spaceBeforePt": 8,
-    "spaceAfterPt": 4
-   },
-   {
-    "type": "paragraph",
-    "runs": [
-     {
-      "text": "The table below holds a heading-styled cell.",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "fontFamily": "Aptos"
-     }
-    ],
-    "direction": "ltr",
-    "fontSizePt": 12,
-    "lineSpacing": 1.1583333333333334,
-    "spaceAfterPt": 8
-   },
-   {
-    "type": "table",
-    "direction": "ltr",
-    "columns": [
-     3.25,
-     3.25
-    ],
-    "rows": [
-     {
-      "cells": [
-       {
-        "nodes": [
-         {
-          "type": "heading",
-          "level": 2,
-          "text": "In a table / في جدول",
-          "direction": "ltr",
-          "runs": [
-           {
-            "text": "In a table / ",
-            "fontSizePt": 16,
-            "language": "ar-SA",
-            "color": "#156082",
-            "latinTypeface": "Aptos Display",
-            "fontFamily": "Aptos Display"
-           },
-           {
-            "text": "في",
-            "fontSizePt": 16,
-            "language": "ar-SA",
-            "color": "#156082",
-            "latinTypeface": "Aptos Display",
-            "complexScriptTypeface": "Times New Roman",
-            "fontFamily": "Times New Roman"
-           },
-           {
-            "text": " ",
-            "fontSizePt": 16,
-            "language": "ar-SA",
-            "color": "#156082",
-            "latinTypeface": "Aptos Display",
-            "complexScriptTypeface": "Times New Roman",
-            "fontFamily": "Times New Roman"
-           },
-           {
-            "text": "جدول",
-            "fontSizePt": 16,
-            "language": "ar-SA",
-            "color": "#156082",
-            "latinTypeface": "Aptos Display",
-            "complexScriptTypeface": "Times New Roman",
-            "fontFamily": "Times New Roman"
-           }
-          ],
-          "fontSizePt": 16,
-          "lineSpacing": 1.1583333333333334,
-          "spaceBeforePt": 8,
-          "spaceAfterPt": 4
-         }
-        ],
-        "width": 3.25
-       },
-       {
-        "nodes": [
-         {
-          "type": "paragraph",
-          "runs": [
-           {
-            "text": "Plain cell / ",
-            "fontSizePt": 12,
-            "language": "ar-SA",
-            "latinTypeface": "Aptos",
-            "fontFamily": "Aptos"
-           },
-           {
-            "text": "خلية",
-            "fontSizePt": 12,
-            "language": "ar-SA",
-            "latinTypeface": "Aptos",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": " ",
-            "fontSizePt": 12,
-            "language": "ar-SA",
-            "latinTypeface": "Aptos",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           },
-           {
-            "text": "عادية",
-            "fontSizePt": 12,
-            "language": "ar-SA",
-            "latinTypeface": "Aptos",
-            "complexScriptTypeface": "Arial",
-            "fontFamily": "Arial"
-           }
-          ],
-          "direction": "ltr",
-          "fontSizePt": 12,
-          "lineSpacing": 1.1583333333333334,
-          "spaceAfterPt": 8
-         }
-        ],
-        "width": 3.25
-       }
-      ]
-     }
-    ],
-    "borders": {
-     "top": {
-      "color": "currentColor",
-      "widthPt": 0.5,
-      "spacePt": 0,
-      "style": "solid"
-     },
-     "left": {
-      "color": "currentColor",
-      "widthPt": 0.5,
-      "spacePt": 0,
-      "style": "solid"
-     },
-     "bottom": {
-      "color": "currentColor",
-      "widthPt": 0.5,
-      "spacePt": 0,
-      "style": "solid"
-     },
-     "right": {
-      "color": "currentColor",
-      "widthPt": 0.5,
-      "spacePt": 0,
-      "style": "solid"
-     },
-     "insideH": {
-      "color": "currentColor",
-      "widthPt": 0.5,
-      "spacePt": 0,
-      "style": "solid"
-     },
-     "insideV": {
-      "color": "currentColor",
-      "widthPt": 0.5,
-      "spacePt": 0,
-      "style": "solid"
-     }
-    },
-    "cellMargins": {
-     "top": 0,
-     "bottom": 0,
-     "left": 0.075,
-     "right": 0.075
-    }
-   },
-   {
-    "type": "paragraph",
-    "runs": [
-     {
-      "text": "Text after the table. ",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "fontFamily": "Aptos"
-     },
-     {
-      "text": "نص",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": " ",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "بعد",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": " ",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "الجدول",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": ".",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "fontFamily": "Aptos"
-     }
-    ],
-    "direction": "ltr",
-    "fontSizePt": 12,
-    "lineSpacing": 1.1583333333333334,
-    "spaceAfterPt": 8
-   },
-   {
-    "type": "pageBreak",
-    "strength": "mandatory"
-   },
-   {
-    "type": "heading",
-    "level": 1,
-    "text": "Closing / الخاتمة",
-    "direction": "ltr",
-    "runs": [
-     {
-      "text": "Closing / ",
-      "fontSizePt": 20,
-      "language": "ar-SA",
-      "color": "#156082",
-      "latinTypeface": "Aptos Display",
-      "fontFamily": "Aptos Display"
-     },
-     {
-      "text": "الخاتمة",
-      "fontSizePt": 20,
-      "language": "ar-SA",
-      "color": "#156082",
-      "latinTypeface": "Aptos Display",
-      "complexScriptTypeface": "Times New Roman",
-      "fontFamily": "Times New Roman"
-     }
-    ],
-    "fontSizePt": 20,
-    "lineSpacing": 1.1583333333333334,
-    "spaceBeforePt": 18,
-    "spaceAfterPt": 4
-   },
-   {
-    "type": "paragraph",
-    "runs": [
-     {
-      "text": "The last body paragraph. ",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "fontFamily": "Aptos"
-     },
-     {
-      "text": "الفقرة",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": " ",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": "الأخيرة",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "complexScriptTypeface": "Arial",
-      "fontFamily": "Arial"
-     },
-     {
-      "text": ".",
-      "fontSizePt": 12,
-      "language": "ar-SA",
-      "latinTypeface": "Aptos",
-      "fontFamily": "Aptos"
-     }
-    ],
-    "direction": "rtl",
-    "fontSizePt": 12,
-    "lineSpacing": 1.1583333333333334,
-    "spaceAfterPt": 8
-   }
-  ],
-  "header": [
-   {
-    "type": "heading",
-    "level": 1,
-    "text": "Header heading / عنوان الترويسة",
-    "direction": "ltr",
-    "runs": [
-     {
-      "text": "Header heading / ",
-      "fontSizePt": 20,
-      "language": "ar-SA",
-      "color": "#156082",
-      "latinTypeface": "Aptos Display",
-      "fontFamily": "Aptos Display"
-     },
-     {
-      "text": "عنوان",
-      "fontSizePt": 20,
-      "language": "ar-SA",
-      "color": "#156082",
-      "latinTypeface": "Aptos Display",
-      "complexScriptTypeface": "Times New Roman",
-      "fontFamily": "Times New Roman"
-     },
-     {
-      "text": " ",
-      "fontSizePt": 20,
-      "language": "ar-SA",
-      "color": "#156082",
-      "latinTypeface": "Aptos Display",
-      "complexScriptTypeface": "Times New Roman",
-      "fontFamily": "Times New Roman"
-     },
-     {
-      "text": "الترويسة",
-      "fontSizePt": 20,
-      "language": "ar-SA",
-      "color": "#156082",
-      "latinTypeface": "Aptos Display",
-      "complexScriptTypeface": "Times New Roman",
-      "fontFamily": "Times New Roman"
-     }
-    ],
-    "fontSizePt": 20,
-    "lineSpacing": 1.1583333333333334,
-    "spaceBeforePt": 18,
-    "spaceAfterPt": 4
-   }
-  ],
-  "title": "Introduction / مقدمة"
  }
 ]"
 `;

@@ -51,6 +51,7 @@
 import type {
   CellModel,
   CellRange,
+  RenderWarning,
   SheetChartModel,
   SheetDrawingModel,
   SheetModel,
@@ -84,6 +85,7 @@ import { appendChartPrimitive } from "../chart-svg.js";
 import { MediaUrls } from "../media-url.js";
 import { RenderHandleBase, fitScale, measureFitRoom, safeScale } from "../render-handle.js";
 import { MARK_FALLBACKS } from "../diagnostics.js";
+import { awaitDocumentFonts, fontFidelityWarnings } from "../font-fidelity.js";
 import { PX_PER_INCH, inchesToCss } from "../core/units.js";
 import { cssFontFamily } from "../core/typography.js";
 import { isInsideGrid } from "../core/xlsx/limits.js";
@@ -360,6 +362,8 @@ export interface XlsxRenderHandle extends EventTarget {
   destroy(): void;
   /** `true` once destroyed; every method is then a no-op that fires nothing. */
   readonly destroyed: boolean;
+  /** Non-fatal things this render noticed about its own output — currently font fidelity only. See `RenderWarning`. */
+  readonly warnings: readonly RenderWarning[];
   /**
    * Change zoom: a number scales the grid (default `1`); `fit-width` scales
    * the sheet's used columns to the container's width and `fit-page` also
@@ -410,6 +414,12 @@ const HEADER_COL_WIDTH_PX = 40;
 const FILL_COLUMN_WIDTH_PX = 64;
 /** A fill sliver thinner than this is skipped; the cap bounds a huge viewport. */
 const FILL_MIN_TRACK_PX = 6;
+/**
+ * Below this visible room a clipped sheet is not given its own scroll box:
+ * a box too short for the column letters and a few rows is worse than
+ * letting the container scroll the sheet.
+ */
+const MIN_SCROLL_ROOM_PX = 120;
 /** Below this height a fill row is too short to show its row number. */
 const FILL_ROW_TEXT_PX = 16;
 const FILL_MAX_TRACKS = 500;
@@ -1013,7 +1023,7 @@ function paintSheet(
   // external room walks ancestors, so both are reused while the scroller's
   // metrics hold. Cleared by the resize observer and the window resize
   // listener, which are the only ways the room can change unnoticed.
-  let viewportCache: { unbounded: boolean; roomH: number; clientH: number; scrollH: number } | null = null;
+  let viewportCache: { unbounded: boolean; roomH: number; clipped: boolean; clientH: number; scrollH: number } | null = null;
   let observedClipper: Element | null = null;
   /** The CSS zoom on `host` (see `setScale`): outer room divides by it to land in host pixels. */
   let scale = 1;
@@ -1103,13 +1113,15 @@ function paintSheet(
    */
   const syncViewport = (): { fillH: number; windowH: number; windowW: number } => {
     scroller.style.minHeight = "";
-    if (!paint.fillViewport) {
-      return {
-        fillH: 0,
-        windowH: scroller.clientHeight === 0 ? 600 : scroller.clientHeight,
-        windowW: scroller.clientWidth,
-      };
-    }
+    // A cap already in effect would mask a real size change below it from
+    // the dirty check — a caller growing the scroller to measure the
+    // sheet's natural size, as the print-capture harness does, reads as
+    // unchanged otherwise. Lift it before measuring, only when one is
+    // actually set (the common bounded-viewer case never sets one, so this
+    // never costs it an extra layout); the scroll position survives either way.
+    const priorCap = scroller.style.maxHeight;
+    const { scrollTop, scrollLeft } = scroller;
+    if (priorCap !== "") scroller.style.maxHeight = "";
     const clientH = scroller.clientHeight;
     const scrollH = scroller.scrollHeight;
     let cached = viewportCache;
@@ -1125,20 +1137,32 @@ function paintSheet(
         observedClipper = clipper;
         if (clipper !== null) resizer.observe(clipper);
       }
-      cached = { unbounded, roomH, clientH, scrollH };
+      cached = { unbounded, roomH, clipped: clipper !== null, clientH, scrollH };
       viewportCache = cached;
     }
     // The external room is outer (unzoomed) space; everything it is compared
     // with lives inside the zoomed host, so it is converted into host pixels.
     const roomH = cached.roomH / scale;
-    if (cached.unbounded && roomH > clientH) {
+    // A content-sized sheet inside a clipping container (a card, a viewer
+    // frame) scrolls itself within the visible room, as Excel's grid does:
+    // otherwise the container scrolls the whole sheet, frozen rows and
+    // column letters scroll away with it, and the horizontal scrollbar sits
+    // at the sheet's far bottom. With no clipping container the page scrolls
+    // the sheet, as before.
+    const capPx = cached.unbounded && cached.clipped && roomH >= MIN_SCROLL_ROOM_PX ? `${Math.floor(roomH)}px` : "";
+    if (scroller.style.maxHeight !== capPx) scroller.style.maxHeight = capPx;
+    if (priorCap !== "") {
+      scroller.scrollTop = scrollTop;
+      scroller.scrollLeft = scrollLeft;
+    }
+    if (paint.fillViewport && cached.unbounded && roomH > clientH) {
       const floor = `${Math.floor(roomH)}px`;
       if (scroller.style.minHeight !== floor) scroller.style.minHeight = floor;
     }
     const windowW = scroller.clientWidth;
     const boxH = scroller.clientHeight;
     return {
-      fillH: cached.unbounded ? roomH : clientH,
+      fillH: !paint.fillViewport ? 0 : cached.unbounded ? roomH : clientH,
       windowH: boxH === 0 ? 600 : boxH,
       windowW,
     };
@@ -1341,6 +1365,13 @@ function paintSheet(
       number.setAttribute("role", "rowheader");
       number.textContent = String(row + 1);
       paintHeading(number, "row");
+      if (frozenRowSet.has(row)) {
+        // A frozen row's number pins with its row, as in Excel. Above the
+        // scrolling row numbers that pass beneath it (same column, later in
+        // the DOM); the corner and column letters never overlap it.
+        number.style.top = `${geometry.frozenRowOffset.get(row) ?? 0}px`;
+        number.style.zIndex = "5";
+      }
       line.append(number);
     }
     const entries = cellsByRow.get(row);
@@ -2440,5 +2471,10 @@ export async function render(input: XlsxRenderInput): Promise<XlsxRenderHandle> 
   } else {
     model = requested;
   }
-  return new XlsxViewer(input.target, model, handle, mediaResolver, input.appearance, input.zoom ?? 1);
+  const viewer = new XlsxViewer(input.target, model, handle, mediaResolver, input.appearance, input.zoom ?? 1);
+  // As in PPTX and DOCX: which fonts painted can only be read once they have
+  // arrived (a delivered face loads only when text needs it), so the warnings wait, bounded.
+  await awaitDocumentFonts(model);
+  if (!viewer.destroyed) viewer.setWarnings(fontFidelityWarnings(model));
+  return viewer;
 }

@@ -10,7 +10,7 @@
 
 import { getEntryData, readEntries } from "./zip.js";
 import type { ZipEntry } from "./zip.js";
-import { AaredError, throwIfAborted } from "./errors.js";
+import { AaredError, damagedDocument, throwIfAborted } from "./errors.js";
 import { attr, childElements, firstChild, parseXml, textContent } from "./xml.js";
 import type { XmlElement, XmlStreamOptions } from "./xml.js";
 
@@ -86,7 +86,7 @@ function normalize(name: string): string {
 }
 
 function parseContentTypes(root: XmlElement): { defaults: Map<string, string>; overrides: Map<string, string> } {
-  if (root.local !== "Types") throw new Error('aared/core: [Content_Types].xml root must be <Types>');
+  if (root.local !== "Types") throw damagedDocument("[Content_Types].xml root must be <Types>");
   const defaults = new Map<string, string>();
   const overrides = new Map<string, string>();
   for (const child of root.children) {
@@ -104,7 +104,7 @@ function parseContentTypes(root: XmlElement): { defaults: Map<string, string>; o
 }
 
 function parseRelationships(root: XmlElement): OpcRelationship[] {
-  if (root.local !== "Relationships") throw new Error("aared/core: rels root must be <Relationships>");
+  if (root.local !== "Relationships") throw damagedDocument("rels root must be <Relationships>");
   const out: OpcRelationship[] = [];
   for (const child of childElements(root, "Relationship")) {
     const id = attr(child, "Id");
@@ -174,7 +174,8 @@ export class OpcPackage {
       map.set(e.name, e);
     }
     const ct = map.get("[Content_Types].xml");
-    if (ct === undefined) throw new Error("aared/core: missing [Content_Types].xml; not an Office document");
+    // A ZIP with no content types is not an Office file at all: nothing to repair.
+    if (ct === undefined) throw new AaredError("invalid-document", "aared/core: missing [Content_Types].xml; not an Office document");
     const bytes = await getEntryData(data, ct, signal);
     throwIfAborted(signal);
     const xml = utf8.decode(bytes);
@@ -208,7 +209,7 @@ export class OpcPackage {
   private async readShared(name: string, signal?: AbortSignal): Promise<Uint8Array> {
     throwIfAborted(signal);
     const entry = this.entries.get(normalize(name));
-    if (entry === undefined) throw new Error(`aared/core: part "${name}" not found in package`);
+    if (entry === undefined) throw damagedDocument(`part "${name}" not found in package`);
     const bytes = await getEntryData(this.data, entry, signal);
     throwIfAborted(signal);
     return bytes;
@@ -247,10 +248,10 @@ export class OpcPackage {
     const relationships = await this.packageRelationships(signal);
     const office = relationships.find((relationship) => relationship.type.endsWith("/officeDocument"));
     if (office === undefined || office.targetMode === "External") {
-      throw new Error(`aared/core: ${format.toUpperCase()} has no internal officeDocument relationship`);
+      throw damagedDocument(`${format.toUpperCase()} has no internal officeDocument relationship`);
     }
     if (officeFormatOf(this.contentTypeOf(office.target)) !== format) {
-      throw new Error(`aared/core: package is not ${FORMAT_NOUN[format]}`);
+      throw new AaredError("invalid-document", `aared/core: package is not ${FORMAT_NOUN[format]}`);
     }
     return office.target;
   }

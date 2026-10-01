@@ -22,7 +22,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
-import { isAbort } from "../core/index.js";
+import { AaredError, isAbort } from "../core/index.js";
 import type { Appearance, DocumentFormat, DocumentInfo, Source, ZoomValue } from "../core/index.js";
 import type { DocxInfo } from "../docx/index.js";
 import type { PptxInfo } from "../pptx/index.js";
@@ -66,10 +66,21 @@ export interface UsePreviewResult {
   index: number;
   /** Active zoom, mirrored from `zoomchange`. */
   zoom: ZoomValue;
-  /** Rejection once `status` is `"error"`; aborted mounts never land here. */
+  /** Rejection once `status` is `"error"` (the mount failed); aborted mounts never land here. */
   error: unknown;
-  /** Render another unit; resolves when painted. Silent no-op before
-   * anything is mounted. Out-of-range indexes reject with `not-found`. */
+  /**
+   * The last failed navigation, or `null`: whatever the mounted handle
+   * reported through its `error` event, so `goTo()` here, `viewer.goTo()` and
+   * moves inside the unit (`viewer.xlsx.goToCell`, `viewer.docx.goToHeading`,
+   * ...) all land. The mount stays `"ready"` and what is on screen stays, so a
+   * host can say "that could not be shown" without losing the view. Cleared
+   * when the unit changes and on every mount; a cancelled or overtaken call
+   * never lands here.
+   */
+  navigationError: unknown;
+  /** Render another unit; resolves when painted. Out-of-range indexes reject
+   * with `not-found`, and any failure also lands in `navigationError`. Before
+   * the viewer has mounted it rejects with `closed`. */
   goTo: (index: number) => Promise<void>;
   /** Change zoom; silent no-op before anything is mounted. */
   setZoom: (zoom: ZoomValue) => void;
@@ -112,6 +123,7 @@ export function usePreview({
   const [unitIndex, setUnitIndex] = useState<number>(initialIndex);
   const [zoom, setZoomValue] = useState<ZoomValue>(initialZoom ?? "fit-width");
   const [error, setError] = useState<unknown>(null);
+  const [navigationError, setNavigationError] = useState<unknown>(null);
   const [nonce, setNonce] = useState(0);
 
   // Plain-data mount options are keyed by value so inline literals
@@ -158,6 +170,7 @@ export function usePreview({
     setFormat(null);
     setInfo(null);
     setError(null);
+    setNavigationError(null);
     setUnitIndex(initialIndex);
     setZoomValue(initialZoom ?? "fit-width");
     const workerInit = workerRef.current;
@@ -179,11 +192,22 @@ export function usePreview({
         }
         handle = next;
         viewerRef.current = next;
-        const onIndex = (): void => setUnitIndex(next.index);
+        // A unit change clears a failed navigation; the handle's `error` event
+        // reports one, whoever called `goTo()` (this hook, or `viewer.goTo()`).
+        const onIndex = (): void => {
+          setUnitIndex(next.index);
+          setNavigationError(null);
+        };
         const onZoom = (): void => setZoomValue(next.zoom);
+        const onError = (event: Event): void => setNavigationError((event as CustomEvent<{ cause: unknown }>).detail.cause);
         next.addEventListener("indexchange", onIndex);
         next.addEventListener("zoomchange", onZoom);
-        attached.push({ type: "indexchange", listener: onIndex }, { type: "zoomchange", listener: onZoom });
+        next.addEventListener("error", onError);
+        attached.push(
+          { type: "indexchange", listener: onIndex },
+          { type: "zoomchange", listener: onZoom },
+          { type: "error", listener: onError as () => void },
+        );
         setViewer(next);
         setFormat(next.format);
         setInfo(next.info);
@@ -225,7 +249,9 @@ export function usePreview({
 
   const goTo = useCallback((index: number): Promise<void> => {
     const current = viewerRef.current;
-    if (current === null) return Promise.resolve();
+    if (current === null) {
+      return Promise.reject(new AaredError("invalid-state", 'aared/react: goTo() was called before the viewer mounted; wait for status "ready"'));
+    }
     return current.goTo(index);
   }, []);
 
@@ -241,7 +267,7 @@ export function usePreview({
     setNonce((n) => n + 1);
   }, []);
 
-  return { ref: hostRef, status, viewer, format, info, index: unitIndex, zoom, error, goTo, setZoom, setAppearance, retry };
+  return { ref: hostRef, status, viewer, format, info, index: unitIndex, zoom, error, navigationError, goTo, setZoom, setAppearance, retry };
 }
 
 /**

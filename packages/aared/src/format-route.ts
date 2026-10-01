@@ -9,6 +9,7 @@
  * consumer of one format never loads the other two.
  */
 
+import { AaredError } from "./core/index.js";
 import type { Appearance, DocumentFormat, OpenOptions, UnitRef, ZoomValue } from "./core/index.js";
 import type { DocxDocument } from "./docx/index.js";
 import type { PptxDocument } from "./pptx/index.js";
@@ -41,6 +42,17 @@ export async function openFormat(format: DocumentFormat, bytes: ArrayBuffer, opt
   if (format === "pptx") return (await import("./pptx/index.js")).open(bytes, options);
   if (format === "xlsx") return (await import("./xlsx/index.js")).open(bytes, options);
   return (await import("./docx/index.js")).open(bytes, options);
+}
+
+/**
+ * A facade never shows a document with nothing in it: zero slides, sheets or
+ * sections is `invalid-document` in the facade's scope. Shared so the element
+ * and `preview()` cannot drift apart.
+ */
+export function assertHasUnits(scope: string, document: AnyDocument): void {
+  if (document.info.count === 0) {
+    throw new AaredError("invalid-document", `${scope}: this document has no slides, sheets, or sections to show`);
+  }
 }
 
 /** The unit reference (`{ index, title }`) for `index` in `document`. */

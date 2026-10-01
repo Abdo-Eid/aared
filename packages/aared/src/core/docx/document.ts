@@ -5,8 +5,8 @@
  *
  * Coverage: style + numbering inheritance, bidirectional paragraphs
  * (mixed Arabic/Latin runs in one paragraph), heading outline, tables
- * (logical order, `tblBidiVisual`, spans, shading), lists (bullet + ordered,
- * nested levels), inline images and basic `wp:anchor` floats, footnotes and
+ * (logical order, `bidiVisual`, spans, shading), lists (bullet + ordered,
+ * nested levels), inline images and `wp:anchor` pictures with full placement, footnotes and
  * endnotes, tracked-changes-as-final (`w:ins` kept, `w:del`/`w:moveFrom`
  * dropped), per-section headers/footers, page geometry (`w:pgSz`/`w:pgMar`),
  * explicit page breaks and soft `w:lastRenderedPageBreak` hints.
@@ -25,12 +25,14 @@ import type { OpcPackage } from "../opc.js";
 import { parseHexDigits, toHexColor } from "../color.js";
 import { runsText } from "../search.js";
 import { readDrawingTheme, themeFontFamily } from "../theme.js";
-import { usesArabic } from "../typography.js";
+import { isLtrRunInRtl, usesArabic } from "../typography.js";
 import type { DrawingTheme } from "../theme.js";
-import { throwIfAborted } from "../errors.js";
+import { damagedDocument, throwIfAborted } from "../errors.js";
 import { TWIPS_PER_PT, emuToInches, ptToInches, twipsToInches } from "../units.js";
 import type {
+  DocxAnchorPosition,
   DocxHeadingNode,
+  DocxImageAnchor,
   DocxImageNode,
   DocxListItemNode,
   DocxPageBreakNode,
@@ -58,6 +60,7 @@ import type { StyleData } from "./styles.js";
 import { isOrderedFormat, markerFor, parseNumbering, startFor } from "./numbering.js";
 import type { NumberingData, NumberingLevel } from "./numbering.js";
 import { parseNotes } from "./footnotes.js";
+import { symbolFontStandIn } from "../symbol-fonts.js";
 
 /** `w:spacing/@w:line` value of a single line (240 twentieths of a line). */
 const SINGLE_LINE = 240;
@@ -288,8 +291,12 @@ interface ResolvedParaProps {
   fontSizePt?: number;
   spaceBeforePt?: number;
   spaceAfterPt?: number;
+  /** `w:beforeLines`/`w:afterLines` in lines, inherited apart from the points (see `paragraphSpacePt`). */
+  spaceBeforeLines?: number;
+  spaceAfterLines?: number;
   lineSpacing?: number;
   lineSpacingPt?: number;
+  lineSpacingAtLeast?: true;
   leftIndent?: number;
   rightIndent?: number;
   firstLineIndent?: number;
@@ -298,6 +305,7 @@ interface ResolvedParaProps {
   ilvl?: number;
   shading?: string;
   pageBreakBefore?: boolean;
+  keepNext?: boolean;
   borders?: DocxParagraphBorders;
   /** Tab stops merged through docDefaults → style chain → direct formatting. */
   tabs?: DocxTabStop[];
@@ -349,19 +357,37 @@ function readParaProps(pPr: XmlElement | undefined, out: ResolvedParaProps): voi
       case "bidi":
         out.bidi = onOffValue(attr(child, "val"));
         break;
+      case "keepNext":
+        out.keepNext = onOffValue(attr(child, "val"));
+        break;
       case "spacing": {
         const before = numberAttr(child, "before", "w:spacing");
         const after = numberAttr(child, "after", "w:spacing");
+        const beforeLines = numberAttr(child, "beforeLines", "w:spacing");
+        const afterLines = numberAttr(child, "afterLines", "w:spacing");
         const line = numberAttr(child, "line", "w:spacing");
         if (before !== undefined) out.spaceBeforePt = before / TWIPS_PER_PT;
         if (after !== undefined) out.spaceAfterPt = after / TWIPS_PER_PT;
+        if (beforeLines !== undefined) out.spaceBeforeLines = beforeLines / 100;
+        if (afterLines !== undefined) out.spaceAfterLines = afterLines / 100;
         if (line !== undefined) {
           // `w:lineRule="auto"` (or absent) is a 240ths multiplier;
           // `exact`/`atLeast` are twips. The authored value is preserved in
-          // the model; the renderer clamps its CSS box (see HANDOFF).
+          // the model; the renderer clamps its CSS box (ARCHITECTURE § Format
+          // rules: line-box clipping is a metrics defect). Each
+          // level replaces the inherited rule outright: a style's multiple
+          // over an exact docDefault is a multiple, not both.
           const rule = attr(child, "lineRule") ?? "auto";
-          if (rule === "auto") out.lineSpacing = line / SINGLE_LINE;
-          else out.lineSpacingPt = line / TWIPS_PER_PT;
+          if (rule === "auto") {
+            out.lineSpacing = line / SINGLE_LINE;
+            delete out.lineSpacingPt;
+            delete out.lineSpacingAtLeast;
+          } else {
+            out.lineSpacingPt = line / TWIPS_PER_PT;
+            delete out.lineSpacing;
+            if (rule === "atLeast") out.lineSpacingAtLeast = true;
+            else delete out.lineSpacingAtLeast;
+          }
         }
         break;
       }
@@ -465,6 +491,8 @@ export interface DocxIndex {
   relTargets: Map<string, string>;
   /** External hyperlink targets: `r:id` → URL. */
   hyperlinks: Map<string, string>;
+  /** Word lays the document out as 2013 or later (see `wordLayoutShrinksSpaces`). */
+  justifyShrinks: boolean;
   /**
    * The document title from its core properties, if it sets one — the label
    * of DOCX's single unit. The heading outline is not an index concern: it
@@ -485,6 +513,7 @@ interface ParseContext {
   footnoteLabels: Map<string, string>;
   footnoteOrder: string[];
   counters: Map<string, number[]>;
+  justifyShrinks: boolean;
   signal?: AbortSignal;
 }
 
@@ -506,6 +535,7 @@ function partContext(
     footnoteLabels: new Map(),
     footnoteOrder: [],
     counters: new Map(),
+    justifyShrinks: index.justifyShrinks,
     ...(signal === undefined ? {} : { signal }),
   };
 }
@@ -544,6 +574,7 @@ export async function indexDocx(pkg: OpcPackage, signal?: AbortSignal): Promise<
   let numberingPart: string | undefined;
   let footnotesPart: string | undefined;
   let endnotesPart: string | undefined;
+  let settingsPart: string | undefined;
   for (const relationship of relationships) {
     throwIfAborted(signal);
     if (relationship.targetMode === "External") {
@@ -555,6 +586,7 @@ export async function indexDocx(pkg: OpcPackage, signal?: AbortSignal): Promise<
     else if (relationship.type.endsWith("/numbering")) numberingPart = relationship.target;
     else if (relationship.type.endsWith("/footnotes")) footnotesPart = relationship.target;
     else if (relationship.type.endsWith("/endnotes")) endnotesPart = relationship.target;
+    else if (relationship.type.endsWith("/settings")) settingsPart = relationship.target;
   }
 
   const styles = parseStyles(
@@ -567,6 +599,10 @@ export async function indexDocx(pkg: OpcPackage, signal?: AbortSignal): Promise<
   );
   const theme = await readDrawingTheme(pkg, signal);
   throwIfAborted(signal);
+  const justifyShrinks = wordLayoutShrinksSpaces(
+    settingsPart === undefined ? undefined : await pkg.readXmlIfPresent(settingsPart, signal),
+  );
+  throwIfAborted(signal);
   const title = await pkg.coreTitle(signal);
   throwIfAborted(signal);
   return {
@@ -577,8 +613,31 @@ export async function indexDocx(pkg: OpcPackage, signal?: AbortSignal): Promise<
     theme,
     relTargets,
     hyperlinks,
+    justifyShrinks,
     title: title === undefined ? undefined : ownString(title),
   };
+}
+
+/** `w:compatibilityMode` of Word 2013, the layout that shrinks justified spaces. */
+const WORD_2013_MODE = 15;
+
+/**
+ * Whether Word lays this document out with its 2013 engine, which fits one
+ * more word on a justified line by taking back part of each space (probe
+ * docx-justify: up to about a quarter of a space, and about a third of the
+ * word it fits; none left-aligned, none in Word 2010 mode). The mode is
+ * `w:compat/w:compatSetting[@w:name="compatibilityMode"]`; a document
+ * without it predates 2013.
+ */
+function wordLayoutShrinksSpaces(settings: XmlElement | undefined): boolean {
+  const compat = settings === undefined ? undefined : firstChild(settings, "compat");
+  if (compat === undefined) return false;
+  for (const setting of childElements(compat, "compatSetting")) {
+    if (attr(setting, "name") !== "compatibilityMode") continue;
+    const mode = Number(attr(setting, "val"));
+    return Number.isFinite(mode) && mode >= WORD_2013_MODE;
+  }
+  return false;
 }
 
 /** Footnote and endnote entries by `f`/`e`-prefixed id (separators excluded), for one section parse. */
@@ -600,6 +659,8 @@ type BlockDraft = { node: FlowNode } | { listItem: { numId: string; ilvl: number
 interface RunDraft {
   runs: TextRunModel[];
   blocks: Array<DocxImageNode | DocxUnsupportedNode>;
+  /** Pictures anchored (`wp:anchor`) in the run: they belong to the paragraph, not to a position in its text. */
+  floats: DocxImageNode[];
   /**
    * Pagination signals seen anywhere in the run. They split the paragraph at
    * the run boundary (a break mid-run with text on both sides is vanishingly
@@ -711,14 +772,6 @@ function parseDrawing(drawing: XmlElement, ctx: ParseContext): DocxImageNode | D
   const embed = blip === undefined ? undefined : attr(blip, "embed");
   const target = embed === undefined ? undefined : ctx.relTargets.get(embed);
   if (target === undefined) return { type: "unsupported", source: "drawing", label: alt ?? "Drawing" };
-  let float: DocxImageNode["float"];
-  if (anchor !== undefined) {
-    const positionH = firstChild(anchor, "positionH");
-    const align = positionH === undefined ? undefined : firstChild(positionH, "align");
-    const side = align === undefined ? undefined : attr(align, "val") ?? align.text;
-    if (side === "left") float = "left";
-    else if (side === "right") float = "right";
-  }
   return {
     type: "image",
     mediaId: target,
@@ -726,8 +779,67 @@ function parseDrawing(drawing: XmlElement, ctx: ParseContext): DocxImageNode | D
     width: emuToInches(widthEmu),
     height: emuToInches(heightEmu),
     ...(alt === undefined ? {} : { alt }),
-    ...(float === undefined ? {} : { float }),
+    ...(anchor === undefined ? {} : { anchor: parseAnchor(anchor) }),
   };
+}
+
+const ANCHOR_WRAPS = {
+  wrapSquare: "square",
+  wrapTight: "tight",
+  wrapThrough: "through",
+  wrapTopAndBottom: "topAndBottom",
+  wrapNone: "none",
+} as const;
+
+/** Word's wrapping polygons live in a square of this many units on each side. */
+const WRAP_POLYGON_UNITS = 21600;
+
+function anchorPosition<Align extends string>(position: XmlElement | undefined, aligns: readonly Align[]): DocxAnchorPosition<Align> {
+  const out: DocxAnchorPosition<Align> = { from: (position === undefined ? undefined : attr(position, "relativeFrom")) ?? "column" };
+  const align = position === undefined ? undefined : firstChild(position, "align");
+  const alignment = align === undefined ? undefined : (attr(align, "val") ?? align.text).trim();
+  if (alignment !== undefined && (aligns as readonly string[]).includes(alignment)) out.align = alignment as Align;
+  const offset = position === undefined ? undefined : firstChild(position, "posOffset");
+  const emu = offset === undefined ? Number.NaN : Number(offset.text.trim());
+  if (Number.isFinite(emu)) out.offset = emuToInches(emu);
+  return out;
+}
+
+/**
+ * A picture's placement from its `wp:anchor` (ECMA-376 20.4.2.3): exactly one
+ * wrap element, a horizontal and a vertical position, the text distances
+ * (Word writes them on the anchor; a wrap element may state its own), and for
+ * tight and through wrapping the polygon in Word's 21600-unit square. Ground
+ * truth: the anchors Word saves for each wrapping case (probe docx-float-wrap).
+ */
+function parseAnchor(anchor: XmlElement): DocxImageAnchor {
+  const wrapName = Object.keys(ANCHOR_WRAPS).find((name) => firstChild(anchor, name) !== undefined) as keyof typeof ANCHOR_WRAPS | undefined;
+  const wrapElement = wrapName === undefined ? undefined : firstChild(anchor, wrapName);
+  const distance = (name: "distT" | "distB" | "distL" | "distR"): number => {
+    const own = wrapElement === undefined ? undefined : numberAttr(wrapElement, name, `wp:${wrapName}`);
+    return emuToInches(own ?? numberAttr(anchor, name, "wp:anchor") ?? 0);
+  };
+  const wrapText = wrapElement === undefined ? undefined : attr(wrapElement, "wrapText");
+  const out: DocxImageAnchor = {
+    wrap: wrapName === undefined ? "none" : ANCHOR_WRAPS[wrapName],
+    behind: ["1", "true"].includes(attr(anchor, "behindDoc") ?? ""),
+    wrapText: wrapText === "left" || wrapText === "right" || wrapText === "largest" ? wrapText : "bothSides",
+    horizontal: anchorPosition(firstChild(anchor, "positionH"), ["left", "center", "right", "inside", "outside"] as const),
+    vertical: anchorPosition(firstChild(anchor, "positionV"), ["top", "center", "bottom", "inside", "outside"] as const),
+    distance: { top: distance("distT"), bottom: distance("distB"), left: distance("distL"), right: distance("distR") },
+  };
+  const polygon = wrapElement === undefined ? undefined : firstChild(wrapElement, "wrapPolygon");
+  if (polygon !== undefined && (wrapName === "wrapTight" || wrapName === "wrapThrough")) {
+    const points: Array<[number, number]> = [];
+    for (const point of polygon.children) {
+      if (point.local !== "start" && point.local !== "lineTo") continue;
+      const x = Number(attr(point, "x"));
+      const y = Number(attr(point, "y"));
+      if (Number.isFinite(x) && Number.isFinite(y)) points.push([x / WRAP_POLYGON_UNITS, y / WRAP_POLYGON_UNITS]);
+    }
+    if (points.length >= 3) out.polygon = points;
+  }
+  return out;
 }
 
 function parseVmlPicture(pict: XmlElement, ctx: ParseContext): DocxImageNode | DocxUnsupportedNode | undefined {
@@ -837,10 +949,16 @@ function parseRunContent(
         flush();
         const image = parseDrawing(child, ctx);
         if (image === undefined) break;
+        // An anchored picture is placed relative to its paragraph and never
+        // splits the text it sits in.
+        if (image.type === "image" && image.anchor !== undefined) {
+          draft.floats.push(image);
+          break;
+        }
         // A picture in a paragraph that also carries text stays on that line
         // (a header logo beside its wordmark); a picture-only paragraph keeps
         // the block image with its host alignment.
-        if (image.type === "image" && image.float === undefined && paragraphText.trim() !== "" && firstChild(child, "inline") !== undefined) {
+        if (image.type === "image" && paragraphText.trim() !== "" && firstChild(child, "inline") !== undefined) {
           draft.runs.push({
             text: "",
             image: {
@@ -906,9 +1024,10 @@ function parseRunContent(
         break;
       }
       case "lastRenderedPageBreak":
-        // Stale Word layout hint: a preferred (not mandatory) split point.
+        // Stale Word layout hint: "a page began here last time Word laid this
+        // out". Only meaningful before any text; `emitDraft` decides.
         flush();
-        draft.softBreak = true;
+        if (draft.runs.length === 0) draft.softBreak = true;
         break;
       case "instrText": {
         // Layout pagination substitutes the real PAGE/NUMPAGES per page; static
@@ -975,38 +1094,73 @@ function emitDraft(
   draft: RunDraft,
   runs: TextRunModel[],
   pieces: FlowNode[],
+  floats: DocxImageNode[],
   flushRuns: () => void,
   align: TextAlign | undefined,
 ): void {
+  // A rendered-page-break hint is a preferred break *before* the paragraph,
+  // and only when no text of the paragraph precedes it: mid-paragraph it is
+  // Word's line-level layout cache and must never split the text.
+  if (draft.softBreak && !draft.pageBreak && runs.length === 0 && pieces.length === 0) {
+    pieces.push(pageBreakNode("preferred"));
+  }
   runs.push(...draft.runs);
+  floats.push(...draft.floats);
   for (const block of draft.blocks) {
     // Inline images inherit the host paragraph's alignment (a centered
-    // source paragraph centers its image); floats ignore it, as in Word.
-    if (block.type === "image" && block.float === undefined && align !== undefined) block.align = align;
+    // source paragraph centers its image); anchored ones never reach here.
+    if (block.type === "image" && align !== undefined) block.align = align;
     flushRuns();
     pieces.push(block);
   }
-  if (draft.pageBreak || draft.softBreak) {
+  if (draft.pageBreak) {
     flushRuns();
-    pieces.push(pageBreakNode(draft.pageBreak ? "mandatory" : "preferred"));
+    pieces.push(pageBreakNode("mandatory"));
   }
 }
 
-function layoutFor(props: ResolvedParaProps, direction: TextDirection): DocxParagraphLayout {
+/**
+ * The line `w:beforeLines`/`w:afterLines` count in: always 12pt, whatever the
+ * font, size, script or line spacing. With a line grid on
+ * (`w:docGrid w:type="lines"`) Word counts the grid pitch instead, but aared
+ * has no line grid, so 12pt stands there too. Ground truth: Word's own PDF
+ * export (probe `line-spacing-units`).
+ */
+const SPACING_LINE_PT = 12;
+
+/**
+ * Space before or after a paragraph. The line value and the point value
+ * inherit separately through docDefaults, styles and direct formatting; a line
+ * value above zero wins, even over the paragraph's own points, and zero means
+ * "in points". Ground truth: Word reading hand-edited XML (probe
+ * `line-spacing-units`) — a style's 1 line beat a paragraph's own 6pt,
+ * `beforeLines="0" before="120"` painted 6pt, and `beforeLines="50"` alone 6pt.
+ * Word itself always saves both, so its own files agree either way.
+ */
+function paragraphSpacePt(lines: number | undefined, points: number | undefined): number | undefined {
+  return lines !== undefined && lines > 0 ? lines * SPACING_LINE_PT : points;
+}
+
+function layoutFor(props: ResolvedParaProps, direction: TextDirection, justifyShrinks: boolean): DocxParagraphLayout {
   const layout: DocxParagraphLayout = {};
   if (props.fontSizePt !== undefined) layout.fontSizePt = props.fontSizePt;
   const align = alignFor(props.jc, direction);
   if (align !== undefined) layout.align = align;
+  if (align === "justify" && justifyShrinks) layout.justifyShrink = true;
   if (props.lineSpacing !== undefined) layout.lineSpacing = props.lineSpacing;
   if (props.lineSpacingPt !== undefined) layout.lineSpacingPt = props.lineSpacingPt;
-  if (props.spaceBeforePt !== undefined) layout.spaceBeforePt = props.spaceBeforePt;
-  if (props.spaceAfterPt !== undefined) layout.spaceAfterPt = props.spaceAfterPt;
+  if (props.lineSpacingAtLeast === true) layout.lineSpacingAtLeast = true;
+  const spaceBeforePt = paragraphSpacePt(props.spaceBeforeLines, props.spaceBeforePt);
+  const spaceAfterPt = paragraphSpacePt(props.spaceAfterLines, props.spaceAfterPt);
+  if (spaceBeforePt !== undefined) layout.spaceBeforePt = spaceBeforePt;
+  if (spaceAfterPt !== undefined) layout.spaceAfterPt = spaceAfterPt;
   if (props.leftIndent !== undefined) layout.leftIndent = props.leftIndent;
   if (props.rightIndent !== undefined) layout.rightIndent = props.rightIndent;
   if (props.firstLineIndent !== undefined) layout.firstLineIndent = props.firstLineIndent;
   if (props.shading !== undefined) layout.shading = props.shading;
   if (props.borders !== undefined && Object.keys(props.borders).length > 0) layout.borders = props.borders;
   if (props.tabs !== undefined && props.tabs.length > 0) layout.tabStops = props.tabs;
+  if (props.keepNext === true) layout.keepNext = true;
   return layout;
 }
 
@@ -1018,9 +1172,11 @@ function layoutFor(props: ResolvedParaProps, direction: TextDirection): DocxPara
 const LAYOUT_FIELDS: Record<keyof DocxParagraphLayout, true> = {
   fontSizePt: true,
   align: true,
+  justifyShrink: true,
   tabStops: true,
   lineSpacing: true,
   lineSpacingPt: true,
+  lineSpacingAtLeast: true,
   spaceBeforePt: true,
   spaceAfterPt: true,
   leftIndent: true,
@@ -1028,6 +1184,7 @@ const LAYOUT_FIELDS: Record<keyof DocxParagraphLayout, true> = {
   firstLineIndent: true,
   shading: true,
   borders: true,
+  keepNext: true,
 };
 const LAYOUT_KEYS = Object.keys(LAYOUT_FIELDS) as Array<keyof DocxParagraphLayout>;
 
@@ -1040,27 +1197,24 @@ function layoutOf(node: DocxParagraphLayout): DocxParagraphLayout {
 
 /**
  * A paragraph's effective properties. Precedence: docDefaults < style chain
- * (base first) < direct formatting; tab stops accumulate across all three.
+ * (base first) < direct formatting, each level read over the one before, so
+ * direct formatting follows the same rules as a style: tab stops accumulate
+ * (a `clear` removes an inherited one), border sides compose, and a
+ * `w:spacing` line rule replaces the inherited one.
  */
 function resolveParaProps(
   styles: StyleData,
   directPPr: XmlElement | undefined,
   defaultStyleId?: string,
 ): { merged: ResolvedParaProps; styleId: string | undefined } {
-  const directProps: ResolvedParaProps = {};
-  readParaProps(directPPr, directProps);
-  const styleId = directProps.styleId ?? defaultStyleId;
+  const directStyle = directPPr === undefined ? undefined : firstChild(directPPr, "pStyle");
+  // A paragraph naming no style takes the caller's (a table style's), else the
+  // document's default paragraph style (`Normal`), as Word does.
+  const styleId = (directStyle === undefined ? undefined : attr(directStyle, "val")) ?? defaultStyleId ?? styles.defaultParagraphStyleId;
   const merged: ResolvedParaProps = {};
   if (styles.defaultPPr !== undefined) readParaProps(styles.defaultPPr, merged);
   for (const style of paragraphAncestry(styles, styleId)) readParaProps(style.pPr, merged);
-  for (const [key, value] of Object.entries(directProps)) {
-    // Tab stops accumulate across levels rather than replace, so they merge below.
-    if (value !== undefined && key !== "tabs") (merged as Record<string, unknown>)[key] = value;
-  }
-  // A direct `w:tabs` adds to the stops inherited from the style chain, and a
-  // direct `clear` removes an inherited stop at that position.
-  const directTabs = directPPr === undefined ? undefined : firstChild(directPPr, "tabs");
-  if (directTabs !== undefined) readTabStops(directTabs, merged);
+  readParaProps(directPPr, merged);
   return { merged, styleId };
 }
 
@@ -1086,11 +1240,12 @@ function parseParagraph(paragraph: XmlElement, ctx: ParseContext, defaultStyleId
   if (defaultSize !== undefined && merged.fontSizePt === undefined) merged.fontSizePt = defaultSize;
 
   const pieces: FlowNode[] = [];
+  const floats: DocxImageNode[] = [];
   const fields: FieldFrame[] = [];
   let runs: TextRunModel[] = [];
   const flushRuns = (): void => {
     if (runs.length === 0) return;
-    const node: DocxParagraphNode = { type: "paragraph", runs, direction, ...layoutFor(merged, direction) };
+    const node: DocxParagraphNode = { type: "paragraph", runs, direction, ...layoutFor(merged, direction, ctx.justifyShrinks) };
     if (styleId !== undefined) node.styleId = styleId;
     pieces.push(node);
     runs = [];
@@ -1106,9 +1261,14 @@ function parseParagraph(paragraph: XmlElement, ctx: ParseContext, defaultStyleId
     const rStyle = direct === undefined ? undefined : firstChild(direct, "rStyle");
     const props = baseRunProps(ctx, styleId, styleOf(rStyle === undefined ? undefined : attr(rStyle, "val")));
     readRunProps(direct, props, ctx.theme);
-    const draft: RunDraft = { runs: [], blocks: [], pageBreak: false, softBreak: false };
+    const draft: RunDraft = { runs: [], blocks: [], floats: [], pageBreak: false, softBreak: false };
     parseRunContent(run, ctx, props, text, href, draft, fields);
-    emitDraft(draft, runs, pieces, flushRuns, paraAlign);
+    // Word orders a run without `w:rtl` left to right inside a right-to-left
+    // paragraph (probe run-direction).
+    for (const piece of draft.runs) {
+      if (isLtrRunInRtl(piece.text, direction === "rtl", props.rtl === true)) piece.ltrRun = true;
+    }
+    emitDraft(draft, runs, pieces, floats, flushRuns, paraAlign);
   };
   const ownStyle = (own: string | undefined): string | undefined => own;
 
@@ -1176,6 +1336,18 @@ function parseParagraph(paragraph: XmlElement, ctx: ParseContext, defaultStyleId
   });
 
   const filtered = nodes.filter((node) => node.type !== "paragraph" || node.runs.length > 0);
+  if (floats.length > 0) {
+    if (merged.numId !== undefined) {
+      // A list item is not a paragraph node and cannot carry them: its pictures
+      // fall back to plain block images ahead of the item.
+      filtered.unshift(...floats.map(({ anchor: _anchor, ...image }): DocxImageNode => image));
+    } else {
+      const host = filtered.find((node) => node.type === "paragraph" || node.type === "heading");
+      if (host?.type === "paragraph" || host?.type === "heading") host.floats = floats;
+      // A paragraph holding only pictures is still one line tall in Word.
+      else filtered.push({ type: "paragraph", runs: [], direction, ...layoutFor(merged, direction, ctx.justifyShrinks), floats });
+    }
+  }
   if (merged.pageBreakBefore === true) {
     // Inherited `w:pageBreakBefore` (direct or via the style chain) forces
     // the paragraph onto a new page in layout mode.
@@ -1228,8 +1400,8 @@ function groupListItems(drafts: BlockDraft[], ctx: ParseContext): FlowNode[] {
     counters[ilvl] = (counters[ilvl] ?? (startFor(ctx.numbering, numId, ilvl, level) - 1)) + 1;
     for (let depth = ilvl + 1; depth < counters.length; depth++) counters[depth] = 0;
     const ordered = isOrderedFormat(level.numFmt);
-    const marker = markerFor(level, knownLevels, ilvl, counters);
-    const markerRun = markerRunFor(ctx, level, paragraph, marker);
+    const authored = markerFor(level, knownLevels, ilvl, counters);
+    const { marker, markerRun } = symbolMarker(authored, markerRunFor(ctx, level, paragraph, authored));
     const item: DocxListItemNode = {
       level: ilvl,
       ordered,
@@ -1301,7 +1473,26 @@ function markerRunFor(ctx: ParseContext, level: NumberingLevel, paragraph: DocxP
   return finalizeRun(ctx, props, marker, marker);
 }
 
-function parseTableCell(cell: XmlElement, ctx: ParseContext, origins: Array<DocxTableCellNode | undefined>, column: number): DocxTableCellNode | undefined {
+/**
+ * A Wingdings or Symbol marker (Word's default bullet is Symbol's private-use
+ * U+F0B7) as its Unicode shape, with the symbol font dropped so it paints in
+ * any font that has it (`symbolFontStandIn`). Anything else is unchanged.
+ */
+function symbolMarker(marker: string, markerRun: TextRunModel | undefined): { marker: string; markerRun: TextRunModel | undefined } {
+  const standIn = symbolFontStandIn(markerRun?.fontFamily, marker);
+  if (standIn === undefined || markerRun === undefined) return { marker, markerRun };
+  const run: TextRunModel = { ...markerRun, text: standIn };
+  delete run.fontFamily;
+  return { marker: standIn, markerRun: run };
+}
+
+/** A cell's parse result plus whether Word's own saved layout put a page break right before its first paragraph. */
+interface TableCellParse {
+  cell: DocxTableCellNode | undefined;
+  leadingPageBreak: boolean;
+}
+
+function parseTableCell(cell: XmlElement, ctx: ParseContext, origins: Array<DocxTableCellNode | undefined>, column: number): TableCellParse {
   throwIfAborted(ctx.signal);
   const tcPr = firstChild(cell, "tcPr");
   const width = tcPr === undefined ? undefined : firstChild(tcPr, "tcW");
@@ -1318,7 +1509,7 @@ function parseTableCell(cell: XmlElement, ctx: ParseContext, origins: Array<Docx
     const origin = origins[column];
     if (origin !== undefined) {
       origin.rowSpan = (origin.rowSpan ?? 1) + 1;
-      return undefined;
+      return { cell: undefined, leadingPageBreak: false };
     }
   }
   const vAlign = tcPr === undefined ? undefined : firstChild(tcPr, "vAlign");
@@ -1328,12 +1519,24 @@ function parseTableCell(cell: XmlElement, ctx: ParseContext, origins: Array<Docx
   const cellMargins = readMargins(tcPr === undefined ? undefined : firstChild(tcPr, "tcMar"));
   const cellBorders = readEdges(tcPr === undefined ? undefined : firstChild(tcPr, "tcBorders"), ["top", "right", "bottom", "left"] as const);
   const drafts: BlockDraft[] = [];
+  // Tables break between rows, never inside a cell, so a rendered-page-break
+  // hint in a cell's own content has nowhere to go and is dropped — except
+  // one that leads the cell's very first paragraph, before anything else:
+  // that is Word's own signal that the row itself started a fresh page
+  // (`DocxTableRowNode.pageBreakBefore`, set by the caller for column 0).
+  let leadingPageBreak = false;
   for (const child of cell.children) {
     throwIfAborted(ctx.signal);
     if (child.local === "tcPr") continue;
     if (child.local === "p") {
       const parsed = parseParagraph(child, ctx);
-      for (const node of parsed.nodes) drafts.push({ node });
+      for (const [index, node] of parsed.nodes.entries()) {
+        if (node.type === "pageBreak" && node.strength === "preferred") {
+          if (drafts.length === 0 && index === 0) leadingPageBreak = true;
+          continue;
+        }
+        drafts.push({ node });
+      }
       if (parsed.numId !== undefined) {
         const last = drafts[drafts.length - 1];
         if (last !== undefined && "node" in last && last.node.type === "paragraph") {
@@ -1362,13 +1565,18 @@ function parseTableCell(cell: XmlElement, ctx: ParseContext, origins: Array<Docx
   };
   origins[column] = cellNode;
   for (let index = 1; index < columnSpan; index++) origins[column + index] = undefined;
-  return cellNode;
+  return { cell: cellNode, leadingPageBreak };
 }
 
 function parseTable(table: XmlElement, ctx: ParseContext): FlowNode | undefined {
   throwIfAborted(ctx.signal);
   const tblPr = firstChild(table, "tblPr");
-  const bidi = tblPr === undefined ? undefined : firstChild(tblPr, "tblBidiVisual");
+  // `w:bidiVisual` (ECMA-376 17.4.1) lays the logical columns out right to
+  // left. Word keeps writing `w:left`/`w:right` in such a table: its borders
+  // mean the start/end sides, its cell margins stay physical (probe
+  // docx-bidi-visual: a `w:left` border paints on the right, a `w:left`
+  // margin stays on the left; DECISION_LOG §43). DocxTableNode documents both.
+  const bidi = tblPr === undefined ? undefined : firstChild(tblPr, "bidiVisual");
   const direction: TextDirection = onOffElement(bidi) === true ? "rtl" : "ltr";
   const grid = firstChild(table, "tblGrid");
   const columns = grid === undefined
@@ -1382,15 +1590,22 @@ function parseTable(table: XmlElement, ctx: ParseContext): FlowNode | undefined 
     const heightValue = height === undefined ? undefined : numberAttr(height, "val", "w:trHeight");
     const cells: DocxTableCellNode[] = [];
     let column = 0;
+    // Word's own saved break leading the row's first cell means the whole
+    // row started a fresh page: any cell can carry the marker (all of a
+    // row's cells share its page), but only the first is checked — the
+    // common, unambiguous case parsed so far.
+    let pageBreakBefore = false;
     for (const cell of childElements(row, "tc")) {
       throwIfAborted(ctx.signal);
-      const parsed = parseTableCell(cell, ctx, origins, column);
+      const { cell: parsed, leadingPageBreak } = parseTableCell(cell, ctx, origins, column);
+      if (column === 0 && leadingPageBreak) pageBreakBefore = true;
       const span = parsed?.columnSpan ?? 1;
       if (parsed !== undefined) cells.push(parsed);
       column += span;
     }
     rows.push({
       ...(heightValue === undefined ? {} : { height: twipsToInches(heightValue) }),
+      ...(pageBreakBefore ? { pageBreakBefore: true as const } : {}),
       cells,
     });
   }
@@ -1399,6 +1614,10 @@ function parseTable(table: XmlElement, ctx: ParseContext): FlowNode | undefined 
   const widthValue = tblW === undefined || (attr(tblW, "type") ?? "dxa") !== "dxa" ? undefined : numberAttr(tblW, "w", "w:tblW");
   const borders = readEdges(tblPr === undefined ? undefined : firstChild(tblPr, "tblBorders"), ["top", "right", "bottom", "left", "insideH", "insideV"] as const) as DocxTableBorders | undefined;
   const cellMargins = { ...NORMAL_TABLE_MARGINS, ...readMargins(tblPr === undefined ? undefined : firstChild(tblPr, "tblCellMar")) };
+  // Measured from the start side in both directions (probe docx-bidi-visual:
+  // a 1in indent moved a right-to-left table in from the right margin).
+  const tblInd = tblPr === undefined ? undefined : firstChild(tblPr, "tblInd");
+  const indentValue = tblInd === undefined || (attr(tblInd, "type") ?? "dxa") !== "dxa" ? undefined : numberAttr(tblInd, "w", "w:tblInd");
   return {
     type: "table",
     direction,
@@ -1407,6 +1626,7 @@ function parseTable(table: XmlElement, ctx: ParseContext): FlowNode | undefined 
     ...(widthValue === undefined || widthValue <= 0 ? {} : { width: twipsToInches(widthValue) }),
     ...(borders === undefined ? {} : { borders }),
     cellMargins,
+    ...(indentValue === undefined || indentValue === 0 ? {} : { indent: twipsToInches(indentValue) }),
   };
 }
 
@@ -1650,7 +1870,7 @@ async function parseBodySections(pkg: OpcPackage, documentPart: string, ctx: Par
     },
   });
   if (root === undefined || firstChild(root, "body") === undefined) {
-    throw new Error(`aared/core: document "${documentPart}" is missing w:body`);
+    throw damagedDocument(`document "${documentPart}" is missing w:body`);
   }
   sections.push({ drafts: current, properties: trailing ?? sectionPropertiesFrom(undefined, ctx.relTargets) });
   return sections;

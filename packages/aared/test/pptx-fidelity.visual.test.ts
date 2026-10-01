@@ -141,11 +141,14 @@ visual("visual DOM output: pictures, autofit, numbered bullets, resolved tables,
     expect(errorOutput.fallback).toBe("load-error");
     expect(errorOutput.canvasCount).toBe(0);
 
-    // Autofit: shrink and resize contain text; none clips.
+    // Autofit: the renderer never measures and shrinks. A shrink-to-fit body
+    // paints the sizes its model carries (PowerPoint's stored scale is already
+    // in them); text past its box is painted in every mode, as PowerPoint does,
+    // and only resize grows the text layer to contain it.
     const autofitModel = {
       size: { width: 10, height: 5.625 },
       elements: [
-        { kind: "shape", id: "shrink", name: "shrink", bounds: { x: 0.5, y: 0.5, width: 2, height: 0.6 }, text: { paragraphs: [{ runs: [{ text: "Long ".repeat(40), fontSizePt: 18 }] }], autofit: "shrinkText" }, geometry: { path: "M 0 0 H 100000 V 100000 H 0 Z", viewBox: { width: 100000, height: 100000 } } },
+        { kind: "shape", id: "shrink", name: "shrink", bounds: { x: 0.5, y: 0.5, width: 2, height: 0.6 }, text: { paragraphs: [{ runs: [{ text: "Long ".repeat(40), fontSizePt: 18 }] }], autofit: "shrinkText", fontScale: 0.925 }, geometry: { path: "M 0 0 H 100000 V 100000 H 0 Z", viewBox: { width: 100000, height: 100000 } } },
         { kind: "shape", id: "resize", name: "resize", bounds: { x: 3, y: 0.5, width: 2, height: 0.6 }, text: { paragraphs: [{ runs: [{ text: "Long ".repeat(40), fontSizePt: 18 }] }], autofit: "resizeShape" }, geometry: { path: "M 0 0 H 100000 V 100000 H 0 Z", viewBox: { width: 100000, height: 100000 } } },
         { kind: "shape", id: "clip", name: "clip", bounds: { x: 5.5, y: 0.5, width: 2, height: 0.6 }, text: { paragraphs: [{ runs: [{ text: "Long ".repeat(40), fontSizePt: 18 }] }], autofit: "none" }, geometry: { path: "M 0 0 H 100000 V 100000 H 0 Z", viewBox: { width: 100000, height: 100000 } } },
       ],
@@ -161,19 +164,21 @@ visual("visual DOM output: pictures, autofit, numbered bullets, resolved tables,
           autofit: text.dataset.aaredAutofit,
           overflow: text.style.overflow,
           contained: text.scrollHeight <= text.clientHeight + 2,
-          scroll: text.scrollHeight,
-          client: text.clientHeight,
+          fontSize: getComputedStyle(text.querySelector("span")).fontSize,
         } : null;
       }
       return result;
-    })()`) as Record<string, { autofit?: string; overflow: string; contained: boolean } | null>;
+    })()`) as Record<string, { autofit?: string; overflow: string; contained: boolean; fontSize: string } | null>;
     expect(autofitOutput.shrink?.autofit).toBe("shrinkText");
-    expect(autofitOutput.shrink?.contained).toBe(true);
+    expect(autofitOutput.shrink?.fontSize).toBe("24px");
+    expect(autofitOutput.shrink?.overflow).toBe("visible");
+    expect(autofitOutput.shrink?.contained).toBe(false);
     expect(autofitOutput.resize?.autofit).toBe("resizeShape");
     expect(autofitOutput.resize?.overflow).toBe("visible");
     expect(autofitOutput.resize?.contained).toBe(true);
     expect(autofitOutput.clip?.autofit).toBe("none");
-    expect(autofitOutput.clip?.overflow).toBe("hidden");
+    expect(autofitOutput.clip?.overflow).toBe("visible");
+    expect(autofitOutput.clip?.contained).toBe(false);
 
     // Numbered bullets follow direction for their marker side.
     const numbered = {

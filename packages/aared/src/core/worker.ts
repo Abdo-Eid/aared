@@ -6,8 +6,9 @@ import type { DocxIndex } from "./docx/document.js";
 import type { DocumentInfo } from "./index.js";
 import type { SheetModel, SheetRangeModel, SlideLayoutModel, SlideModel, UnitModel } from "./model.js";
 import type { SerializedError, UnitRequest, WorkerRequest, WorkerResponse, WorkerResult } from "./rpc.js";
-import { AaredError, isAbort, throwIfAborted } from "./errors.js";
+import { AaredError, damagedDocument, isAbort, throwIfAborted } from "./errors.js";
 import { ZipError } from "./zip.js";
+import { XmlError } from "./xml.js";
 import { collectStrings } from "./collect.js";
 import { isInsideGrid } from "./xlsx/limits.js";
 import { PPTX_SLIDE_CACHE, UnitCache, XLSX_SHEET_CACHE } from "./unit-cache.js";
@@ -68,12 +69,31 @@ function serializeError(error: unknown): SerializedError {
   if (error instanceof ZipError) {
     return { name: "AaredError", message: error.message, code: "invalid-document" };
   }
-  if (error instanceof Error) return { name: error.name, message: error.message };
-  return { name: "Error", message: `aared/core: worker failed: ${String(error)}` };
+  // A part that is not well-formed XML is the file's fault, like the explicit
+  // structural checks (`damagedDocument`, thrown where they are made).
+  if (error instanceof XmlError) {
+    const typed = damagedDocument(error.message.replace(/^aared\/core: /, ""));
+    return { name: typed.name, message: typed.message, code: typed.code };
+  }
+  // Anything else is aared failing on this file, not the file being broken:
+  // `internal`, never "re-save it in Office". The original error travels as
+  // `cause` (name, message, stack) for the bug report.
+  const original = error instanceof Error ? error : new Error(String(error));
+  return {
+    name: "AaredError",
+    message: `aared/core: the viewer failed while reading this file (${original.name}: ${original.message})`,
+    code: "internal",
+    cause: { name: original.name, message: original.message, ...(original.stack === undefined ? {} : { stack: original.stack }) },
+  };
 }
 
+/**
+ * A request for a session this Worker no longer holds (closed, or its open was
+ * cancelled). A usage error, never a cancellation: `"aborted"` here let
+ * `isAbort()` swallow it silently.
+ */
 function sessionClosed(): AaredError {
-  return new AaredError("aborted", "aared/core: document session is closed");
+  return new AaredError("closed", "aared/core: document session is closed");
 }
 
 function formatOf(pkg: OpcPackage, signal?: AbortSignal): OfficeFormat | undefined {

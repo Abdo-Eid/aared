@@ -1,4 +1,3 @@
-import { defaultResolver } from "aared-fonts";
 import type { DemoOutcome } from "../lib/demo-frame.js";
 
 function nameOf(source: string | File): string {
@@ -55,7 +54,7 @@ export async function runLightTable(stage: HTMLElement, source: string | File): 
   }
 
   const { open, render } = await import("aared/pptx");
-  const deck = await open(source, { fontResolver: defaultResolver });
+  const deck = await open(source);
   try {
     const slide = deck.slides.get(0);
     const viewer = await render({ slide, target: renderPanel });

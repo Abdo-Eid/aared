@@ -5,17 +5,34 @@ Real generated Office files, not synthetic mocks. See
 from the archived evaluation work or authored in PowerPoint; the archive remains
 independent provenance, not the only copy.
 
+**Authoring rules.**
+
+- Every file is written by real Office, never generated: a generated
+  workbook once put a custom fill in the reserved `gray125` slot and Excel
+  "repaired" the file for it.
+- New coverage goes into the existing coverage fixtures through Office's COM
+  object model; no new fixture file without sign-off.
+- Scripts that drive Office close documents with `Close(0)` and `Quit(0)` in
+  `finally` (Word's `Quit` takes `[ref]0` in Windows PowerShell), or a failed
+  run leaves "Save your changes?" dialogs on screen.
+- Every Office save re-applies the org sensitivity label (custom
+  properties, a "Public" marking, and in Word even/first-page headers created
+  to carry it): run `tools/probe/pptx-lines/strip_label.py <file>` on the
+  fixture afterwards.
+- Freeze the fixture before comparing screenshots: save it, check the lock
+  file is gone, and re-verify the page margins and key paragraphs. Unsaved
+  Office state produces ghost differences.
+
 | File | Format | Notes |
 | --- | --- | --- |
-| `pptx-coverage.pptx` | PPTX | **M1 gate fixture.** One real PowerPoint-authored 10-slide deck covering RTL text/bidi, an RTL table, common shapes plus ink/image coverage, gradients, bullets, WordArt, and shape/background/table-cell fills. See notes below. |
+| `pptx-coverage.pptx` | PPTX | **M1 gate fixture.** One real PowerPoint-authored 11-slide deck covering RTL text/bidi, an RTL table, common shapes plus ink/image coverage, gradients, bullets, WordArt, shape/background/table-cell fills, and line/connector shapes. See notes below. |
 | `pptx-coverage.json` | Fixture manifest | Semantic selectors for the PPTX test suite. It locates coverage by unique authored text, not slide or shape indexes. |
 | `post-production-review.pptx` | PPTX | Mixed English/Arabic production deck (7 slides, tables on 2) for broader PPTX variety. |
-| `post-production-tracker.xlsx` | XLSX | Generic workbook, no Arabic content yet. |
+| `post-production-tracker.xlsx` | XLSX | Bilingual English/Arabic workbook, four sheets: a Dashboard (KPI tiles, merges, a bar chart), a Shot Log (frozen rows and columns), a right-to-left budget sheet ("الميزانية", frozen header rows) and Notes; 59 Arabic cells in all. Also the bench and site's sample workbook. |
 | `xlsx-coverage.xlsx` | XLSX | **XLSX gate fixture.** Excel-assembled Arabic coverage workbook: RTL grid (styled cells, merges, frozen panes, hidden rows/columns, number formats, hyperlink), LTR summary, deep Shot Log (~100 rows for virtualization, Cost formulas live against the Notes rate), and Notes. Assembled in Excel from real Excel-owned sheets; keeps the reserved `fills[1]` (`gray125`) slot — a generated predecessor once put a custom fill there and Excel repaired the file for it. |
 | `xlsx-coverage.json` | Fixture manifest | Semantic selectors for the XLSX test suite. It locates coverage sheets by unique authored text, not sheet indexes. |
-| `docx-coverage.docx` | DOCX | **DOCX gate fixture.** Real Word-authored bilingual brief (Arabic + Latin): 17 mixed Arabic+Latin paragraphs, RTL paragraphs, a Heading 1–2 outline, 3 tables (fills, `gridSpan`/`vMerge`), bullet + decimal lists with nested levels, 2 inline images, 2 footnotes, headers/footers, internal/external hyperlinks. |
+| `docx-coverage.docx` | DOCX | **DOCX gate fixture.** Real Word-authored bilingual brief (Arabic + Latin): 17 mixed Arabic+Latin paragraphs, RTL paragraphs, a Heading 1–2 outline, 3 tables (fills, `gridSpan`/`vMerge`), bullet + decimal lists with nested levels, 2 inline images, 2 footnotes, headers/footers, internal/external hyperlinks. Section 5 ("5. Delivery tracker / متابعة التسليم") was appended through Word's COM object model: a right-to-left table (`w:bidiVisual`) with a 3pt border set on its physical right (Word writes `w:left`, the start side), 0.5pt on its left (`w:right`), cell margins 0.3in left / 0.05in right (Word keeps them physical; DECISION_LOG §43), and a merged total row styled Heading 2; the appendix header carries a Heading 1 paragraph. A right-to-left paragraph before the tracker, "آخر تحديث 15 Oct 2026 بنسبة إنجاز 71%", has left-to-right runs for the date and percentage (no `w:rtl`; DECISION_LOG §44), set in Calibri beside the Arial Arabic at exactly 18pt line spacing (the exact-pitch case; `tools/probe/docx-justify/extend.py`). Both headings sit outside the outline and pin the one heading index space (`headings.list()`, `goToHeading`). The org sensitivity label Word applied on save was stripped (custom properties, header marking, and the even/first-page headers Word adds only to carry it: `tools/probe/pptx-lines/strip_label.py`). The document's `compatibilityMode` is 15 (Word 2013+): two justified English paragraphs in the synopsis ("Sawt al-Nahr follows three families…", "Dates below are hard for the picture lock…") set `DocxParagraphLayout.justifyShrink` (DECISION_LOG §44). Two landscape pages after the appendix hold seven anchored pictures on Arabic paragraphs, added through COM (`tools/probe/docx-float-wrap/extend.py`, label stripped): square at the left and right column edges, top and bottom and behind text centred, tight at the edge, and square and through centred with text down both sides; the document is six pages in Word (DECISION_LOG §55). |
 | `docx-coverage.json` | Fixture manifest | Semantic selectors for the DOCX test suite. It locates coverage by unique authored text, not block indexes. |
-| `docx-outline.docx` | DOCX | Word-authored (COM automation) heading-outline fixture, bilingual: title property "Outline Coverage / تغطية المخطط"; body outline Introduction / مقدمة (H1), Details / التفاصيل (H2), Closing / الخاتمة (H1) across a page break; a Heading-styled paragraph in the header and a Heading 2 inside a table cell — both outside the outline. Pins the one heading index space (`headings.list()`, `goToHeading`, search) and `goToPage`. |
 | `delivery-report.pdf` | PDF | Out of aared's scope; retained for LibreOffice sanity checks. |
 
 **Coverage notes** (`pptx-coverage.pptx`, verified by unzipping):
@@ -46,6 +63,21 @@ independent provenance, not the only copy.
   table whose cells carry linear-gradient, `pattFill` and `path="rect"` fills.
   COM cannot author an off-center `path="circle"` or a `path="shape"`
   gradient; those are added by hand in PowerPoint.
+- Slide 11 ("خطوط وموصلات") was appended the same way (a duplicate of
+  slide 10 with the table removed): four line shapes PowerPoint writes as
+  `p:cxnSp` — a straight connector (`straightConnector1`, zero height), a
+  dashed vertical line (zero width), a dotted line and a `flipV` diagonal; plus an RTL text box "الإيرادات دون الموازنة بنسبة 2.1%" whose number is an en-US run (DECISION_LOG §44),
+  spaced exactly 30pt with the number in Calibri (the exact-pitch case).
+  PowerPoint applied the org sensitivity label on save; its custom
+  properties and master "Public" marking were stripped from the package.
+- Slide 12 ("تباعد الفقرات") was appended the same way (a duplicate of slide
+  11 with everything but the title and slide number removed): an RTL text
+  box and a one-cell table whose paragraphs are spaced in lines
+  (`a:spcBef`/`a:spcAft` with `a:spcPct`): a line before the first
+  paragraph and after the last (PowerPoint shows neither), half a line
+  before, a line before a paragraph holding a 28pt word in 18pt text (the
+  line counts 28pt), and a line after one paragraph plus a line before the
+  next (they add up). DECISION_LOG §47.
 - Native PowerPoint PNGs and same-size WebView captures include every slide.
   Run `bun run test:visual:artifacts` and inspect its paired review page for
   text fidelity; LibreOffice conversion is available as a companion artifact

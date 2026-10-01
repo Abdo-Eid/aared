@@ -36,15 +36,19 @@ export const BENCH_FORMATS: readonly BenchFormat[] = ["pptx", "xlsx", "docx"];
 
 /** Which renderers open which format — the bench adapters that exist. */
 export const RENDERERS_BY_FORMAT: Readonly<Record<BenchFormat, readonly string[]>> = {
-  pptx: ["aared", "pptxviewjs", "silurus", "aiden0z", "mdurbar", "omni"],
-  xlsx: ["aared", "sheetjs", "xlscalc", "spreadsheet-preview", "omni"],
-  docx: ["aared", "docx-preview", "docx-renderer", "omni"],
+  pptx: ["aared", "pptxviewjs", "silurus", "aiden0z", "mdurbar", "pptx-browser", "extend", "omni"],
+  xlsx: ["aared", "sheetjs", "xlscalc", "spreadsheet-preview", "extend", "omni"],
+  docx: ["aared", "docx-preview", "docx-renderer", "apollo", "extend", "omni"],
 };
 
 export const RENDERERS = [...new Set(Object.values(RENDERERS_BY_FORMAT).flat())] as readonly string[];
 
-/** The npm package behind each renderer, as the bench installs it (its version is recorded with every size). */
-export const RENDERER_PACKAGES: Readonly<Record<string, string>> = {
+/**
+ * The npm package behind each renderer, as the bench installs it (its version
+ * is recorded with every size). A renderer that ships one package per format
+ * names each.
+ */
+export const RENDERER_PACKAGES: Readonly<Record<string, string | Readonly<Record<BenchFormat, string>>>> = {
   aared: "aared",
   pptxviewjs: "pptxviewjs",
   silurus: "@silurus/ooxml",
@@ -56,6 +60,9 @@ export const RENDERER_PACKAGES: Readonly<Record<string, string>> = {
   sheetjs: "xlsx",
   "spreadsheet-preview": "@datagridxl/spreadsheet-preview",
   xlscalc: "@xlscalc/xlsx-preview",
+  apollo: "@apollo-design/docx-preview",
+  "pptx-browser": "pptx-browser",
+  extend: { pptx: "@extend-ai/react-pptx", xlsx: "@extend-ai/react-xlsx", docx: "@extend-ai/react-docx" },
 };
 
 export function formatOfFixture(fixture: string): BenchFormat {
@@ -313,10 +320,16 @@ export function formatBytes(bytes: number): string {
  * workspace (Bun's global auto-install cache would hand back a different,
  * npm-latest version than the one the bench runs).
  */
-export async function installedVersion(root: string, renderer: string): Promise<string | null> {
+/** The package a renderer opens `format` with, or undefined when it names none. */
+export function rendererPackage(renderer: string, format: BenchFormat): string | undefined {
+  const entry = RENDERER_PACKAGES[renderer];
+  return typeof entry === "string" ? entry : entry?.[format];
+}
+
+export async function installedVersion(root: string, renderer: string, format: BenchFormat): Promise<string | null> {
   const { dirname, join, relative, isAbsolute } = await import("node:path");
   const { realpathSync, existsSync, readFileSync } = await import("node:fs");
-  const name = RENDERER_PACKAGES[renderer];
+  const name = rendererPackage(renderer, format);
   if (name === undefined) return null;
   const benchDir = join(root, "bench");
   const inWorkspace = (path: string): boolean => {
@@ -394,8 +407,10 @@ async function main(): Promise<void> {
       }
       if (args.has("--size")) {
         const versions = new Map<string, string | null>();
-        for (const renderer of RENDERERS) versions.set(renderer, await installedVersion(root, renderer));
-        const rows = await runSizePass(browser, (renderer) => versions.get(renderer) ?? null, log);
+        for (const format of BENCH_FORMATS) {
+          for (const renderer of RENDERERS_BY_FORMAT[format]) versions.set(`${renderer}:${format}`, await installedVersion(root, renderer, format));
+        }
+        const rows = await runSizePass(browser, (renderer, format) => versions.get(`${renderer}:${format}`) ?? null, log);
         const path = join(outDir, `size-${stamp()}.json`);
         const summary = summarizeSize(rows);
         await writeFile(path, JSON.stringify({ version: 1, kind: "size", timestamp: new Date().toISOString(), machine: { ...machine, browser: product }, method: METHOD.size, rows, summary }, null, 2));

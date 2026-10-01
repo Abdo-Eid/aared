@@ -8,7 +8,7 @@
  * DOM model incrementally; no text path ever falls back to canvas.
  */
 
-import type { BoundsModel, ChartModel, GroupModel, PictureModel, ShapeFillModel, ShapeModel, SlideModel, StrokeModel, TableCellModel, TableModel, TextBodyModel, TextParagraphModel } from "../core/model.js";
+import type { BoundsModel, ChartModel, GroupModel, PictureModel, RenderWarning, ShapeFillModel, ShapeModel, SlideModel, StrokeModel, TableCellModel, TableModel, TextBodyModel, TextParagraphModel } from "../core/model.js";
 import type {
   Appearance,
   Collection,
@@ -35,8 +35,10 @@ import { parseResolvedColor } from "../core/color.js";
 import { RenderHandleBase, fitScale, measureFitRoom, safeScale } from "../render-handle.js";
 import { createTableCell, createTableGrid } from "../table-dom.js";
 import { groupChildMapping } from "./group-mapping.js";
-import { applyParagraphBox, applyRunBase, paragraphAlign, pt } from "../text-style.js";
-import { lineFontSizePt } from "../core/typography.js";
+import { applyParagraphBox, applyRunBase, exactLinePitch, pt } from "../text-style.js";
+import { awaitDocumentFonts, fontFidelityWarnings } from "../font-fidelity.js";
+import { adoptClassSheet } from "../class-sheet.js";
+import { MINIMUM_LINE_HEIGHT, cssFontFamily, lineFontSizePt } from "../core/typography.js";
 
 /**
  * The line pitch PowerPoint gives 100% (`a:lnSpc/a:spcPct val="100000"`)
@@ -44,9 +46,36 @@ import { lineFontSizePt } from "../core/typography.js";
  * truth: `pptx-coverage.pptx` slide 2's table rows of 28pt text at 100%
  * measure 54.5px in PowerPoint's export — 0.1in of cell insets plus a
  * 44.9px line, 1.20 × 37.3px. Exact point spacing (`a:spcPts`) is
- * unaffected and matched already.
+ * unaffected and matched already. It is also the line that space before and
+ * after in lines (`a:spcBef`/`a:spcAft` with `a:spcPct`) counts in, whatever
+ * the font or the paragraph's own line spacing (probe `line-spacing-units`).
  */
 const DRAWINGML_SINGLE_LINE = 1.2;
+
+/** Paragraph spacing in lines as CSS, relative to the paragraph's own (largest run) size. */
+function linesToEm(lines: number): string {
+  return `${Number((lines * DRAWINGML_SINGLE_LINE).toFixed(4))}em`;
+}
+
+/**
+ * How far below CSS's placement PowerPoint draws a line's text inside its line
+ * box, in ems of the paragraph's size, when the spacing is not 100%. CSS splits
+ * the leading evenly around the text; PowerPoint puts it all above when it
+ * shrinks the line (down to a floor), and about three quarters above when it
+ * grows it. Same box height, same line step: only the glyphs move. Fitted to
+ * PowerPoint's own PDF of Arial, Calibri and Times New Roman at 18 and 40pt,
+ * 70% to 300% (probe `first-line-leading`): text sits 0.9 * spacing * size from
+ * the top of the box above 100%; below it, the natural baseline (about 0.95em
+ * from the top of a 1.2em line) plus the removed leading, never above
+ * 0.9 * spacing * size. `cssLine` is the line height the paragraph really
+ * paints (`applyParagraphBox` floors it), which CSS centres the text in.
+ */
+function leadingShiftEm(spacing: number, cssLine: number): number {
+  if (spacing === 1) return 0;
+  const grown = 0.9 * spacing - 0.95;
+  const office = spacing > 1 ? grown : Math.max(DRAWINGML_SINGLE_LINE * (spacing - 1), grown);
+  return office - (cssLine - DRAWINGML_SINGLE_LINE) / 2;
+}
 import { MARK_FALLBACKS } from "../diagnostics.js";
 import { fillFallbackReason, fillPaint, officeGradientStops, type FillBox } from "./fill-paint.js";
 import { hollowTextFilter } from "./text-outline.js";
@@ -262,6 +291,8 @@ export interface PptxRenderHandle extends EventTarget {
    * `data-aared-theme` marker — never recolors authored content.
    */
   setAppearance(appearance: Appearance): void;
+  /** Non-fatal things this render noticed about its own output — currently font fidelity only. See `RenderWarning`. */
+  readonly warnings: readonly RenderWarning[];
 }
 
 /** `render()` input: a slide handle (read on demand) or an already-resolved model. */
@@ -348,13 +379,19 @@ export async function render(input: PptxRenderInput): Promise<PptxRenderHandle> 
     model = requested;
     info = slideInfoOf(model);
   }
-  return paintSlideAs(info, {
+  const viewer = paintSlideAs(info, {
     model,
     target: input.target,
     ...(input.appearance === undefined ? {} : { appearance: input.appearance }),
     ...(input.zoom === undefined ? {} : { zoom: input.zoom }),
     ...(mediaResolver === undefined ? {} : { mediaResolver }),
   });
+  // The slide is on screen already; its fonts swap in as they arrive. Which
+  // of them painted can only be read once they have (a delivered face loads
+  // only when text needs it, DECISION_LOG §50), so the warnings wait, bounded.
+  await awaitDocumentFonts(model);
+  if (!viewer.destroyed) viewer.setWarnings(fontFidelityWarnings(model));
+  return viewer;
 }
 
 /** Bullet marker font size: absolute points win, else a percentage of the run size, else follow-text. */
@@ -386,7 +423,20 @@ function appendBulletMarker(
   if (color !== undefined) marker.style.color = color;
   const size = bulletFontSize(paragraph, bullet);
   if (size !== undefined) marker.style.fontSize = size;
-  if (bullet.typeface !== undefined) marker.style.fontFamily = bullet.typeface;
+  if (bullet.typeface !== undefined) marker.style.fontFamily = cssFontFamily(bullet.typeface);
+  // PowerPoint's hanging indent (probe `line-spacing-units`, coverage slides 1
+  // and 5 against its own PDF): the marker starts the first line, at the
+  // margin plus the (negative) first-line indent, and the text starts at the
+  // margin, or right where the marker ends when the marker is wider. An
+  // inline box at least as wide as the hanging gap is exactly that, in either
+  // direction. A marker larger than its text sits on the text's baseline
+  // without making the line taller, so it carries no line height of its own.
+  marker.style.display = "inline-block";
+  marker.style.minWidth = inchesToCss(Math.max(0, -(paragraph.firstLineIndent ?? 0)));
+  marker.style.lineHeight = "0";
+  marker.style.textIndent = "0";
+  marker.style.textAlign = "start";
+  marker.style.whiteSpace = "nowrap";
   if (paragraph.direction !== undefined) {
     marker.dataset.aaredBulletSide = paragraph.direction === "rtl" ? "right" : "left";
   }
@@ -487,10 +537,11 @@ function glowTextShadow(glow: { color: string; radiusPt: number }): string {
 function appendParagraph(
   host: HTMLElement,
   paragraph: TextParagraphModel,
-  textWidth?: number,
-  wrapping?: TextBodyModel["wrapping"],
-  slideNumber?: number,
-  urls?: MediaUrls,
+  textWidth: number | undefined,
+  wrapping: TextBodyModel["wrapping"],
+  slideNumber: number | undefined,
+  urls: MediaUrls | undefined,
+  edges: { first: boolean; last: boolean },
 ): void {
   const line = document.createElement("p");
   line.style.margin = "0";
@@ -503,15 +554,41 @@ function appendParagraph(
   if (lineSize !== undefined) line.style.fontSize = `${lineSize}pt`;
   // Indents apply in shapes and table cells alike; the bullet grid already
   // supplies hanging marker/text separation for bulleted paragraphs.
-  applyParagraphBox(line, paragraph, { singleLine: DRAWINGML_SINGLE_LINE, firstLineIndent: paragraph.bullet === undefined });
+  applyParagraphBox(line, paragraph, { singleLine: DRAWINGML_SINGLE_LINE });
+  // `marL`/`marR` are the paragraph's start and end margins: PowerPoint counts
+  // `marL` from the right in a right-to-left paragraph (coverage slide 1's
+  // bullets against its own PDF).
+  if (paragraph.leftIndent !== undefined) {
+    line.style.marginLeft = "";
+    line.style.marginInlineStart = inchesToCss(paragraph.leftIndent);
+  }
+  if (paragraph.rightIndent !== undefined) {
+    line.style.marginRight = "";
+    line.style.marginInlineEnd = inchesToCss(paragraph.rightIndent);
+  }
   // Unauthored spacing is PowerPoint's 100%, the same single line.
   if (paragraph.lineSpacing === undefined && paragraph.lineSpacingPt === undefined) {
     line.style.lineHeight = String(DRAWINGML_SINGLE_LINE);
+  } else if (paragraph.lineSpacing !== undefined && paragraph.lineSpacing !== 1) {
+    // Paint-only: the lines keep their boxes and steps, the text moves within.
+    line.style.position = "relative";
+    const cssLine = Math.max(paragraph.lineSpacing * DRAWINGML_SINGLE_LINE, MINIMUM_LINE_HEIGHT);
+    line.style.top = `${Number(leadingShiftEm(paragraph.lineSpacing, cssLine).toFixed(4))}em`;
   }
+  // Space in lines follows the size this `<p>` already carries (its largest
+  // run, the size PowerPoint counts it in, after any stored autofit scale).
+  // PowerPoint drops space before a text body's
+  // first paragraph and after its last, in shapes and table cells alike, in
+  // points or in lines (probe `line-spacing-units`).
+  if (paragraph.spaceBeforeLines !== undefined) line.style.marginTop = linesToEm(paragraph.spaceBeforeLines);
+  if (paragraph.spaceAfterLines !== undefined) line.style.marginBottom = linesToEm(paragraph.spaceAfterLines);
+  if (edges.first) line.style.marginTop = "0";
+  if (edges.last) line.style.marginBottom = "0";
 
   const text = document.createElement("span");
   text.dataset.aaredElement = "paragraph-text";
   text.style.minWidth = "0";
+  const exactPitch = exactLinePitch(paragraph);
   for (const run of paragraph.runs) {
     // Hyperlinked runs paint as real anchors; clicks never navigate (view-only)
     // and are surfaced as `linkactivate` by the viewport wiring in `paintSlide`.
@@ -524,7 +601,7 @@ function appendParagraph(
     // A slide-number field shows this slide's number; a master/layout run that
     // carries the same field is shared, so the number is applied at paint time.
     span.textContent = run.field === "slidenum" && slideNumber !== undefined ? String(slideNumber) : run.text;
-    applyRunBase(span, run);
+    applyRunBase(span, run, exactPitch);
     if (run.fontSizePt === undefined && defaultSize !== undefined && defaultSize !== lineSize) {
       span.style.fontSize = `${defaultSize}pt`;
     }
@@ -556,7 +633,10 @@ function appendParagraph(
     const decorationStyle = underlineStyle(run.underlineStyle);
     if (decorationStyle !== undefined) span.style.textDecorationStyle = decorationStyle;
     if (run.underlineColor !== undefined) span.style.textDecorationColor = run.underlineColor;
-    if (run.baselinePct !== undefined) span.style.verticalAlign = `${run.baselinePct}%`;
+    // A share of the run's font size (DrawingML's definition), so `em`: a CSS
+    // percentage is of the line height instead, which an exact-pitch run
+    // sets to 0 (see `EXACT_PITCH_RUN`) and which is 1.2em elsewhere.
+    if (run.baselinePct !== undefined) span.style.verticalAlign = `${run.baselinePct / 100}em`;
     // WordArt text gradient: linear and circle-path gradients paint via
     // background-clip; anything CSS cannot draw is marked and keeps the
     // resolved run color.
@@ -585,20 +665,15 @@ function appendParagraph(
   }
 
   const hasText = paragraph.runs.some((run) => run.text !== "");
-  if (paragraph.bullet === undefined || !hasText) {
+  if (!hasText) {
+    // An empty paragraph is still a line in PowerPoint (at its own size, with
+    // no marker): a `<br>` gives it that line box, where an empty `<p>` would
+    // collapse to nothing.
+    text.append(document.createElement("br"));
+    line.append(text);
+  } else if (paragraph.bullet === undefined) {
     line.append(text);
   } else {
-    // Grid placement follows the paragraph's explicit or inherited direction:
-    // its first logical column is physical left in LTR and right in RTL.
-    line.style.display = "grid";
-    line.style.gridTemplateColumns = "auto minmax(0, 1fr)";
-    line.style.gap = "0.35em";
-    if (paragraphAlign(paragraph) === "left") {
-      // A left-aligned RTL bullet occupies only its content width so its marker
-      // follows the text instead of staying at the text box's far-right edge.
-      line.style.width = "fit-content";
-      line.style.alignSelf = "flex-start";
-    }
     appendBulletMarker(line, text, paragraph, paragraph.bullet, urls);
   }
   host.append(line);
@@ -608,7 +683,16 @@ function appendTextBody(host: HTMLElement, body: TextBodyModel, textWidth?: numb
   // WordArt warp presets paint unwarped; the marker keeps the authored
   // intent visible instead of silently dropping it.
   if (body.textWarp !== undefined) host.dataset.aaredTextWarp = body.textWarp;
-  for (const paragraph of body.paragraphs) appendParagraph(host, paragraph, textWidth, body.wrapping, slideNumber, urls);
+  // PowerPoint adds one paragraph's space after to the next one's space
+  // before, where block flow would collapse the two margins into the larger:
+  // a flex column keeps both (a shape's text box is one already, a table cell
+  // with no vertical alignment is not).
+  host.style.display = "flex";
+  host.style.flexDirection = "column";
+  const last = body.paragraphs.length - 1;
+  body.paragraphs.forEach((paragraph, index) => {
+    appendParagraph(host, paragraph, textWidth, body.wrapping, slideNumber, urls, { first: index === 0, last: index === last });
+  });
 }
 
 function appendShapeText(host: HTMLElement, shape: ShapeModel, slideNumber?: number, urls?: MediaUrls): void {
@@ -623,11 +707,10 @@ function appendShapeText(host: HTMLElement, shape: ShapeModel, slideNumber?: num
   text.style.minHeight = "0";
   text.style.boxSizing = "border-box";
   const autofit = shape.text.autofit ?? "none";
-  // Real autofit: `none` clips, `shrinkText` reduces fonts to fit, and
-  // `resizeShape` lets the text grow beyond its authored bounds instead of
-  // clipping. The source value stays on the model; only the browser behavior
-  // changes here.
-  text.style.overflow = autofit === "resizeShape" ? "visible" : "hidden";
+  // Text past its box is painted, never clipped, as PowerPoint does for every
+  // autofit mode (the slide's own edge still clips it). The shrink is already
+  // in the model's sizes; `resizeShape` also grows the text layer with it.
+  text.style.overflow = "visible";
   if (autofit === "resizeShape") {
     host.style.overflow = "visible";
     text.style.position = "relative";
@@ -639,10 +722,11 @@ function appendShapeText(host: HTMLElement, shape: ShapeModel, slideNumber?: num
   const body = shape.text;
   const bounds = shape.bounds;
   if (bounds !== undefined && body.insets !== undefined) {
-    if (body.insets.left !== undefined) text.style.paddingLeft = inchesToCss(body.insets.left);
-    if (body.insets.right !== undefined) text.style.paddingRight = inchesToCss(body.insets.right);
-    if (body.insets.top !== undefined) text.style.paddingTop = inchesToCss(body.insets.top);
-    if (body.insets.bottom !== undefined) text.style.paddingBottom = inchesToCss(body.insets.bottom);
+    // Parsed models state all four sides; a hand-built one may omit some.
+    text.style.paddingLeft = inchesToCss(body.insets.left ?? 0);
+    text.style.paddingRight = inchesToCss(body.insets.right ?? 0);
+    text.style.paddingTop = inchesToCss(body.insets.top ?? 0);
+    text.style.paddingBottom = inchesToCss(body.insets.bottom ?? 0);
   }
   switch (body.verticalAlign) {
     case "middle":
@@ -678,36 +762,6 @@ function appendShapeText(host: HTMLElement, shape: ShapeModel, slideNumber?: num
   } else {
     host.append(text);
   }
-}
-
-function scaleFonts(root: HTMLElement, factor: number): void {
-  const targets: HTMLElement[] = [root, ...root.querySelectorAll<HTMLElement>("p, span")];
-  for (const element of targets) {
-    const current = element.style.fontSize;
-    if (current === "") continue;
-    const match = /^([\d.]+)(pt|px|em|rem|%)$/.exec(current.trim());
-    if (match === null) continue;
-    element.style.fontSize = `${Number(match[1]) * factor}${match[2]}`;
-  }
-}
-
-function shrinkTextToFit(text: HTMLElement): void {
-  // PowerPoint's `normAutofit` reduces type until the text fits its box.
-  // Measure synchronously (forced reflow) and scale authored font sizes down
-  // only — never up — so a fitted box keeps its authored metrics.
-  for (let iteration = 0; iteration < 8; iteration++) {
-    const overflowsVertically = text.scrollHeight > text.clientHeight + 1;
-    const overflowsHorizontally = text.scrollWidth > text.clientWidth + 1;
-    if (!overflowsVertically && !overflowsHorizontally) break;
-    const verticalScale = text.clientHeight > 0 ? text.clientHeight / Math.max(text.scrollHeight, 1) : 1;
-    const horizontalScale = text.clientWidth > 0 ? text.clientWidth / Math.max(text.scrollWidth, 1) : 1;
-    const scale = Math.min(verticalScale, horizontalScale) * 0.95;
-    if (!Number.isFinite(scale) || scale >= 1 || scale <= 0) break;
-    // Clamp a single pass so one long word cannot collapse the whole box.
-    scaleFonts(text, Math.max(scale, 0.6));
-    if (scale > 0.95) break;
-  }
-  text.dataset.aaredAutofitApplied = "shrink";
 }
 
 /** A dev-only dashed outline over a box whose fill could not be painted (a table cell, the slide). */
@@ -815,6 +869,11 @@ function appendShapeGeometry(host: HTMLElement, shape: ShapeModel, gradientId: s
       path.setAttribute("stroke", shape.stroke?.color ?? "#9CA3AF");
       path.setAttribute("stroke-width", `${strokeWidth}`);
       if (dashed) path.setAttribute("stroke-dasharray", `${4 * emuPerPx} ${3 * emuPerPx}`);
+      else if (shape.stroke?.dash !== undefined) {
+        // Authored `a:prstDash`: dashes scale with the line width, as in PowerPoint.
+        const unit = strokeWidth;
+        path.setAttribute("stroke-dasharray", shape.stroke.dash === "dot" ? `${unit} ${unit}` : `${unit * 4} ${unit * 3}`);
+      }
     }
     svg.append(path);
   }
@@ -1383,10 +1442,15 @@ function appendGroup(context: ElementPaintContext, group: GroupModel, path: stri
  * in place of a slide handle.
  */
 export function paintSlide(input: PaintSlideInput): PptxRenderHandle {
-  return paintSlideAs(slideInfoOf(input.model), input);
+  const viewer = paintSlideAs(slideInfoOf(input.model), input);
+  // Synchronous: read against whatever fonts are loaded right now, so a
+  // delivered substitute that has not arrived yet reads as unavailable.
+  // `render()` waits for them first.
+  viewer.setWarnings(fontFidelityWarnings(input.model));
+  return viewer;
 }
 
-function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxRenderHandle {
+function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxViewer {
   const { model, target: container, mediaResolver } = input;
   // A slide opens whole, as a slideshow viewer shows it: fit its container's
   // height as well as its width (falling back to width when the container
@@ -1419,6 +1483,9 @@ function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxRenderHandle
   // `destroy()` paints nothing, and `destroy()` revokes every URL.
   let destroyed = false;
   const urls = mediaResolver === undefined ? undefined : new MediaUrls(mediaResolver);
+  // Shared run defaults (the left-to-right run marks) live in the class sheet;
+  // adopt it on the target's root before the slide attaches.
+  const classSheet = adoptClassSheet(container);
 
   paintBackground(viewport, model, urls);
   // Shared layout/master graphics sit under the slide's own content.
@@ -1427,20 +1494,14 @@ function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxRenderHandle
   }
   paintElements({ scene, slideNumber: model.number, urls, owner: model.part }, model.elements);
   // The scene is absolutely positioned, so the viewport has no height of its
-  // own until the fit below sizes it. Attached at zero height, the layout the
-  // shrink-to-fit pass forces would shrink a page whose height is the slide,
-  // and the browser clamps the page's scroll position right then: going to
-  // the next slide from the bottom of a page jumped it up. So it goes in at
-  // its full-width box — the largest any fit makes it — and the fit sizes it.
+  // own until the fit below sizes it. It goes in at its full-width box — the
+  // largest any fit makes it — and the fit sizes it, so a page whose height
+  // is the slide never collapses to zero in between (and the browser never
+  // clamps its scroll position: going to the next slide from the bottom of a
+  // page jumped it up).
   viewport.style.width = "100%";
   viewport.style.aspectRatio = `${model.size.width} / ${model.size.height}`;
   container.replaceChildren(viewport);
-
-  // Shrink-to-fit must measure attached layout (forced reflow). Running it
-  // before `replaceChildren` would observe zero sizes on detached nodes.
-  for (const text of viewport.querySelectorAll<HTMLElement>('[data-aared-autofit="shrinkText"]')) {
-    shrinkTextToFit(text);
-  }
 
   const natural = { width: model.size.width * PX_PER_INCH, height: model.size.height * PX_PER_INCH };
   let lastScale = 1;
@@ -1456,6 +1517,7 @@ function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxRenderHandle
   };
   const applyZoom = (): number => {
     if (destroyed) return lastScale;
+    classSheet.follow();
     const zoom = viewer.zoom;
     if (typeof zoom === "number") return paintScale(safeScale(zoom), false);
     // The room is measured with the slide set aside (see `measureFitRoom`), so
@@ -1502,6 +1564,7 @@ function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxRenderHandle
     viewer.markDestroyed();
     destroyed = true;
     urls?.close();
+    classSheet.release();
     observer.disconnect();
     removalObserver.disconnect();
     viewport.removeEventListener("click", onLinkClick);

@@ -27,9 +27,9 @@ const elementSnippet = (file: string): Snippet => ({
 </aared-viewer>`,
 });
 
-// Per format, what the hook needs beyond the source: PPTX draws its text with
-// the bundled fonts, XLSX shows its sheet tabs. Options live outside the
-// component so they stay referentially stable across renders.
+// Per format, what the hook needs beyond the source: XLSX shows its sheet
+// tabs. Options live outside the component so they stay referentially
+// stable across renders.
 const reactSnippet = (hook: string, component: string, setup: { imports?: string; options?: string; props?: string } = {}): Snippet => ({
   lang: "tsx",
   code: `import { ${hook} } from "aared/react";
@@ -47,10 +47,7 @@ const snippets: Record<string, Record<string, Snippet>> = {
     docx: elementSnippet("docx-coverage.docx"),
   },
   react: {
-    pptx: reactSnippet("usePptx", "Slide", {
-      imports: `import { defaultResolver } from "aared-fonts";\n`,
-      props: ", fontResolver: defaultResolver",
-    }),
+    pptx: reactSnippet("usePptx", "Slide"),
     xlsx: reactSnippet("useXlsx", "Sheet", {
       options: "const appearance = { spreadsheet: { sheetTabs: true } };",
       props: ", appearance",
@@ -61,9 +58,8 @@ const snippets: Record<string, Record<string, Snippet>> = {
     pptx: {
       lang: "js",
       code: `import { open, render } from "aared/pptx";
-import { defaultResolver } from "aared-fonts";
 
-const deck = await open(file, { fontResolver: defaultResolver });
+const deck = await open(file);
 const slide = deck.slides.get(0);
 
 const viewer = await render({ slide, target: el });`,

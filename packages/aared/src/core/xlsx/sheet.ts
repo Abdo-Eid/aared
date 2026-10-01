@@ -11,7 +11,7 @@ import { attr, childElements, firstChild, numberAttr, textContent } from "../xml
 import type { XmlElement } from "../xml.js";
 import type { OpcPackage } from "../opc.js";
 import { mixColors } from "../color.js";
-import { AaredError, throwIfAborted } from "../errors.js";
+import { AaredError, damagedDocument, throwIfAborted } from "../errors.js";
 import { PX_PER_INCH, emuToInches, inchesToEmu, ptToInches } from "../units.js";
 import { MAX_COLUMNS } from "./limits.js";
 import { parseCell, spanRange } from "./range.js";
@@ -51,7 +51,7 @@ function booleanAttribute(element: XmlElement, name: string): boolean {
 /** Parse an A1 cell reference into zero-based coordinates. */
 export function parseCellReference(reference: string): { row: number; col: number } {
   const cell = parseCell(reference);
-  if (cell === undefined) throw new Error(`aared/core: invalid cell reference "${reference}"`);
+  if (cell === undefined) throw damagedDocument(`invalid cell reference "${reference}"`);
   return cell;
 }
 
@@ -191,8 +191,22 @@ function forEachCellInRange(grid: CellGrid, range: CellRange, visit: (cell: Cell
   }
 }
 
+/** Records one item a damaged sheet lost, by what it was ("cell", "hyperlink", ...). */
+type SkipDamaged = (what: string) => void;
+
+/**
+ * What a damaged sheet lost, one `damaged` entry per kind of item with its
+ * count, so a broken file adds a line per kind rather than one per cell.
+ */
+function damagedEntries(skipped: ReadonlyMap<string, number>): SheetUnsupportedModel[] {
+  return [...skipped].map(([what, count]) => ({
+    kind: "damaged" as const,
+    detail: `${count} ${what}${count === 1 ? " could not be read and was" : "s could not be read and were"} skipped; the file may be damaged`,
+  }));
+}
+
 /** Resolve `<hyperlinks>` onto the parsed cells; a later link over the same cell wins. */
-function applyHyperlinks(sheet: XmlElement, relationships: readonly { id: string; target: string }[], grid: CellGrid): void {
+function applyHyperlinks(sheet: XmlElement, relationships: readonly { id: string; target: string }[], grid: CellGrid, skip: SkipDamaged): void {
   const links = firstChild(sheet, "hyperlinks");
   if (links === undefined) return;
   for (const link of childElements(links, "hyperlink")) {
@@ -209,6 +223,7 @@ function applyHyperlinks(sheet: XmlElement, relationships: readonly { id: string
     try {
       range = parseCellRange(ref);
     } catch {
+      skip("hyperlink");
       continue;
     }
     // One object per link, shared by the cells it covers (read-only model).
@@ -234,7 +249,7 @@ function rgbColor(element: XmlElement | undefined): string | undefined {
   return `#${rgb.slice(2).toUpperCase()}`;
 }
 
-function conditionalRules(sheet: XmlElement): Array<{ ranges: CellRange[]; rule: ConditionalRule }> {
+function conditionalRules(sheet: XmlElement, skip: SkipDamaged): Array<{ ranges: CellRange[]; rule: ConditionalRule }> {
   const out: Array<{ ranges: CellRange[]; rule: ConditionalRule }> = [];
   for (const formatting of childElements(sheet, "conditionalFormatting")) {
     const refs = attr(formatting, "sqref")?.split(/\s+/).filter((part) => part !== "") ?? [];
@@ -243,7 +258,7 @@ function conditionalRules(sheet: XmlElement): Array<{ ranges: CellRange[]; rule:
       try {
         ranges.push(parseCellRange(ref));
       } catch {
-        continue;
+        skip("conditional-format range");
       }
     }
     if (ranges.length === 0) continue;
@@ -439,7 +454,7 @@ function anchorFrom(element: XmlElement, context: string): DrawingAnchor["from"]
   const colIndex = column === undefined ? 0 : Number(textContent(column));
   const rowIndex = row === undefined ? 0 : Number(textContent(row));
   if (!Number.isInteger(colIndex) || !Number.isInteger(rowIndex) || colIndex < 0 || rowIndex < 0) {
-    throw new Error(`aared/core: invalid drawing anchor in ${context}`);
+    throw damagedDocument(`invalid drawing anchor in ${context}`);
   }
   return {
     col: colIndex,
@@ -478,6 +493,7 @@ async function parseDrawings(
   columnOffset: GridOffset,
   rowOffset: GridOffset,
   theme: DrawingTheme,
+  skip: SkipDamaged,
   signal?: AbortSignal,
 ): Promise<{ drawings: SheetDrawingModel[]; unsupported: SheetUnsupportedModel[] }> {
   throwIfAborted(signal);
@@ -535,6 +551,7 @@ async function parseDrawings(
         };
       }
     } catch {
+      skip("drawing anchor");
       continue;
     }
     if (bounds === undefined) continue;
@@ -548,7 +565,7 @@ async function parseDrawings(
       const nameElement = firstChild(firstChild(picture, "nvPicPr") ?? picture, "cNvPr");
       const name = nameElement === undefined ? "Picture" : (attr(nameElement, "name") ?? "Picture");
       if (target === undefined || !pkg.hasPart(target)) {
-        unsupported.push({ kind: "drawing", detail: `an image ("${name}") points at a missing part and is not previewed`, range });
+        unsupported.push({ kind: "damaged", detail: `an image ("${name}") points at a missing part and is not previewed; the file may be damaged`, range });
         continue;
       }
       const pictureModel: SheetPictureModel = {
@@ -571,7 +588,7 @@ async function parseDrawings(
       const name = nameElement === undefined ? "Chart" : (attr(nameElement, "name") ?? "Chart");
       const target = chartId === undefined ? undefined : drawingRels.find((relationship) => relationship.id === chartId)?.target;
       if (target === undefined || !pkg.hasPart(target)) {
-        unsupported.push({ kind: "drawing", detail: `a chart ("${name}") points at a missing part and is not previewed`, range });
+        unsupported.push({ kind: "damaged", detail: `a chart ("${name}") points at a missing part and is not previewed; the file may be damaged`, range });
         continue;
       }
       const chartRoot = await pkg.readXml(target, signal);
@@ -626,6 +643,11 @@ export async function parseXlsxSheet(
   const unsortedRows = new Set<number>();
   const rowHeights = new Map<number, number>();
   const hiddenRows = new Set<number>();
+  // Items skipped because the file itself is broken, counted by kind (`damagedEntries`).
+  const skipped = new Map<string, number>();
+  const skip: SkipDamaged = (what) => {
+    skipped.set(what, (skipped.get(what) ?? 0) + 1);
+  };
   const readRow = (row: XmlElement): void => {
     if (row.local !== "row") return;
     throwIfAborted(signal);
@@ -642,6 +664,7 @@ export async function parseXlsxSheet(
       try {
         position = parseCellReference(ref);
       } catch {
+        skip("cell");
         continue;
       }
       const style = styles.cellStyle(numberAttr(cell, "s", "c") ?? 0);
@@ -667,7 +690,7 @@ export async function parseXlsxSheet(
     }
   };
   const root = await pkg.readXml(reference.part, signal, { streamChildrenOf: "sheetData", onChild: readRow });
-  if (root.local !== "worksheet") throw new Error(`aared/core: "${reference.part}" root must be <worksheet>`);
+  if (root.local !== "worksheet") throw damagedDocument(`"${reference.part}" root must be <worksheet>`);
   for (const row of unsortedRows) {
     // Stable sort, then keep the last cell written for a repeated reference.
     const sorted = byRow.get(row)!.sort((a, b) => a.col - b.col);
@@ -717,7 +740,7 @@ export async function parseXlsxSheet(
 
   const sheetRels = await pkg.relationships(reference.part, signal);
   throwIfAborted(signal);
-  applyHyperlinks(root, sheetRels, grid);
+  applyHyperlinks(root, sheetRels, grid, skip);
 
   const merges: CellRange[] = [];
   const mergeCells = firstChild(root, "mergeCells");
@@ -729,12 +752,12 @@ export async function parseXlsxSheet(
       try {
         merges.push(parseCellRange(ref));
       } catch {
-        continue;
+        skip("merged range");
       }
     }
   }
 
-  const formats = conditionalRules(root);
+  const formats = conditionalRules(root, skip);
   if (formats.length > 0) applyConditionalFormatting(grid, formats, styles, unsupported);
 
   // Extent: authored dimension wins; otherwise derive from content so a
@@ -790,9 +813,9 @@ export async function parseXlsxSheet(
     for (let i = 0; i < index && i < extentRows; i++) total += inchesToEmu(rowHeights.get(i) ?? defaultRowHeight);
     return total;
   };
-  const { drawings, unsupported: drawingUnsupported } = await parseDrawings(pkg, reference.part, columnOffset, rowOffset, workbook.theme, signal);
+  const { drawings, unsupported: drawingUnsupported } = await parseDrawings(pkg, reference.part, columnOffset, rowOffset, workbook.theme, skip, signal);
   throwIfAborted(signal);
-  unsupported.push(...drawingUnsupported);
+  unsupported.push(...drawingUnsupported, ...damagedEntries(skipped));
 
   const validations = firstChild(root, "dataValidations");
   if (validations !== undefined && (numberAttr(validations, "count", "dataValidations") ?? childElements(validations, "dataValidation").length) > 0) {

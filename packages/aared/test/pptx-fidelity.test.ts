@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { OpcPackage } from "../src/core/opc.js";
-import { indexPptx, parsePptxSlide, parseTable, parseTextBody } from "../src/core/pptx.js";
+import { indexPptx, overrideColorMap, parsePptxSlide, parseTable, parseTextBody, themeForColorMap } from "../src/core/pptx.js";
 import { parseXml } from "../src/core/xml.js";
 import { readDrawingTheme } from "../src/core/theme.js";
 import type { TableModel } from "../src/core/model.js";
@@ -127,5 +127,101 @@ describe("PPTX table fidelity", () => {
     expect(table.rows[0]?.cells[0]?.columnSpan).toBe(2);
     expect(table.rows[1]?.cells).toHaveLength(1);
     expect(table.rows[2]?.cells[0]?.rowSpan).toBe(2);
+  });
+
+  // `AddTextbox` writes a bodyPr with no insets; PowerPoint still pads it.
+  test("gives a text body no bodyPr states DrawingML's default insets", async () => {
+    const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
+    const { theme } = await indexPptx(pkg);
+    const body = (bodyPr: string) => parseTextBody(parseXml(`<a:txBody>${bodyPr}<a:lstStyle/><a:p><a:r><a:t>x</a:t></a:r></a:p></a:txBody>`), theme);
+    expect(body(`<a:bodyPr wrap="none"/>`).insets).toEqual({ left: 0.1, right: 0.1, top: 0.05, bottom: 0.05 });
+    expect(body(`<a:bodyPr lIns="0" tIns="0"/>`).insets).toEqual({ left: 0, right: 0.1, top: 0, bottom: 0.05 });
+  });
+
+  // Slide 2's title `bodyPr` carries only `a:normAutofit`; the master says
+  // `anchor="ctr"` and PowerPoint centres the text in the 1.45in box.
+  test("takes the anchor from the master when the slide's own bodyPr states none", async () => {
+    const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
+    const deck = await indexPptx(pkg);
+    const slide = await parsePptxSlide(pkg, deck, 1);
+    const title = slide.elements.find((element) => element.kind === "shape" && element.placeholder?.type === "title");
+    if (title?.kind !== "shape" || title.text === undefined) throw new Error("fixture structure changed: expected slide 2's title");
+    expect(title.text.verticalAlign).toBe("middle");
+    // An authored anchor still wins, and wrap cascades the same way.
+    const body = (bodyPr: string, inherited: string) =>
+      parseTextBody(parseXml(`<a:txBody>${bodyPr}<a:lstStyle/><a:p><a:r><a:t>x</a:t></a:r></a:p></a:txBody>`), deck.theme, { bodies: [parseXml(`<a:txBody>${inherited}</a:txBody>`)] });
+    expect(body(`<a:bodyPr anchor="b"><a:normAutofit/></a:bodyPr>`, `<a:bodyPr anchor="ctr" wrap="none"/>`)).toMatchObject({ verticalAlign: "bottom", wrapping: "none" });
+  });
+
+  test("reads a slide's or layout's colour-map override, and leaves a master mapping alone", async () => {
+    const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
+    const { theme } = await indexPptx(pkg);
+    const dark = parseXml(
+      `<p:sld><p:clrMapOvr><a:overrideClrMapping bg1="dk1" tx1="lt1" bg2="dk2" tx2="lt2" accent1="accent1" accent2="accent2" ` +
+        `accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/></p:clrMapOvr></p:sld>`,
+    );
+    const remapped = themeForColorMap(theme, overrideColorMap(dark));
+    expect(remapped.colors.bg1).toBe(theme.colors.dk1 ?? "");
+    expect(remapped.colors.tx1).toBe(theme.colors.lt1 ?? "");
+    expect(remapped.colors.bg2).toBe(theme.colors.dk2 ?? "");
+    // `a:masterClrMapping` (and no element at all) keep the map above.
+    expect(overrideColorMap(parseXml(`<p:sld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>`))).toBeUndefined();
+    expect(overrideColorMap(parseXml(`<p:sld/>`))).toBeUndefined();
+  });
+
+  test("draws a built-in Medium Style 2 the deck does not define, and leaves other missing styles unstyled", async () => {
+    const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
+    const { theme } = await indexPptx(pkg);
+    const frame = (styleId: string) => parseXml(
+      `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="9" name="Styled"/></p:nvGraphicFramePr>` +
+        `<p:xfrm><a:off x="0" y="0"/><a:ext cx="9144000" cy="1828800"/></p:xfrm>` +
+        `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl>` +
+        `<a:tblPr firstRow="1" bandRow="1"><a:tableStyleId>${styleId}</a:tableStyleId></a:tblPr><a:tblGrid><a:gridCol w="9144000"/></a:tblGrid>` +
+        `<a:tr h="914400"><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Head</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>` +
+        `<a:tr h="914400"><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Body</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>` +
+        `</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`,
+    );
+    const styles = new Map();
+    // Medium Style 2 - Accent 2: header solid accent2, white edges, white bold text.
+    const accent2 = parseTable(frame("{21E4AEA4-8DFA-4A89-87EB-49C32662AFE0}"), theme, styles)!;
+    expect(accent2.cellFills[0]?.[0]).toEqual({ kind: "solid", color: theme.colors.accent2! });
+    expect(accent2.cellFills[1]?.[0]).toMatchObject({ kind: "solid" });
+    expect(accent2.rows[0]?.cells[0]?.borders?.left?.color).toBe(theme.colors.lt1!);
+    expect(accent2.rows[0]?.cells[0]?.borders?.bottom?.width).toBeCloseTo(38100 / 914400, 6);
+    expect(styles.has("{21E4AEA4-8DFA-4A89-87EB-49C32662AFE0}")).toBe(true);
+    // A GUID PowerPoint would draw from its own copy and aared has no definition for.
+    const unknown = parseTable(frame("{00000000-0000-0000-0000-000000000000}"), theme, new Map())!;
+    expect(unknown.cellFills[0]?.[0]).toBeUndefined();
+  });
+
+  // Ground truth: probe en-us-arabic-run (PowerPoint's own PDF).
+  test("keeps Arabic words in written order around ASCII punctuation in a left-to-right en-US run only", async () => {
+    const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
+    const { theme } = await indexPptx(pkg);
+    const runs = (text: string, lang: string, paragraphProperties = ""): Array<{ text: string; ltrRun?: boolean }> =>
+      parseTextBody(
+        parseXml(`<a:txBody><a:bodyPr/><a:lstStyle/><a:p>${paragraphProperties}<a:r><a:rPr lang="${lang}"/><a:t>${text}</a:t></a:r></a:p></a:txBody>`),
+        theme,
+      ).paragraphs[0]!.runs.map((run) => ({ text: run.text, ...(run.ltrRun === true ? { ltrRun: true } : {}) }));
+
+    expect(runs("واحد + اثنان", "en-US")).toEqual([{ text: "واحد " }, { text: "+", ltrRun: true }, { text: " اثنان" }]);
+    expect(runs("واحد (اثنان) ثالثة", "en-US")).toEqual([
+      { text: "واحد " }, { text: "(", ltrRun: true }, { text: "اثنان" }, { text: ")", ltrRun: true }, { text: " ثالثة" },
+    ]);
+    // Spaces alone, an Arabic language, a right-to-left paragraph, and punctuation
+    // with no Arabic word beside it all follow plain Unicode bidi.
+    expect(runs("واحد اثنان ثالثة", "en-US")).toEqual([{ text: "واحد اثنان ثالثة" }]);
+    expect(runs("واحد + اثنان", "ar-SA")).toEqual([{ text: "واحد + اثنان" }]);
+    expect(runs("واحد + اثنان", "en-US", `<a:pPr rtl="1"/>`)).toEqual([{ text: "واحد + اثنان" }]);
+    expect(runs("abc + واحد", "en-US")).toEqual([{ text: "abc + واحد" }]);
+  });
+
+  test("reads the theme's own line widths for lnRef edges", async () => {
+    // Two real themes, two answers: the Aptos-era Office theme states 1, 1.5
+    // and 2 pt, the 2013-era one 0.5, 1 and 1.5 pt.
+    const coverage = await readDrawingTheme(await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer()));
+    expect(coverage.lineWidths).toEqual([12700, 19050, 25400]);
+    const production = await readDrawingTheme(await OpcPackage.open(await Bun.file(PRODUCTION).arrayBuffer()));
+    expect(production.lineWidths).toEqual([6350, 12700, 19050]);
   });
 });

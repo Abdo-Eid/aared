@@ -14,12 +14,14 @@ const DOCX_ENTRY = `${import.meta.dir}/../src/docx/index.ts`;
 /**
  * Parse the fixture, bundle the renderer, and serve them: the renderer at
  * `/docx.mjs`, the fixture's media parts at `/media/<file>`, and `page` (an
- * HTML document that imports `/docx.mjs`) for every other path. The caller
- * stops the server and hands the returned sections to its page to render.
+ * HTML document that imports `/docx.mjs`) for every other path, plus any
+ * extra `modules` (path to JavaScript source). The caller stops the server
+ * and hands the returned sections to its page to render.
  */
 export async function serveDocx(
   fixturePath: string,
   page: string,
+  modules: Record<string, string> = {},
 ): Promise<{ server: ReturnType<typeof Bun.serve>; sections: DocumentSection[] }> {
   const pkg = await OpcPackage.open(await Bun.file(fixturePath).arrayBuffer());
   const sections = await parseDocxSections(pkg, await indexDocx(pkg));
@@ -35,6 +37,8 @@ export async function serveDocx(
       if (url.pathname === "/docx.mjs") {
         return new Response(renderer, { headers: { "content-type": "text/javascript; charset=utf-8" } });
       }
+      const module = modules[url.pathname];
+      if (module !== undefined) return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
       if (url.pathname.startsWith("/media/")) {
         const id = `word/media/${url.pathname.slice("/media/".length)}`;
         const data = media.get(id);

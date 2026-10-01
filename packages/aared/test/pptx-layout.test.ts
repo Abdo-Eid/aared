@@ -108,7 +108,7 @@ test("a reader that aborts while the layout loads does not fail the next reader"
 // These need a fixture with real master/layout content (a master logo or
 // shape, a layout or slide that hides background graphics, a picture
 // background). The current fixtures have none, so they are tracked here
-// instead of silently untested. See docs/ROADMAP.md "Known fidelity gaps".
+// instead of silently untested. See docs/ROADMAP.md "Open gaps".
 const pending = (): void => {};
 test.todo("slides on one layout carry the same `layout` object from SlideHandle.read()", pending);
 test.todo("master shapes paint under slide content; layout showMasterSp=0 drops them", pending);

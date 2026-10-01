@@ -3,16 +3,16 @@ import {
   FIXTURES,
   LARGE_FIXTURES,
   METHOD,
-  RENDERER_PACKAGES,
-  RENDERERS,
   RENDERERS_BY_FORMAT,
   buildCells,
   formatBytes,
   formatOfFixture,
   kbRange,
+  rendererPackage,
   sizeTotals,
   stat,
   summarizeSize,
+  type BenchFormat,
   type SizeFileEntry,
   type SizeRow,
 } from "./bench-measure";
@@ -31,8 +31,10 @@ describe("bench-measure contract", () => {
     expect(cells.some((c) => c.renderer === "docx-preview" && c.format !== "docx")).toBe(false);
   });
 
-  test("every renderer names the package its version is read from", () => {
-    for (const renderer of RENDERERS) expect(RENDERER_PACKAGES[renderer], renderer).toBeString();
+  test("every renderer names the package its version is read from, per format it opens", () => {
+    for (const [format, renderers] of Object.entries(RENDERERS_BY_FORMAT) as Array<[BenchFormat, readonly string[]]>) {
+      for (const renderer of renderers) expect(rendererPackage(renderer, format), `${renderer} (${format})`).toBeString();
+    }
   });
 
   test("aared is measured on every format", () => {
