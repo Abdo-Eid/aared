@@ -34,7 +34,7 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
         window.frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         window.openPreview = async (source, options) => {
           const host = document.querySelector("#host");
-          const handle = await preview(source, host, options);
+          const handle = await preview({ ...options, source, target: host });
           window.handle = handle;
           window.events = [];
           for (const type of ["indexchange", "slidechange", "zoomchange", "sheetchange"]) {
@@ -77,7 +77,7 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
       format: string; count: number; index: number; titles: string[]; zoom: unknown;
     };
     expect(opened.format).toBe("pptx");
-    expect(opened.count).toBe(12);
+    expect(opened.count).toBe(18);
     expect(opened.index).toBe(0);
     expect(opened.zoom).toBe("fit-page");
     const first = await view.evaluate(`snapshot()`) as { text?: string; canvasCount: number };
@@ -158,20 +158,132 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
       { type: "slidechange", detail: { index: 4, title: "Slide 5" } },
     ]);
 
+    // Back to the unit on screen while a move is on its way: the newest call
+    // wins, so the move is overtaken and the slide on screen stays (it used
+    // to land on the slide the older call asked for).
+    const back = await view.evaluate(`(async () => {
+      take();
+      await frame();
+      const before = snapshot().text;
+      await Promise.all([handle.goTo(1), handle.goTo(4)]);
+      await frame();
+      return { index: handle.index, events: take(), same: snapshot().text === before };
+    })()`) as { index: number; events: unknown[]; same: boolean };
+    expect(back).toEqual({ index: 4, events: [], same: true });
+
+    // The toolbar methods. next()/previous() step on from where the newest
+    // move is heading, so quick presses add up; at either end nothing changes.
+    // zoomIn()/zoomOut() step from the scale on screen in a fit mode, round to
+    // whole percents and stay within 25%–300%; resetZoom() is the format's own.
+    const toolbar = await view.evaluate(`(async () => {
+      take();
+      await Promise.all([handle.next(), handle.next(), handle.next()]);
+      const added = { index: handle.index, events: take().map((event) => event.type) };
+      await handle.previous();
+      const stepBack = handle.index;
+      await handle.goTo(0);
+      take();
+      await handle.previous();
+      const atStart = { index: handle.index, events: take() };
+      await handle.goTo(17);
+      take();
+      await handle.next();
+      const atEnd = { index: handle.index, events: take() };
+      handle.resetZoom();
+      await frame();
+      const fitted = { zoom: handle.zoom, defaultZoom: handle.defaultZoom, scale: handle.scale };
+      handle.zoomIn();
+      const stepped = handle.zoom;
+      handle.zoomOut();
+      const steppedBack = handle.zoom;
+      handle.zoomIn(0.5);
+      const bigStep = handle.zoom;
+      for (let press = 0; press < 30; press++) handle.zoomIn();
+      const capped = handle.zoom;
+      for (let press = 0; press < 40; press++) handle.zoomOut();
+      const floored = handle.zoom;
+      let badStep = null;
+      try { handle.zoomIn(0); } catch (error) { badStep = error.code; }
+      take();
+      handle.resetZoom();
+      return { added, stepBack, atStart, atEnd, fitted, stepped, steppedBack, bigStep, capped, floored, badStep, reset: { zoom: handle.zoom, events: take() } };
+    })()`) as {
+      added: { index: number; events: string[] };
+      stepBack: number;
+      atStart: { index: number; events: unknown[] };
+      atEnd: { index: number; events: unknown[] };
+      fitted: { zoom: unknown; defaultZoom: unknown; scale: number };
+      stepped: number;
+      steppedBack: number;
+      bigStep: number;
+      capped: number;
+      floored: number;
+      badStep: unknown;
+      reset: { zoom: unknown; events: unknown[] };
+    };
+    const percent = (value: number): number => Math.round(value * 100) / 100;
+    // Three quick presses from slide 5: three slides on, announced once.
+    expect(toolbar.added).toEqual({ index: 7, events: ["indexchange", "slidechange"] });
+    expect(toolbar.stepBack).toBe(6);
+    expect(toolbar.atStart).toEqual({ index: 0, events: [] });
+    expect(toolbar.atEnd).toEqual({ index: 17, events: [] });
+    expect(toolbar.fitted.zoom).toBe("fit-page");
+    expect(toolbar.fitted.defaultZoom).toBe("fit-page");
+    expect(toolbar.fitted.scale).toBeLessThan(1);
+    // The default step adds 10 points to the fitted scale; the same step back takes them away.
+    expect(toolbar.stepped).toBe(percent(toolbar.fitted.scale + 0.1));
+    expect(toolbar.steppedBack).toBe(percent(toolbar.stepped - 0.1));
+    expect(toolbar.bigStep).toBe(percent(toolbar.steppedBack + 0.5));
+    expect(toolbar.capped).toBe(3);
+    expect(toolbar.floored).toBe(0.25);
+    expect(toolbar.badStep).toBe("invalid-argument");
+    expect(toolbar.reset).toEqual({ zoom: "fit-page", events: [{ type: "zoomchange", detail: { zoom: "fit-page" } }] });
+
+    // search(): the deck the viewer already has open, one result per occurrence,
+    // each a place to go with goTo(); an empty query finds nothing.
+    const searched = await view.evaluate(`(async () => {
+      take();
+      const matches = await handle.search("الاسم");
+      const onSlide2 = matches.find((match) => match.slide.index === 1);
+      if (onSlide2 !== undefined) await handle.goTo(onSlide2.slide.index);
+      return {
+        slides: matches.map((match) => match.slide.index),
+        index: handle.index,
+        text: snapshot().text,
+        empty: await handle.search(""),
+      };
+    })()`) as { slides: number[]; index: number; text: string; empty: unknown[] };
+    expect(searched.slides).toContain(1);
+    expect(searched.index).toBe(1);
+    expect(searched.text).toContain("الاسم");
+    expect(searched.empty).toEqual([]);
+
     const cleared = await view.evaluate(`destroyPreview()`) as { children: number };
     expect(cleared.children).toBe(0);
     // A destroyed viewer says so instead of resolving as if it moved.
     const afterDestroy = await view.evaluate(`handle.goTo(1).then(() => "resolved", (error) => ({ code: error.code, message: error.message }))`);
     expect(afterDestroy).toEqual({ code: "closed", message: "aared/preview: goTo() was called after destroy()" });
+    const nextAfterDestroy = await view.evaluate(`handle.next().then(() => "resolved", (error) => ({ code: error.code, message: error.message }))`);
+    expect(nextAfterDestroy).toEqual({ code: "closed", message: "aared/preview: next() was called after destroy()" });
+    const searchAfterDestroy = await view.evaluate(`handle.search("x").then(() => "resolved", (error) => ({ code: error.code, message: error.message }))`);
+    expect(searchAfterDestroy).toEqual({ code: "closed", message: "aared/preview: search() was called after destroy()" });
 
-    // XLSX: detected at 100%, places within the sheet on `xlsx`, tab clicks followed.
-    const workbook = await view.evaluate(
-      `openPreview("/arabic.xlsx", { appearance: { spreadsheet: { sheetTabs: true } } })`,
-    ) as { format: string; count: number; titles: string[]; zoom: unknown };
+    // XLSX: detected at 100%, sheet tabs shown by default (an embed has no
+    // other way to switch sheets), places within the sheet on `xlsx`, tab
+    // clicks followed.
+    const workbook = await view.evaluate(`openPreview("/arabic.xlsx")`) as { format: string; count: number; titles: string[]; zoom: unknown };
     expect(workbook.format).toBe("xlsx");
     expect(workbook.count).toBe(workbook.titles.length);
     expect(workbook.zoom).toBe(1);
     const sheet = await view.evaluate(`(async () => {
+      const tabCount = () => document.querySelectorAll('[data-aared-element="sheet-tab"]').length;
+      const tabs = { start: tabCount() };
+      // setAppearance() replaces the appearance; what it leaves out takes the
+      // embed default, so a theme switch keeps the tabs.
+      handle.setAppearance({ theme: "dark" });
+      await frame();
+      tabs.afterTheme = tabCount();
+      handle.setAppearance({});
       const controls = handle.xlsx;
       const stable = controls === handle.xlsx;
       await controls.goToCell("B2");
@@ -179,25 +291,85 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
       const tab = document.querySelectorAll('[data-aared-element="sheet-tab"]')[1];
       tab.click();
       await new Promise((resolve) => handle.addEventListener("indexchange", resolve, { once: true }));
-      return { stable, selection, index: handle.index, events: take(), cells: snapshot().cells, canvasCount: snapshot().canvasCount };
+      const events = take();
+      // The same object keeps working after goTo() renders another sheet (it used to act on the old one).
+      await handle.goTo(0);
+      await controls.goToCell("C3");
+      take();
+      return {
+        tabs,
+        stable,
+        selection,
+        index: handle.index,
+        events,
+        kept: { same: controls === handle.xlsx, selection: controls.selection },
+        cells: snapshot().cells,
+        canvasCount: snapshot().canvasCount,
+      };
     })()`) as {
+      tabs: { start: number; afterTheme: number };
       stable: boolean;
       selection: unknown;
       index: number;
       events: Array<{ type: string; detail: unknown }>;
+      kept: { same: boolean; selection: unknown };
       cells: number;
       canvasCount: number;
     };
+    expect(sheet.tabs.start).toBeGreaterThan(1);
+    expect(sheet.tabs.afterTheme).toBe(sheet.tabs.start);
     expect(sheet.stable).toBe(true);
     expect(sheet.selection).toEqual({ address: "B2", row: 1, col: 1 });
-    expect(sheet.index).toBe(1);
+    expect(sheet.index).toBe(0);
     expect(sheet.events).toEqual([
       { type: "indexchange", detail: { index: 1 } },
       { type: "sheetchange", detail: { index: 1, title: workbook.titles[1] } },
     ]);
+    expect(sheet.kept).toEqual({ same: true, selection: { address: "C3", row: 2, col: 2 } });
     expect(sheet.cells).toBeGreaterThan(0);
     expect(sheet.canvasCount).toBe(0);
-    await view.evaluate(`destroyPreview()`);
+    // search() on a workbook searches the sheet on screen, as Excel's Find
+    // does: each match is a cell of that sheet, reached with goToCell(address).
+    // The query is a painted cell's own text, so it is known to be on it.
+    const found = await view.evaluate(`(async () => {
+      const query = [...document.querySelectorAll('td[data-aared-element="cell"]')]
+        .map((cell) => cell.textContent.trim())
+        .find((text) => text.length >= 3);
+      const matches = await handle.search(query);
+      const [match] = matches;
+      if (match === undefined) return { found: false, address: null, selected: null, onScreen: false, elsewhere: null };
+      const onScreen = matches.every((m) => m.sheet.index === handle.index);
+      await handle.xlsx.goToCell(match.address);
+      take();
+      const selected = handle.xlsx.selection?.address ?? null;
+      // On another sheet the same query is that sheet's own search, not sheet 0's.
+      await handle.goTo(1);
+      const elsewhere = (await handle.search(query)).every((m) => m.sheet.index === 1);
+      await handle.goTo(0);
+      take();
+      return { found: true, address: match.address, selected, onScreen, elsewhere };
+    })()`) as { found: boolean; address: string | null; selected: string | null; onScreen: boolean; elsewhere: boolean | null };
+    expect(found.found).toBe(true);
+    expect(found.selected).toBe(found.address);
+    expect(found.onScreen).toBe(true);
+    expect(found.elsewhere).toBe(true);
+    // After destroy() a move says so, like goTo(); the rest do nothing.
+    const closedMove = await view.evaluate(`(async () => {
+      const controls = handle.xlsx;
+      destroyPreview();
+      controls.focus("A1");
+      return { code: await controls.goToCell("A1").then(() => "resolved", (error) => error.code), selection: controls.selection };
+    })()`);
+    expect(closedMove).toEqual({ code: "closed", selection: null });
+    // `sheetTabs: false` turns the embed default off.
+    const untabbed = await view.evaluate(`(async () => {
+      await openPreview("/arabic.xlsx", { appearance: { spreadsheet: { sheetTabs: false } } });
+      await frame();
+      const tabs = document.querySelectorAll('[data-aared-element="sheet-tab"]').length;
+      destroyPreview();
+      return tabs;
+    })()`);
+    expect(untabbed).toBe(0);
 
     // DOCX: detected; layout pagination paints pages; places on `docx`.
     const document = await view.evaluate(
@@ -247,6 +419,19 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
       { type: "error", code: "not-found" },
       { type: "error", code: "invalid-argument" },
     ]);
+    // search() on a document finds the heading; a failed search only
+    // rejects: it fires no `error`, which reports moves.
+    const docSearch = await view.evaluate(`(async () => {
+      take();
+      const matches = await handle.search("Project Overview");
+      const cancelled = await handle.search("Project", { signal: AbortSignal.abort() }).then(() => "resolved", (error) => error.code);
+      return {
+        heading: matches.some((match) => match.kind === "heading" && match.text.includes("Project Overview")),
+        cancelled,
+        events: take(),
+      };
+    })()`) as { heading: boolean; cancelled: unknown; events: unknown[] };
+    expect(docSearch).toEqual({ heading: true, cancelled: "aborted", events: [] });
     await view.evaluate(`destroyPreview()`);
   } finally {
     server.stop();

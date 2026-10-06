@@ -2,8 +2,7 @@
  * Minimal ZIP reader for OOXML packages (OPC).
  *
  * Central directory only, inflate on demand — the whole decompressed
- * package is never held in memory (see docs/ARCHITECTURE.md and the
- * D16 decision). Decompression uses the native
+ * package is never held in memory (see docs/ARCHITECTURE.md). Decompression uses the native
  * `DecompressionStream('deflate-raw')`, so `core` keeps zero
  * dependencies. Works headless (plain Bun) and in Workers — no DOM.
  *
@@ -13,21 +12,16 @@
  * never need those for preview.
  */
 
-import { throwIfAborted } from "./errors.js";
+import { AaredError, throwIfAborted } from "./errors.js";
+import type { AaredErrorCode } from "./errors.js";
 
-// Kept here for existing importers; the helpers live in `errors.ts` so the
-// main-thread bundle never needs the ZIP reader to get them.
-export { abortError, throwIfAborted } from "./errors.js";
-
-export type ZipErrorCode = "not-a-zip" | "unsupported" | "corrupt";
-
-export class ZipError extends Error {
-  readonly code: ZipErrorCode;
-  constructor(code: ZipErrorCode, message: string) {
-    super(`aared/core: ${message}`);
-    this.name = "ZipError";
-    this.code = code;
-  }
+/**
+ * A broken archive is `invalid-document`; one that is fine but uses what the
+ * reader does not do (ZIP64, multi-disk, an over-limit entry) is
+ * `unsupported-feature`; an encrypted entry is `encrypted-document`.
+ */
+function zipError(code: AaredErrorCode, message: string): AaredError {
+  return new AaredError(code, `aared/core: ${message}`);
 }
 
 export interface ZipEntry {
@@ -47,13 +41,12 @@ const CENTRAL_SIG = 0x0201_4b50;
 const LOCAL_SIG = 0x0403_4b50;
 
 /**
- * Defensive resource limits (see the API's ZIP/decompression safety
- * contract). Office XML parts are kilobytes to low megabytes; these caps
- * sit orders of magnitude above any legitimate preview input and only
- * trip on corrupt or malicious archives. Failures surface as `ZipError`
- * and are mapped to typed `AaredError`s at the worker boundary.
+ * Defensive resource limit. Office XML parts are kilobytes to low megabytes;
+ * this cap sits orders of magnitude above any legitimate preview input and
+ * only trips on corrupt or malicious archives. (There is no entry-count cap:
+ * the 16-bit count in the EOCD record tops out at 65,534, and a ZIP64 archive,
+ * which could say more, is refused.)
  */
-export const MAX_ZIP_ENTRIES = 100_000;
 export const MAX_ZIP_ENTRY_BYTES = 256 * 1024 * 1024;
 
 function u16(view: DataView, offset: number): number {
@@ -73,7 +66,7 @@ function findEocd(view: DataView): number {
   for (let pos = view.byteLength - 22; pos >= minPos; pos--) {
     if (u32(view, pos) === EOCD_SIG) return pos;
   }
-  throw new ZipError("not-a-zip", "not a ZIP archive (no End Of Central Directory record)");
+  throw zipError("invalid-document", "not a ZIP archive (no End Of Central Directory record)");
 }
 
 /** Parse the central directory; returns entries in archive order. */
@@ -81,28 +74,31 @@ export function readEntries(data: Uint8Array, signal?: AbortSignal): ZipEntry[] 
   throwIfAborted(signal);
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   if (data.byteLength < 22) {
-    throw new ZipError("not-a-zip", "not a ZIP archive (too short)");
+    throw zipError("invalid-document", "not a ZIP archive (too short)");
   }
   const eocd = findEocd(view);
   const entriesTotal = u16(view, eocd + 10);
   const centralSize = u32(view, eocd + 12);
   const centralOffset = u32(view, eocd + 16);
   if (entriesTotal === 0xffff || centralSize === 0xffff_ffff || centralOffset === 0xffff_ffff) {
-    throw new ZipError("unsupported", "ZIP64 archives are not supported");
+    throw zipError("unsupported-feature", "ZIP64 archives are not supported");
   }
   if (centralOffset + centralSize > data.byteLength) {
-    throw new ZipError("corrupt", "central directory runs past end of file");
-  }
-  if (entriesTotal > MAX_ZIP_ENTRIES) {
-    throw new ZipError("unsupported", `archive lists ${entriesTotal} entries, above the ${MAX_ZIP_ENTRIES} preview limit`);
+    throw zipError("invalid-document", "central directory runs past end of file");
   }
 
   const entries: ZipEntry[] = [];
+  const centralEnd = centralOffset + centralSize;
   let pos = centralOffset;
   for (let i = 0; i < entriesTotal; i++) {
     throwIfAborted(signal);
+    // A count or name length larger than the directory holds would otherwise
+    // read past the buffer and escape as an untyped RangeError.
+    if (pos + 46 > centralEnd) {
+      throw zipError("invalid-document", `central directory ends before entry ${i}`);
+    }
     if (u32(view, pos) !== CENTRAL_SIG) {
-      throw new ZipError("corrupt", `central directory entry ${i} has a bad signature`);
+      throw zipError("invalid-document", `central directory entry ${i} has a bad signature`);
     }
     const flags = u16(view, pos + 8);
     const method = u16(view, pos + 10);
@@ -114,13 +110,16 @@ export function readEntries(data: Uint8Array, signal?: AbortSignal): ZipEntry[] 
     const diskStart = u16(view, pos + 34);
     const localHeaderOffset = u32(view, pos + 42);
     if (flags & 0x01) {
-      throw new ZipError("unsupported", "encrypted ZIP entries are not supported");
+      throw zipError("encrypted-document", "encrypted ZIP entries are not supported");
     }
     if (diskStart !== 0) {
-      throw new ZipError("unsupported", "multi-disk ZIP archives are not supported");
+      throw zipError("unsupported-feature", "multi-disk ZIP archives are not supported");
     }
     if (compressedSize === 0xffff_ffff || size === 0xffff_ffff || localHeaderOffset === 0xffff_ffff) {
-      throw new ZipError("unsupported", "ZIP64 archives are not supported");
+      throw zipError("unsupported-feature", "ZIP64 archives are not supported");
+    }
+    if (pos + 46 + nameLen + extraLen + commentLen > centralEnd) {
+      throw zipError("invalid-document", `central directory entry ${i} runs past the directory`);
     }
     // Office files always set the UTF-8 flag; decode as UTF-8 regardless.
     const name = utf8.decode(data.subarray(pos + 46, pos + 46 + nameLen));
@@ -169,17 +168,14 @@ async function inflateRaw(compressed: Uint8Array, declaredSize: number, signal?:
     } catch (error) {
       // The platform's decompressor rejects bad deflate data with a bare TypeError.
       const detail = error instanceof Error ? error.message : String(error);
-      throw new ZipError("corrupt", `entry data is not valid deflate (${detail})`);
+      throw zipError("invalid-document", `entry data is not valid deflate (${detail})`);
     }
     if (chunk.done) break;
     const value = chunk.value;
     const next = total + value.byteLength;
     if (next > MAX_ZIP_ENTRY_BYTES) {
       void reader.cancel();
-      throw new ZipError(
-        "unsupported",
-        `entry decompresses past the ${MAX_ZIP_ENTRY_BYTES}-byte preview limit`,
-      );
+      throw zipError("unsupported-feature", `entry decompresses past the ${MAX_ZIP_ENTRY_BYTES}-byte preview limit`);
     }
     if (chunks === undefined && next <= out.byteLength) {
       out.set(value, total);
@@ -217,27 +213,27 @@ async function inflateRaw(compressed: Uint8Array, declaredSize: number, signal?:
 export async function getEntryData(data: Uint8Array, entry: ZipEntry, signal?: AbortSignal): Promise<Uint8Array> {
   throwIfAborted(signal);
   if (entry.size > MAX_ZIP_ENTRY_BYTES) {
-    throw new ZipError(
-      "unsupported",
+    throw zipError(
+      "unsupported-feature",
       `entry "${entry.name}" declares ${entry.size} bytes, above the ${MAX_ZIP_ENTRY_BYTES}-byte preview limit`,
     );
   }
   if (entry.method !== 0 && entry.method !== 8) {
-    throw new ZipError(
-      "unsupported",
+    throw zipError(
+      "unsupported-feature",
       `entry "${entry.name}" uses compression method ${entry.method}; only stored (0) and deflated (8) are supported`,
     );
   }
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const lh = entry.localHeaderOffset;
   if (lh + 30 > data.byteLength || u32(view, lh) !== LOCAL_SIG) {
-    throw new ZipError("corrupt", `entry "${entry.name}" has a bad local header`);
+    throw zipError("invalid-document", `entry "${entry.name}" has a bad local header`);
   }
   const nameLen = u16(view, lh + 26);
   const extraLen = u16(view, lh + 28);
   const dataStart = lh + 30 + nameLen + extraLen;
   if (dataStart + entry.compressedSize > data.byteLength) {
-    throw new ZipError("corrupt", `entry "${entry.name}" runs past end of file`);
+    throw zipError("invalid-document", `entry "${entry.name}" runs past end of file`);
   }
   const compressed = data.subarray(dataStart, dataStart + entry.compressedSize);
   if (entry.method === 0) return compressed;

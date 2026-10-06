@@ -1,7 +1,7 @@
 import { abortError, type OpenedDoc } from "./types";
 
 /**
- * Pilot: silurus PPTX via the headless engine. Parse once (`PptxPresentation`),
+ * silurus PPTX via the headless engine. Parse once (`PptxPresentation`),
  * render each slide into our own canvas — same composition the docs advertise
  * for custom UIs, and it gives a reliable `slideCount` where the opinionated
  * `PptxViewer` does not. Renders serialize through one chain: overlapping

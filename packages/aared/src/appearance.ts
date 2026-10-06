@@ -21,6 +21,20 @@ export function resolveTheme(theme: ViewerTheme | undefined): ResolvedTheme {
   return "light";
 }
 
+/**
+ * Call `onChange` each time the OS colour scheme flips, until the returned
+ * function is called. The one place a viewer listens for it: `system` is
+ * resolved when something paints, so whoever holds a `system` theme asks to
+ * be told when that answer may have changed. A host without `matchMedia`
+ * resolves `system` to light and never flips.
+ */
+export function watchSystemTheme(onChange: () => void): () => void {
+  if (typeof matchMedia !== "function") return () => {};
+  const query = matchMedia("(prefers-color-scheme: dark)");
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
 interface Palette {
   /** Chrome surface for the resolved theme; document content always paints light source. */
   surface: string;

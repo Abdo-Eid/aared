@@ -6,8 +6,7 @@
  * own fonts opened documents 2-15x faster and read better, so aared's default
  * is no resolver. Kept for a consumer that needs Office's line breaks exactly.
  *
- * Delivery decision: no font binaries ship in this package (see the delivery
- * report). `defaultResolver` maps each requested Office family to its
+ * No font binaries ship in this package. `defaultResolver` maps each requested Office family to its
  * substitute, fetches that substitute's `@font-face` CSS from Google Fonts
  * once per family, and registers every subset face under `fontAlias(requested)`
  * (never the requested name itself, never the substitute's own name - see
@@ -40,8 +39,7 @@ export const FONT_SUBSTITUTIONS: Record<string, string> = {
 /**
  * `FontFace` metric-override descriptors for a substitution that is not an
  * exact clone. Carlito/Caladea/Arimo/Tinos/Cousine share their Office
- * counterpart's advance widths glyph for glyph (verified: `tools/probe/
- * font-metrics/`, 0 of 95 ASCII glyphs differ for the Calibri/Arial/Times New
+ * counterpart's advance widths glyph for glyph (verified: `tools/font-calibration/`, 0 of 95 ASCII glyphs differ for the Calibri/Arial/Times New
  * Roman/Courier New pairs; Cambria/Caladea differ only by sub-pixel
  * units-per-em quantization, under 0.13%) - nothing to correct.
  *
@@ -50,7 +48,7 @@ export const FONT_SUBSTITUTIONS: Record<string, string> = {
  * browsers never have it: Office downloads it into a per-user cache and never
  * installs it as a system font. Its three families were measured the way the
  * Arabic fonts were, against the real files from that cache on every Latin
- * run in the fixtures (`tools/probe/font-metrics/latin-survey.ts`), among 61
+ * run in the fixtures (`tools/font-calibration/latin-survey.ts`), among 61
  * open candidates delivered by this resolver's own request. Once widths match,
  * a look-alike must also keep Aptos's letter heights: of the 61, one face per
  * family lands within 4% on x-height and cap height at both weights - Radio
@@ -77,7 +75,7 @@ export const FONT_SUBSTITUTIONS: Record<string, string> = {
  * shaped Arabic text (every Arabic-only run in the fixtures, 59 samples, in
  * the font's real Windows file; line breaks depend on that spread, while the
  * mean is what `size-adjust` removes), among eleven candidates loaded from the
- * same Google Fonts files this resolver delivers (`tools/probe/font-metrics/
+ * same Google Fonts files this resolver delivers (`tools/font-calibration/
  * arabic-survey.ts`, DECISION_LOG §45). A candidate had to beat the incumbent
  * (Amiri, the original choice) by a quarter to displace it: Lateef does for
  * Simplified Arabic (47% less spread), Markazi Text for Sakkal Majalla (41%).
@@ -89,7 +87,7 @@ export const FONT_SUBSTITUTIONS: Record<string, string> = {
  * are computed to compensate for `size-adjust` scaling them too - a browser
  * multiplies an override percentage by size-adjust's own factor rather than
  * applying it to the font's un-adjusted em (verified empirically, not assumed
- * from spec text: `tools/probe/font-metrics/size-adjust-interaction.ts`). The
+ * from spec text: `tools/font-calibration/size-adjust-interaction.ts`). The
  * ascent and descent are the original's own, as a browser on Windows paints
  * the real font (its `usWin` metrics; the typographic ones for a font that
  * sets USE_TYPO_METRICS, as Aptos does: 0.939/0.282 of the em, not its
@@ -146,7 +144,7 @@ export const FONT_CALIBRATION: Record<string, FontCalibration> = {
  * Unicode ranges of the Arabic script: Arabic, Supplement, Extended-B and
  * Extended-A, and Presentation Forms A and B. Limits an Arabic-script fallback
  * face to Arabic text so it never touches Latin, digits, or punctuation
- * (verified: `tools/probe/font-metrics/alias-composition.ts`).
+ * (verified: `tools/font-calibration/alias-composition.ts`).
  */
 export const ARABIC_UNICODE_RANGE = "U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB50-FDFF, U+FE70-FEFF";
 
@@ -165,7 +163,7 @@ export const ARABIC_UNICODE_RANGE = "U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB
  * take the same Lateef face. Calibri 6 (Windows 11 / current Office) carries
  * its own Arabic and is measured directly. Cambria has no Arabic glyphs; Word
  * draws that text in Times New Roman (read off Word's PDF export:
- * `tools/probe/font-metrics/word-arabic-fallback.ps1`), so Cambria's Arabic is
+ * `tools/font-calibration/word-arabic-fallback.ps1`), so Cambria's Arabic is
  * measured against Times New Roman's. Courier New is deliberately absent: its
  * Arabic is monospace, every proportional candidate is off by 45% or more on
  * individual paragraphs, and no calibration can fix that. Tahoma and Segoe UI
@@ -173,7 +171,7 @@ export const ARABIC_UNICODE_RANGE = "U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB
  *
  * Aptos has no Arabic glyphs, and Excel and Word both draw Arabic set in any
  * Aptos family in Arial, at Arial's own widths (read off each app's PDF
- * export: `tools/probe/font-metrics/aptos-arabic-fallback.ps1`). That is the
+ * export: `tools/font-calibration/aptos-arabic-fallback.ps1`). That is the
  * usual case in a spreadsheet: a cell has one font and no complex-script
  * slot, and Aptos Narrow is Excel's default. So the three Aptos families take
  * Arial's face, fitted through their own alias: the spaces there come from
@@ -185,7 +183,7 @@ export const ARABIC_UNICODE_RANGE = "U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB
  * so the spaces, Western digits and punctuation inside Arabic text come from
  * Arimo/Tinos/Caladea/Carlito at their own size; calibrating the Arabic
  * substitute on its own counts its own spaces instead, and left Arial's Arabic
- * about 3% too wide (`tools/probe/font-metrics/arabic-fallback-fit.ts`,
+ * about 3% too wide (`tools/font-calibration/arabic-fallback-fit.ts`,
  * DECISION_LOG §46). That is also why Cambria, fitted through Caladea (which
  * paints its spaces here), has numbers of its own rather than Times New
  * Roman's.
@@ -216,21 +214,6 @@ export const ARABIC_SCRIPT_FALLBACKS: Record<string, ArabicScriptFallback> = {
   "Aptos Display": { substitute: "Lateef", calibration: { sizeAdjustPercent: 131.4, ascentOverridePercent: 68.9, descentOverridePercent: 16.1 } },
   "Aptos Narrow": { substitute: "Lateef", calibration: { sizeAdjustPercent: 132.6, ascentOverridePercent: 68.3, descentOverridePercent: 16.0 } },
 };
-
-/** Substitute families this resolver can deliver, for diagnostics. */
-export const SUBSTITUTE_FAMILIES: readonly string[] = [
-  "Carlito",
-  "Caladea",
-  "Arimo",
-  "Tinos",
-  "Cousine",
-  "Amiri",
-  "Lateef",
-  "Markazi Text",
-  "Radio Canada",
-  "Roboto",
-  "IBM Plex Sans Condensed",
-];
 
 const LOOKUP = new Map(
   Object.entries(FONT_SUBSTITUTIONS).map(([requested, substitute]) => [requested.toLowerCase(), substitute] as const),

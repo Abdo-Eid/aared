@@ -19,10 +19,10 @@ export type DocumentFormat = "pptx" | "xlsx" | "docx";
  */
 export { fontAlias } from "./typography.js";
 
+export type { ChartSpecModel } from "./chart/spec.js";
+
 export type {
   BoundsModel,
-  ChartGraphicModel,
-  ChartGraphicPrimitive,
   ChartModel,
   GroupModel,
   LinearGradientFillModel,
@@ -131,6 +131,9 @@ export type {
   DocxTableCellNode,
   DocxTableRowNode,
   DocxImageNode,
+  DocxChartNode,
+  DocxDrawingNode,
+  DocxTextBoxNode,
   DocxImageAnchor,
   DocxAnchorPosition,
   DocxListNode,
@@ -149,18 +152,30 @@ export type {
   SectionBreakType,
   SectionPageGeometry,
   SectionPageMargins,
+  HeaderFooterParts,
   SectionProperties,
 } from "./model.js";
 
 export type { AaredErrorCode } from "./errors.js";
 export { AaredError, isAaredError, isAbort, messageFor } from "./errors.js";
 
-/** Anything `open()` accepts: a file handle, in-memory bytes, or a URL to fetch. */
-export type Source = File | Blob | ArrayBuffer | string;
+/**
+ * Anything `open()` accepts: a file handle, in-memory bytes (an `ArrayBuffer`,
+ * or a view of one such as a `Uint8Array` or a Node `Buffer`, read over its own
+ * range), or a URL to fetch. Bytes are copied once before they go to the Worker,
+ * so the caller's stay usable.
+ */
+export type Source = File | Blob | ArrayBuffer | ArrayBufferView | string;
 
+/**
+ * Main-thread hook for a family the file names: register a substitute under
+ * `fontAlias(requestedFamily)` and return it, or return `undefined` (directly,
+ * or as the promise's value, so an `async` resolver works) to leave the family
+ * to the browser's own fonts.
+ */
 export type FontResolver = (
   requestedFamily: string,
-) => Promise<FontFace> | undefined;
+) => Promise<FontFace | undefined> | undefined;
 
 /** Main-thread callback used by renderers to retrieve model-referenced bytes. */
 export type MediaResolver = (mediaId: string) => Promise<ArrayBuffer>;

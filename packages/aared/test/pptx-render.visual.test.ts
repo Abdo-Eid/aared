@@ -345,11 +345,9 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
           return path?.getAttribute("fill") === "#73A0B4" && path.getAttribute("stroke") === "#156082";
         }),
          rotatedTransform: rotated?.style.transform,
-        titleInsets: shapes.at(-1)?.querySelector('[data-aared-element="shape-text"]')?.style.paddingLeft,
         titleFontFamily: titleLine?.querySelector("span span") ? getComputedStyle(titleLine.querySelector("span span")).fontFamily : undefined,
         titleGeometry: titleLine && titleText ? { range: rect(titleRange), container: rect(titleText) } : null,
          fallback: shapes.find((shape) => shape.dataset.aaredGeometryFallback === "unsupported")?.dataset.aaredGeometryFallback,
-        fallbackFill: shapes.find((shape) => shape.dataset.aaredGeometryFallback === "unsupported")?.querySelector("path")?.getAttribute("fill"),
       };
     })()`) as {
       shapeCount: number;
@@ -358,11 +356,9 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
       title?: string;
         blueOutlinedShape: boolean;
       rotatedTransform?: string;
-      titleInsets?: string;
       titleFontFamily?: string;
       titleGeometry: { range: { left: number; right: number; top: number; bottom: number }; container: { left: number; right: number; top: number; bottom: number } } | null;
       fallback?: string;
-      fallbackFill?: string;
     };
     expect(shapeOutput.shapeCount).toBeGreaterThanOrEqual(17);
     expect(shapeOutput.svgCount).toBe(shapeOutput.shapeCount);
@@ -381,7 +377,7 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
       const shape = [...document.querySelectorAll('[data-aared-shape-id]')]
         .find((s) => s.dataset.aaredGeometryFallback === "unsupported");
       const path = shape?.querySelector("path");
-      return { fill: path?.getAttribute("fill"), dashed: path?.getAttribute("stroke-dasharray") !== undefined };
+      return { fill: path?.getAttribute("fill"), dashed: path?.hasAttribute("stroke-dasharray") === true };
     })()`) as { fill?: string; dashed: boolean };
     expect(fallbackShape.fill).toBe("none");
     expect(fallbackShape.dashed).toBe(true);

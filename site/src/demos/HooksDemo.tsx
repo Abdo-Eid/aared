@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { usePreview } from "aared/react";
-import { mountDemoControls } from "../lib/demo-controls.js";
+import { viewerToolbar } from "../lib/demo-controls.js";
 import { describeUnits } from "../lib/demo-frame.js";
 
 export interface HooksFixture {
@@ -8,9 +8,6 @@ export interface HooksFixture {
   url: string;
   format: string;
 }
-
-// Kept outside the component so it is referentially stable across renders.
-const APPEARANCE = { spreadsheet: { sheetTabs: true } };
 
 /**
  * React embedding: the hook owns the mount lifecycle — abort handling,
@@ -21,11 +18,11 @@ export function HooksDemo({ fixtures }: { fixtures: HooksFixture[] }) {
   const [choice, setChoice] = useState(0);
   const [file, setFile] = useState<File | null>(null);
   const source: string | File = file ?? fixtures[choice]?.url ?? "";
-  const { ref, status, viewer, error } = usePreview({ source, appearance: APPEARANCE });
-  // The same paging and zoom bar as `<aared-viewer controls>`, for each document the hook opens.
+  const { ref, status, viewer, error } = usePreview({ source });
+  // A paging and zoom bar: the viewer's own `next()`, `zoomIn()`, … behind buttons.
   useEffect(() => {
     if (viewer === null || ref.current === null) return;
-    return mountDemoControls(ref.current, viewer, viewer.info.count);
+    return viewerToolbar(ref.current, viewer);
   }, [viewer, ref]);
 
   return (
@@ -64,8 +61,8 @@ export function HooksDemo({ fixtures }: { fixtures: HooksFixture[] }) {
       </div>
       <p data-hooks-status>
         {status === "loading" && "Loading…"}
-        {status === "error" && (error instanceof Error ? error.message : String(error))}
-        {status === "ready" && viewer !== null && `${viewer.format} · ${describeUnits(viewer.format, viewer.info.count)}`}
+        {status === "error" && error.message}
+        {status === "ready" && `${viewer.format} · ${describeUnits(viewer.format, viewer.info.count)}`}
       </p>
       <div ref={ref} data-stage data-state={status} className="demo-stage" />
     </div>

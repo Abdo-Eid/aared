@@ -10,8 +10,8 @@ bun run dev          # serves bench/ at http://localhost:5173
 ```
 
 - Left rail: one-click sample buttons from canonical `../fixtures/` (Arabic deck
-  first), file upload + drag-drop, per-format "what to look for" checks, and
-  a run history with milliseconds.
+  first, then the three chart corpora from `../tools/chart-oracle/`, served at
+  `/chart-oracle/` by a plugin in `vite.config.ts`) and file upload + drag-drop.
 - Header renderer picker: `aared` plus every baseline registered for the open
   format — PPTX: pptxviewjs, silurus, aiden0z, mdurbar, pptx-browser,
   extend, omni; XLSX: sheetjs, xlscalc, spreadsheet-preview, extend, omni;
@@ -19,12 +19,33 @@ bun run dev          # serves bench/ at http://localhost:5173
   Extend's `@extend-ai/react-{pptx,docx,xlsx}`, one React component per
   format, each mounted in its own React root.
   Single renders the pick; compare pits it against aared. PDF stays control.
+- Search: the aared card has a search button beside Download for PPTX, XLSX
+  and DOCX. The panel starts closed; opening it focuses the native search
+  input. The compact bar shows an active/total counter and previous/next
+  arrows; Enter advances and Shift+Enter goes back. Soft highlights mark all
+  matches and a stronger outlined highlight marks the current one. Arrows wrap
+  and scroll to the active match across slides, cells, or DOCX occurrences. XLSX searches
+  the current sheet and refreshes results when the sheet changes. Closing the
+  panel clears its query, counter and highlights; reopening starts empty.
+  The input uses the browser's native clear control. This is bench UI, built
+  on `viewer.search()`; no search panel ships in the package or baseline cards.
 - Timing is `performance.now()` from bytes-in-hand to first meaningful
-  paint, shown in the footer chip and the run history.
-- Deterministic numbers live outside the UI: `bun tools/bench-measure.ts
-  --size` writes entry weights to `tools/bench-results/` and regenerates the
-  tables in `docs/BENCHMARKS.md` via `--render-md`. The WebView N-run pass is
-  still TBD there.
+  paint, shown in the footer chip. `?fonts=aared` gives the aared column
+  `aared-fonts`' substitutes (off by default, so timings carry no font
+  downloads).
+- The interactive aared card uses `usePreview()` and takes slide/sheet position
+  directly from its hook. DOCX paging calls `viewer.docx.goToPage()`; DOM page
+  observation still supplies the scroll-based counter. The frame owns display
+  controls only; each card owns its renderer's lifetime.
+- Measurement adapters use format-local `preview()` with the supplied abort
+  signal and one `destroy()`. XLSX tabs stay off and DOCX stays in layout mode;
+  timing still includes dynamic import, opening and first paint.
+- Deterministic numbers live outside the UI: `measure.html` is the page the
+  harness drives, and `bun tools/bench-measure.ts` runs it in a real browser
+  (`--run` for the open-time and memory passes, `--size` for every file a
+  renderer fetches, `--search`), writes to `tools/bench-results/` (local,
+  gitignored) and regenerates the tables in `docs/BENCHMARKS.md` via
+  `--render-md`. `docs/BENCHMARKS.md` has the method.
 
 Known baseline gaps (not bench bugs): pptxviewjs paints canvas with no text
 layer and drops paragraph-level RTL (guarded so it can't clobber
@@ -37,7 +58,7 @@ with an `<a:pPr>` (`defRPr` used before its declaration in `render.js`), so
 text shapes are skipped and early slides paint blank; extend's XLSX grid is
 canvas by default and doesn't mirror right-to-left sheets; apollo's
 `paginate` reflow breaks pages where its own measurement says, not where
-Word does. Per-format notes live in the checks panel.
+Word does.
 
 Build notes: every competitor is a lazy `import()` so one broken renderer
 can't poison the others. Bench-only module handling in `vite.config.ts`

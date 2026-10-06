@@ -17,53 +17,13 @@ export async function runLightTable(stage: HTMLElement, source: string | File): 
 
   const format = formatOf(source);
 
-  if (format === "xlsx") {
-    const { open, render } = await import("aared/xlsx");
-    const workbook = await open(source);
-    try {
-      const sheet = workbook.sheets.get(0);
-      const viewer = await render({
-        sheet,
-        target: renderPanel,
-        zoom: 0.7,
-        appearance: { spreadsheet: { sheetTabs: true } },
-      });
-      return {
-        summary: { format: workbook.info.format, units: workbook.info.count },
-        dispose: () => { viewer.destroy(); workbook.close(); },
-      };
-    } catch (error) {
-      workbook.close();
-      throw error;
-    }
-  }
-
-  if (format === "docx") {
-    const { open, render } = await import("aared/docx");
-    const document = await open(source);
-    try {
-      const viewer = await render({ document, target: renderPanel, zoom: 0.65 });
-      return {
-        summary: { format: document.info.format, units: document.info.count },
-        dispose: () => { viewer.destroy(); document.close(); },
-      };
-    } catch (error) {
-      document.close();
-      throw error;
-    }
-  }
-
-  const { open, render } = await import("aared/pptx");
-  const deck = await open(source);
-  try {
-    const slide = deck.slides.get(0);
-    const viewer = await render({ slide, target: renderPanel });
-    return {
-      summary: { format: deck.info.format, units: deck.info.count },
-      dispose: () => { viewer.destroy(); deck.close(); },
-    };
-  } catch (error) {
-    deck.close();
-    throw error;
-  }
+  const viewer = format === "xlsx"
+    ? await (await import("aared/xlsx")).preview({ source, target: renderPanel, zoom: 0.7 })
+    : format === "docx"
+      ? await (await import("aared/docx")).preview({ source, target: renderPanel, zoom: 0.65 })
+      : await (await import("aared/pptx")).preview({ source, target: renderPanel });
+  return {
+    summary: { format: viewer.format, units: viewer.info.count },
+    dispose: () => viewer.destroy(),
+  };
 }

@@ -22,7 +22,7 @@ describe("DrawingML preset paths (ECMA-376 formulas)", () => {
     expect(geometry?.path).toBe(`M 0 ${H} L 62910 0 L ${W} 0 L ${W - 62910} ${H} Z`);
     // maxAdj = 100000·w/ss: a wide shape accepts adj values past 50000.
     const wide = geometryForPreset("parallelogram", { width: W, height: H }, { adj: 200000 });
-    expect(wide?.path ?? wide).toBeTruthy();
+    expect(wide?.path).toBe(`M 0 ${H} L ${2 * H} 0 L ${W} 0 L ${W - 2 * H} ${H} Z`);
   });
 
   test("hexagon inset is short-side based", () => {

@@ -20,6 +20,11 @@
     "float-behind": { "hasText": "صورة خلف النص" },
     "float-tight": { "hasText": "التفاف محكم حول الصورة" },
     "float-square-centre": { "hasText": "التفاف مربع في الوسط" },
-    "float-through": { "hasText": "التفاف عبر الصورة" }
+    "float-through": { "hasText": "التفاف عبر الصورة" },
+    "chart-inline": { "hasText": "مخطط مضمن في سطره" },
+    "chart-anchored": { "hasText": "مخطط بالتفاف مربع" },
+    "lists-section": { "hasText": "8. Lists, headers and empty lines" },
+    "list-restarted": { "hasText": "قائمة جديدة: أولاً" },
+    "empty-cell-table": { "hasText": "البند" }
   }
 }

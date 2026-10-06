@@ -42,23 +42,20 @@ export default defineConfig([
     // sheets without a notice bar. Tests import from `src`, where the
     // identifier below is undeclared and the `typeof` guard keeps them on.
     define: { __AARED_MARK_FALLBACKS__: "false" },
-    // `react` is an optional peer of the `aared/react` entry only: never
-    // bundle it — the consumer's React renders the hooks.
-    // pptx/xlsx/docx stay separate lazy chunks because element/index.ts
-    // (and preview/index.ts) reach them only through dynamic `import()`:
+    // pptx/xlsx/docx stay separate chunks: their fixed viewer routes depend
+    // only on their own renderer. Element and preview reach those routes
+    // through auto-viewer.ts's dynamic imports:
     // rolldown code-splits those into per-entry chunks automatically. That
-    // separation is structural, not an externals setting — `external`
-    // (now `deps.neverBundle`) only governs npm package dependencies, of
-    // which this package has none, so no setting is needed here. (An empty
-    // `external: []` used to sit here as documentation; tsdown 0.22 warns
-    // that the option is deprecated, so it was removed.)
+    // separation is structural, not an externals setting. The package has no
+    // npm dependencies to bundle, and `react` is an optional peer of the
+    // `aared/react` entry that is imported, not bundled.
     outputOptions: coreChunks,
   },
   {
     // The worker is one self-contained file: the same `src/core/worker.ts`
     // source with every format parser flattened into it (`codeSplitting:
-    // false`), so it needs no sibling chunks — deploy `dist/core/worker.mjs`
-    // inline it into a Blob URL, or let a consumer bundler copy it verbatim.
+    // false`), so it needs no sibling chunks and can be copied or inlined into
+    // a Blob URL as is.
     // The per-format dynamic `import()`s in the source resolve in place.
     // Must stay `clean: false` — the main config above owns `dist`.
     entry: { "core/worker": "src/core/worker.ts" },

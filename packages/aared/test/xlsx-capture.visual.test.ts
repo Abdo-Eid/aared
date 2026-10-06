@@ -109,7 +109,7 @@ interface AaredSheet {
 }
 
 async function renderExcel(fixturePath: string, parts: ExcelPartSpec[]): Promise<ExcelRender> {
-  const child = Bun.spawn(["bun", "tools/excel-render/index.ts", fixturePath,
+  const child = Bun.spawn(["bun", "tools/office-export.ts", "--format", "xlsx", fixturePath,
     ...parts.flatMap((part) => ["--part", `${part.sheet}:${part.name}=${part.range}`])], {
     cwd: `${import.meta.dir}/../../..`,
     stdout: "pipe",
@@ -362,7 +362,7 @@ async function writeReview(reference: ExcelRender, fixtureFile: string, fixtureH
     writeFile(join(reference.outputDir, "review.html"), `<!doctype html>
 <meta charset="utf-8"><title>aared XLSX visual review</title>
 <style>body{margin:24px;background:#f4f4f4;color:#111;font:16px system-ui,sans-serif}h1{margin:0 0 8px}.pair{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:16px}figure{margin:0 0 16px;background:#fff;padding:12px}figcaption{font-weight:700;margin-bottom:8px}img{display:block;width:100%;height:auto}@media(max-width:900px){.pair{grid-template-columns:1fr}}</style>
-<h1>aared XLSX visual review — ${fixtureFile}</h1><p>Native A4 print vs aared A4 fit, scaled to equal display width. Human review only, never pixel diffs. Parts are scrolled viewports into the live grid (same content as the full sheet, at full resolution); row ranges label each part. The formula notice is viewer chrome hidden here for print parity (covered by DOM tests).</p>${cards}`),
+<h1>aared XLSX visual review — ${fixtureFile}</h1><p>Native A4 print vs aared A4 fit, scaled to equal display width. Human review only, never pixel diffs. Parts are curated row bands of the live grid (the other rows hidden, same content as the full sheet, at full resolution); row ranges label each part. The formula notice is viewer chrome hidden here for print parity (covered by DOM tests).</p>${cards}`),
     writeFile(join(reference.outputDir, "review.json"), JSON.stringify({
       fixture: fixtureFile,
       fixtureSha256: fixtureHash,

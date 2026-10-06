@@ -13,7 +13,31 @@
  * into it.
  */
 
-import type { RenderWarning, ZoomValue } from "./core/index.js";
+import type { DocumentFormat, RenderWarning, ZoomValue } from "./core/index.js";
+import { abortError, throwIfAborted } from "./core/errors.js";
+
+/**
+ * Each format's starting zoom when the caller names none: a slide opens whole,
+ * a sheet at 100% like Excel, a document to the width of its container. Read by
+ * the three renderers and by the embed layers that mirror them.
+ */
+export const DEFAULT_ZOOM: Readonly<Record<DocumentFormat, ZoomValue>> = {
+  pptx: "fit-page",
+  xlsx: 1,
+  docx: "fit-width",
+};
+
+/**
+ * The warning every format gives when its file left drawings without an id (`code` is
+ * `<format>-missing-id`): none when `count` is 0, else one entry. Word, Excel and PowerPoint
+ * each call such a file damaged and offer to repair it, losing nothing visible; `outcome` says
+ * what aared did. Plain ASCII, like every message that ships.
+ */
+export function missingIdWarning(code: string, count: number, noun: string, where: string, outcome: string): RenderWarning | undefined {
+  if (count <= 0) return undefined;
+  const many = count !== 1;
+  return { code, message: `This file is damaged: ${count} ${noun}${many ? "s" : ""} ${where} ${many ? "have" : "has"} no id. ${outcome}` };
+}
 
 /** A numeric zoom the DOM can use: finite and positive, else 1. A `0` or `NaN` would otherwise collapse the content. */
 export function safeScale(zoom: number): number {
@@ -91,6 +115,78 @@ export function fitScale(mode: "fit-width" | "fit-page", room: FitRoom, natural:
   return Math.min(byWidth, room.height / natural.height);
 }
 
+/**
+ * An `EventTarget` whose `addEventListener`/`removeEventListener` know the
+ * event each name carries (`M`: name to event type), so a listener reads
+ * `event.detail` without a cast. Any other name still takes a plain
+ * listener. Each handle's public interface extends it with its own map.
+ */
+export interface EventTargetOf<M> extends EventTarget {
+  addEventListener<K extends keyof M & string>(type: K, listener: (event: M[K]) => void, options?: boolean | AddEventListenerOptions): void;
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions): void;
+  removeEventListener<K extends keyof M & string>(type: K, listener: (event: M[K]) => void, options?: boolean | EventListenerOptions): void;
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | EventListenerOptions): void;
+}
+
+/** What every render handle fires when its zoom changes. */
+export type ZoomChangeEvent = CustomEvent<{ zoom: ZoomValue }>;
+
+/**
+ * Call `onReplaced` once `root` is no longer a child of `container`: another
+ * render into the same target (or the host) put something else there. Every
+ * format destroys its handle then, so a render that was replaced stops
+ * observing, refitting and holding media URLs without the caller tracking it.
+ * The handle's own swaps inside the container (the XLSX tab bar coming and
+ * going) leave `root` in place and do nothing. `MutationObserver` reports
+ * after the replacing call returns, so the old handle reads `destroyed` from
+ * the next microtask on. Returns the disconnect for the handle's own destroy.
+ */
+export function onReplaced(container: Node, root: Node, replaced: () => void): () => void {
+  const observer = new MutationObserver(() => {
+    if (root.parentNode !== container) replaced();
+  });
+  observer.observe(container, { childList: true });
+  return () => observer.disconnect();
+}
+
+/**
+ * What a render waits for after it has painted (its font check), unless its
+ * `signal` aborts first. Nobody holds a render that has not been handed back
+ * yet, so a cancelled one tears itself down here: the handle is destroyed,
+ * the nodes it put in `target` are taken out (only those still there, so a
+ * newer render's are left alone), and the call rejects `aborted`. That makes
+ * the rule one line for the caller, the way `fetch()` behaves: an aborted
+ * render never hands back a handle. Once `render()` has resolved, the signal
+ * is ignored and `destroy()` is the teardown. Used by the formats that paint
+ * before they wait (PPTX, XLSX); DOCX waits first and resolves as it paints.
+ */
+export async function settleRender(
+  render: { destroy(): void },
+  target: Node,
+  painted: readonly Node[],
+  work: Promise<void>,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  if (signal === undefined) return work;
+  let cancel = (): void => {};
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    cancel = () => reject(abortError());
+  });
+  signal.addEventListener("abort", cancel, { once: true });
+  try {
+    if (signal.aborted) cancel();
+    await Promise.race([work, cancelled]);
+    // Aborted while the wait was already ending: still before the handle is handed back.
+    throwIfAborted(signal);
+  } catch (error) {
+    render.destroy();
+    for (const node of painted) if (node.parentNode === target) target.removeChild(node);
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", cancel);
+  }
+}
+
 export interface RenderHooks<TAppearance> {
   /** Re-applies the current zoom to the painted content; returns the scale it applied. */
   applyZoom: () => number;
@@ -111,8 +207,8 @@ export abstract class RenderHandleBase<TAppearance> extends EventTarget {
 
   /**
    * `initialZoom` is applied on first paint without an event: a render's
-   * starting zoom is its state, not a change. Formats pass their default
-   * (`DEFAULT_ZOOM` in `format-route.ts`) when the caller gave none.
+   * starting zoom is its state, not a change. Formats pass their `DEFAULT_ZOOM`
+   * when the caller gave none.
    */
   constructor(initialZoom: ZoomValue) {
     super();

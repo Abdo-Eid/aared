@@ -3,6 +3,8 @@ import { OpcPackage } from "../src/core/opc.js";
 import { readWorkbook } from "../src/core/xlsx/workbook.js";
 import { parseXlsxSheet } from "../src/core/xlsx/sheet.js";
 import { findCoverageSheet } from "./xlsx-fixture.js";
+import { browserModule } from "./harness.js";
+import { withPart } from "./mutate.js";
 
 const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const COVERAGE_PATH = `${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`;
@@ -256,11 +258,27 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
     await view.evaluate(`renderSheet(${JSON.stringify(models.dashboard)})`);
     const drawingOutput = await view.evaluate(`(() => ({
       chartCount: document.querySelectorAll('[data-aared-element="chart-graphic"]').length,
-      chartRects: document.querySelectorAll('[data-aared-element="chart-graphic"] rect').length,
+      chartPaths: document.querySelectorAll('[data-aared-element="chart-graphic"] path').length,
+      chartTexts: [...document.querySelectorAll('[data-aared-element="chart-graphic"] text')].map((text) => text.textContent),
+      chartA11y: [...document.querySelectorAll('[data-aared-element="chart-graphic"]')].map((svg) => ({
+        role: svg.getAttribute("role"),
+        label: svg.getAttribute("aria-label"),
+        desc: svg.querySelector("desc")?.textContent,
+        described: svg.getAttribute("aria-describedby") === svg.querySelector("desc")?.id,
+      })),
       canvasCount: document.querySelectorAll("canvas").length,
-    }))()`) as { chartCount: number; chartRects: number; canvasCount: number };
+    }))()`) as { chartCount: number; chartPaths: number; chartTexts: string[]; chartA11y: Array<{ role: string; label: string; desc: string; described: boolean }>; canvasCount: number };
     expect(drawingOutput.chartCount).toBe(1);
-    expect(drawingOutput.chartRects).toBeGreaterThan(0);
+    expect(drawingOutput.chartPaths).toBeGreaterThan(0);
+    // Laid out as Excel draws it: an axis of 0.0-45.0 by 5.
+    expect(drawingOutput.chartTexts).toEqual(expect.arrayContaining(["Hours logged by episode", "0.0", "45.0"]));
+    // An image to a screen reader, named by the chart's title (the file states no alt text) and described by its plot.
+    expect(drawingOutput.chartA11y).toEqual([{
+      role: "img",
+      label: "Hours logged by episode",
+      desc: "Column chart. 1 series: Hours logged. 3 categories: Episode 4, Episode 5, Episode 6.",
+      described: true,
+    }]);
     expect(drawingOutput.canvasCount).toBe(0);
 
     await view.evaluate(`renderSheet(${JSON.stringify(models.log)})`);
@@ -345,7 +363,7 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
   }
 });
 
-visual("viewport fill: fills the rendered space in bounded and content-sized scrollers without feedback growth", async () => {
+visual("visual DOM output: XLSX viewport fill: fills the rendered space in bounded and content-sized scrollers without feedback growth", async () => {
   const models = await sheetModels();
   const build = await Bun.build({
     entrypoints: [`${import.meta.dir}/../src/xlsx/index.ts`],
@@ -470,7 +488,7 @@ visual("viewport fill: fills the rendered space in bounded and content-sized scr
   }
 });
 
-visual("zoom: a sheet opens at 100%, and fit-width / fit-page really fit its used area", async () => {
+visual("visual DOM output: XLSX zoom: a sheet opens at 100%, and fit-width / fit-page really fit its used area", async () => {
   const models = await sheetModels();
   const build = await Bun.build({
     entrypoints: [`${import.meta.dir}/../src/xlsx/index.ts`],
@@ -643,6 +661,56 @@ visual("visual DOM output: XlsxRenderHandle.warnings names fonts that painted wi
     const unavailable = missing.filter((warning) => warning.code === "font-unavailable");
     expect(unavailable).toHaveLength(1);
     expect(unavailable[0]!.message).toContain(NONEXISTENT_FAMILY);
+  } finally {
+    server.stop();
+  }
+}, 30000);
+
+/**
+ * A sheet whose chart the file gave no id renders with its chart and says so once
+ * (`xlsx-missing-id`); the same sheet with its id has no such warning.
+ */
+visual("visual DOM output: XlsxRenderHandle.warnings reports drawings the file gave no id, once", async () => {
+  const TRACKER = "post-production-tracker.xlsx";
+  const whole = await OpcPackage.open(await Bun.file(`${import.meta.dir}/../../../fixtures/${TRACKER}`).arrayBuffer());
+  const clean = await parseXlsxSheet(whole, await readWorkbook(whole), 0);
+  const stripped = await withPart(TRACKER, "xl/drawings/drawing1.xml", (xml) => xml.replace(/(<xdr:cNvPr) id="[^"]*"/g, "$1"));
+  const damaged = await parseXlsxSheet(stripped, await readWorkbook(stripped), 0);
+  const module = await browserModule(`${import.meta.dir}/../src/xlsx/index.ts`);
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      if (new URL(request.url).pathname === "/xlsx.mjs") {
+        return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
+      }
+      return new Response(`<!doctype html><main id="host" style="width:900px;height:700px"></main><script type="module">
+        import { render } from "/xlsx.mjs";
+        window.renderSheet = async (model) => {
+          const handle = await render({ sheet: model, target: document.querySelector("#host") });
+          const out = {
+            warnings: handle.warnings.map((warning) => ({ code: warning.code, message: warning.message })),
+            charts: document.querySelector("#host").querySelectorAll('[data-aared-element="chart-geometry"], svg[data-aared-chart-primitives]').length,
+          };
+          handle.destroy();
+          return out;
+        };
+      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
+    },
+  });
+  try {
+    await using view = new Bun.WebView({ width: 1000, height: 800 });
+    await view.navigate(server.url.href);
+    type Rendered = { warnings: Array<{ code: string; message: string }>; charts: number };
+    const intact = (await view.evaluate(`renderSheet(${JSON.stringify(clean)})`)) as Rendered;
+    expect(intact.warnings.filter((warning) => warning.code === "xlsx-missing-id")).toEqual([]);
+    const repaired = (await view.evaluate(`renderSheet(${JSON.stringify(damaged)})`)) as Rendered;
+    const warnings = repaired.warnings.filter((warning) => warning.code === "xlsx-missing-id");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.message).toContain(`1 drawing on sheet "${damaged.name}" has no id`);
+    expect(warnings[0]!.message).toMatch(/^[\x20-\x7e]+$/);
+    // Drawn in full: the chart is on the page as for the sheet with its id.
+    expect(intact.charts).toBeGreaterThan(0);
+    expect(repaired.charts).toBe(intact.charts);
   } finally {
     server.stop();
   }

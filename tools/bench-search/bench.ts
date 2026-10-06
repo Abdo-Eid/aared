@@ -6,7 +6,8 @@
  *
  * Per format: open, first search (cold: parses/indexes every unit), repeat
  * searches (warm), a common-word query, and how long an abort takes to land.
- * "miss" is a query that matches nothing, so every unit is scanned.
+ * "miss" is a query that matches nothing, so every unit is scanned. (XLSX
+ * `search()` is per sheet, so its figures are a loop over every sheet.)
  */
 import { open as openDocx } from "../../packages/aared/src/docx/index.ts";
 import { open as openPptx } from "../../packages/aared/src/pptx/index.ts";
@@ -20,9 +21,22 @@ interface Searchable {
   close(): void;
 }
 
+/** A workbook is searched one sheet at a time; this times the whole file, so it searches every sheet in tab order. */
+async function openWorkbook(bytes: ArrayBuffer): Promise<Searchable> {
+  const workbook = await openXlsx(bytes);
+  return {
+    async search(query, options) {
+      const matches: unknown[] = [];
+      for (const sheet of workbook.sheets.list()) matches.push(...(await sheet.search(query, options)));
+      return matches;
+    },
+    close: () => workbook.close(),
+  };
+}
+
 const formats: Record<string, { file: string; open: (bytes: ArrayBuffer) => Promise<Searchable>; common: string }> = {
   pptx: { file: "large-300-slides.pptx", open: openPptx as never, common: "the" },
-  xlsx: { file: "large-13-sheets.xlsx", open: openXlsx as never, common: "the" },
+  xlsx: { file: "large-13-sheets.xlsx", open: openWorkbook, common: "the" },
   docx: { file: "large-40x.docx", open: openDocx as never, common: "the" },
 };
 

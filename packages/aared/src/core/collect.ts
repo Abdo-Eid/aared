@@ -3,14 +3,29 @@
  * serve?) and the main thread (which `fontFamily`s should the font resolver
  * load?). Internal; not re-exported.
  *
- * Both walks used to visit every object of a unit through `Object.entries`,
- * which for a million-cell sheet meant millions of throwaway arrays. This
- * walk uses `for…in`, and knows the one model where size explodes: a sheet's
- * cells can only carry the key through their (shared) `style` objects, so
- * each distinct style is visited once instead of once per cell.
+ * One walk visits each object of a unit with `for…in` (`Object.entries` would
+ * allocate a throwaway array per object: millions for a large sheet). The one
+ * model where size explodes is a sheet: its cells can only carry the key
+ * through their (shared) `style` objects, so each distinct style is visited
+ * once instead of once per cell.
  */
 
 import type { ShapeGeometryModel, SheetModel } from "./model.js";
+
+/** Call `onRecord` for every object under `value`; it returns true to skip that object's children. */
+function walk(value: unknown, onRecord: (record: Record<string, unknown>) => boolean | void): void {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const item of value) walk(item, onRecord);
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  if (onRecord(record) === true) return;
+  for (const name in record) {
+    const child = record[name];
+    if (child !== null && typeof child === "object") walk(child, onRecord);
+  }
+}
 
 function isSheet(model: object): model is SheetModel {
   return "rows" in model && "columnWidths" in model && Array.isArray((model as SheetModel).rows);
@@ -18,24 +33,12 @@ function isSheet(model: object): model is SheetModel {
 
 /** Add every non-empty string stored under `key` anywhere in `model` to `into`. */
 export function collectStrings(model: unknown, key: string, into: Set<string>): void {
-  const visit = (value: unknown): void => {
-    if (value === null || typeof value !== "object") return;
-    if (Array.isArray(value)) {
-      for (const item of value) visit(item);
-      return;
-    }
-    const record = value as Record<string, unknown>;
-    for (const name in record) {
-      const child = record[name];
-      if (name === key && typeof child === "string") {
-        if (child !== "") into.add(child);
-      } else if (child !== null && typeof child === "object") {
-        visit(child);
-      }
-    }
+  const onRecord = (record: Record<string, unknown>): void => {
+    const value = record[key];
+    if (typeof value === "string" && value !== "") into.add(value);
   };
   if (model === null || typeof model !== "object" || !isSheet(model)) {
-    visit(model);
+    walk(model, onRecord);
     return;
   }
   const styles = new Set<object>();
@@ -44,12 +47,12 @@ export function collectStrings(model: unknown, key: string, into: Set<string>): 
       const style = entry.cell.style;
       if (style !== undefined && !styles.has(style)) {
         styles.add(style);
-        visit(style);
+        walk(style, onRecord);
       }
     }
   }
   for (const name in model) {
-    if (name !== "rows") visit((model as unknown as Record<string, unknown>)[name]);
+    if (name !== "rows") walk((model as unknown as Record<string, unknown>)[name], onRecord);
   }
 }
 
@@ -74,30 +77,18 @@ export type FontVariant = "" | "bold " | "italic " | "italic bold ";
 export function collectFontUse(model: unknown): { families: Map<string, Set<FontVariant>>; arabic: boolean } {
   const families = new Map<string, Set<FontVariant>>();
   let arabic = false;
-  const visit = (value: unknown): void => {
-    if (value === null || typeof value !== "object") return;
-    if (Array.isArray(value)) {
-      for (const item of value) visit(item);
-      return;
+  walk(model, (record) => {
+    const family = record.fontFamily;
+    if (typeof family === "string" && family !== "") {
+      const variant: FontVariant = record.italic === true
+        ? (record.bold === true ? "italic bold " : "italic ")
+        : (record.bold === true ? "bold " : "");
+      let variants = families.get(family);
+      if (variants === undefined) families.set(family, (variants = new Set()));
+      variants.add(variant);
     }
-    const record = value as Record<string, unknown>;
-    for (const name in record) {
-      const child = record[name];
-      if (typeof child === "string") {
-        if (name === "fontFamily" && child !== "") {
-          const variant: FontVariant = record.italic === true
-            ? (record.bold === true ? "italic bold " : "italic ")
-            : (record.bold === true ? "bold " : "");
-          let variants = families.get(child);
-          if (variants === undefined) families.set(child, (variants = new Set()));
-          variants.add(variant);
-        } else if (!arabic && name === "text") arabic = ARABIC_TEXT.test(child);
-      } else if (child !== null && typeof child === "object") {
-        visit(child);
-      }
-    }
-  };
-  visit(model);
+    if (!arabic && typeof record.text === "string") arabic = ARABIC_TEXT.test(record.text);
+  });
   return { families, arabic };
 }
 
@@ -107,22 +98,10 @@ export function collectFontUse(model: unknown): { families: Map<string, Set<Font
  */
 export function collectDeferredGeometry(model: unknown): ShapeGeometryModel[] {
   const found: ShapeGeometryModel[] = [];
-  const visit = (value: unknown): void => {
-    if (value === null || typeof value !== "object") return;
-    if (Array.isArray(value)) {
-      for (const item of value) visit(item);
-      return;
-    }
-    const record = value as Record<string, unknown>;
-    if (typeof record.path === "string" && record.deferred !== undefined && typeof record.viewBox === "object") {
-      found.push(record as unknown as ShapeGeometryModel);
-      return;
-    }
-    for (const name in record) {
-      const child = record[name];
-      if (child !== null && typeof child === "object") visit(child);
-    }
-  };
-  visit(model);
+  walk(model, (record) => {
+    if (typeof record.path !== "string" || record.deferred === undefined || typeof record.viewBox !== "object") return;
+    found.push(record as unknown as ShapeGeometryModel);
+    return true;
+  });
   return found;
 }

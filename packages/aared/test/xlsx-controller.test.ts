@@ -28,7 +28,7 @@ test("count matches sheet collection length", async () => {
 test("search names each cell as { address, row, col } in its sheet's { index, title }", async () => {
   const workbook = await open(await Bun.file(XLSX_FIXTURE).arrayBuffer());
   try {
-    const matches = await workbook.search("budget");
+    const matches = await workbook.sheets.get("Summary").search("budget");
     expect(matches.length).toBeGreaterThan(0);
     for (const match of matches) {
       expect(match.address).toMatch(/^[A-Z]+[0-9]+$/);
@@ -44,7 +44,7 @@ test("search with abort signal rejects", async () => {
   const workbook = await open(await Bun.file(XLSX_FIXTURE).arrayBuffer());
   try {
     const controller = new AbortController();
-    const promise = workbook.search("budget", { signal: controller.signal });
+    const promise = workbook.sheets.get("Summary").search("budget", { signal: controller.signal });
     controller.abort();
     const error = await promise.catch((e) => e);
     expect(error.name).toBe("AbortError");

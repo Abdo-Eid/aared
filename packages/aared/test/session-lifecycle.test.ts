@@ -27,6 +27,40 @@ test("keeps a caller-owned ArrayBuffer usable after transfer", async () => {
   }
 });
 
+test("a typed array opens over its own range, and the caller's bytes stay usable", async () => {
+  const file = new Uint8Array(await Bun.file(ARABIC_FIXTURE).arrayBuffer());
+  // The file sits in the middle of a bigger buffer, as in a Node Buffer pool:
+  // only the view's own range may be read.
+  const pool = new Uint8Array(file.byteLength + 64).fill(0xff);
+  pool.set(file, 32);
+  const view = pool.subarray(32, 32 + file.byteLength);
+  const deck = await open(view);
+  try {
+    expect(deck.info.count).toBeGreaterThan(0);
+    expect(view[0]).toBe(0x50);
+    expect(pool[0]).toBe(0xff);
+  } finally {
+    deck.close();
+  }
+});
+
+test("a source open() cannot read is a typed invalid-argument, not the platform's raw TypeError", async () => {
+  const bytes = new Uint8Array(await Bun.file(ARABIC_FIXTURE).arrayBuffer());
+  for (const wrong of [null, 42, { name: "deck.pptx" }]) {
+    const error = await rejection(open(wrong as unknown as ArrayBuffer));
+    expect(isAaredError(error) && error.code).toBe("invalid-argument");
+    expect(error.message).toContain("aared/pptx: a source is a File, Blob, ArrayBuffer, typed array or URL string; received");
+  }
+  // A Blob is read by what is used from it, so one from another frame still opens.
+  const foreign = { size: bytes.byteLength, arrayBuffer: async () => bytes.slice().buffer };
+  const deck = await open(foreign as unknown as Blob);
+  try {
+    expect(deck.info.count).toBeGreaterThan(0);
+  } finally {
+    deck.close();
+  }
+});
+
 test("aborts URL source loading through fetch", async () => {
   const original = Object.getOwnPropertyDescriptor(globalThis, "fetch");
   let suppliedSignal: AbortSignal | undefined;
@@ -257,7 +291,6 @@ test("an internal Worker failure arrives with its original error as `cause`, in 
   const stub = stubWorker(() => ({
     ok: false,
     error: {
-      name: "AaredError",
       code: "internal",
       message: "aared/core: the viewer failed while reading this file (TypeError: x is undefined)",
       cause: { name: "TypeError", message: "x is undefined", stack: "TypeError: x is undefined\n    at parse (pptx.ts:1:1)" },

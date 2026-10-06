@@ -54,11 +54,20 @@ function readFontFamily(font: XmlElement | undefined): { latin: string; complexS
   };
 }
 
-/** Read the first declared DrawingML theme from an OOXML package. */
+/**
+ * Read the first declared DrawingML theme from an OOXML package. Word and Excel have one theme;
+ * PowerPoint reads each master's own with `readThemePart`.
+ */
 export async function readDrawingTheme(pkg: OpcPackage, signal?: AbortSignal): Promise<DrawingTheme> {
   throwIfAborted(signal);
   const part = pkg.partNames().find((name) => pkg.contentTypeOf(name) === "application/vnd.openxmlformats-officedocument.theme+xml");
   if (part === undefined) return { colors: {}, fonts: { major: { latin: "", complexScript: "", scripts: {} }, minor: { latin: "", complexScript: "", scripts: {} } } };
+  return readThemePart(pkg, part, signal);
+}
+
+/** Read one DrawingML theme part by name. */
+export async function readThemePart(pkg: OpcPackage, part: string, signal?: AbortSignal): Promise<DrawingTheme> {
+  throwIfAborted(signal);
   const root = await pkg.readXml(part, signal);
   const elements = firstChild(root, "themeElements");
   const scheme = elements === undefined ? undefined : firstChild(elements, "clrScheme");
@@ -103,6 +112,23 @@ export function themeFontFamily(font: DrawingTheme["fonts"]["major"], slot: "lat
   return arabic ? font.scripts["Arab"] : undefined;
 }
 
+/**
+ * `bg1`/`bg2`/`tx1`/`tx2` are colour-map names that a `p:clrMap` points at
+ * theme slots (`lt1`, `dk1`, ...); dark-master decks swap them. PPTX passes
+ * the slide's map. Excel and Word have no colour map: their DrawingML (charts)
+ * always uses the default map, Office's light one, which `clrMap` undefined
+ * gives.
+ */
+export function themeForColorMap(theme: DrawingTheme, clrMap: XmlElement | undefined): DrawingTheme {
+  const slot = (name: string, fallback: string): string | undefined => theme.colors[(clrMap === undefined ? undefined : attr(clrMap, name)) ?? fallback];
+  const mapped: Record<string, string> = {};
+  for (const [name, fallback] of [["bg1", "lt1"], ["bg2", "lt2"], ["tx1", "dk1"], ["tx2", "dk2"]] as const) {
+    const color = slot(name, fallback);
+    if (color !== undefined) mapped[name] = color;
+  }
+  return { ...theme, colors: { ...theme.colors, ...mapped } };
+}
+
 /** Resolve a theme token or literal DrawingML typeface to a browser family. */
 export function resolveThemeTypeface(typeface: string | undefined, text: string, theme: DrawingTheme): string | undefined {
   if (typeface === undefined || typeface === "") return undefined;
@@ -133,6 +159,40 @@ function hslToRgb(hue: number, saturation: number, lightness: number): number[] 
     return (lightness - chroma * Math.max(-1, Math.min(value - 3, Math.min(9 - value, 1)))) * 255;
   };
   return [hueChannel(0), hueChannel(8), hueChannel(4)];
+}
+
+/**
+ * A SpreadsheetML `tint` (-1..1) on a colour: Excel moves its lightness in
+ * HLS space, scaling it down for a negative tint (`L * (1 + tint)`) and toward
+ * white for a positive one (`L * (1 - tint) + tint`), hue and saturation kept
+ * (ECMA-376 18.3.1.15). Not the DrawingML `a:tint` above, which blends in
+ * linear light. Excel's "Darker 25%" of accent 5B9BD5 is 2E75B6; blending the
+ * channels toward black gave 4474A0.
+ */
+export function applySpreadsheetTint(color: string, tint: number): string {
+  const channels = tint === 0 ? undefined : parseHexColor(color);
+  if (channels === undefined) return color;
+  const [hue, saturation, lightness] = rgbToHsl(channels);
+  const shifted = tint < 0 ? lightness * (1 + tint) : lightness * (1 - tint) + tint;
+  return toHexColor(hslToRgb(hue, saturation, Math.min(Math.max(shifted, 0), 1)));
+}
+
+/** `channels` with its HSL lightness replaced by `next(lightness)`, kept inside 0..1. */
+function withLightness(channels: number[], next: (lightness: number) => number): number[] {
+  const [hue, saturation, lightness] = rgbToHsl(channels);
+  return hslToRgb(hue, saturation, Math.min(Math.max(next(lightness), 0), 1));
+}
+
+/**
+ * A colour with DrawingML's `a:lumMod` (a multiplier, 1 = 100%) and then
+ * `a:lumOff` (an offset) applied: the shades Office derives for series and
+ * gridlines. The same arithmetic `resolveDrawingColor` applies to the modifiers
+ * of an authored colour. `undefined` when `hex` is not a colour.
+ */
+export function shadeColor(hex: string, lumMod: number, lumOff: number): string | undefined {
+  const channels = parseHexColor(hex);
+  if (channels === undefined) return undefined;
+  return toHexColor(withLightness(withLightness(channels, (l) => l * lumMod), (l) => l + lumOff));
 }
 
 function tintChannels(channels: number[], sourceRatio: number): number[] {
@@ -174,12 +234,10 @@ export function resolveDrawingColor(element: XmlElement | undefined, theme: Draw
       case "shade":
         channels = channels.map((channel) => channel * ratio);
         break;
-      case "lumMod": {
+      case "lumMod":
         // A multiplier, not a fraction: 110000 (110%) brightens.
-        const [hue, saturation, lightness] = rgbToHsl(channels);
-        channels = hslToRgb(hue, saturation, Math.min(lightness * Math.max(numeric / 100000, 0), 1));
+        channels = withLightness(channels, (l) => l * Math.max(numeric / 100000, 0));
         break;
-      }
       case "satMod": {
         // Ground truth: PowerPoint's own render of a theme background style
         // (`tint 95000` + `satMod 170000` on a dark scheme colour).
@@ -187,11 +245,10 @@ export function resolveDrawingColor(element: XmlElement | undefined, theme: Draw
         channels = hslToRgb(hue, Math.min(saturation * Math.max(numeric / 100000, 0), 1), lightness);
         break;
       }
-      case "lumOff": {
-        const [hue, saturation, lightness] = rgbToHsl(channels);
-        channels = hslToRgb(hue, saturation, Math.min(lightness + ratio, 1));
+      case "lumOff":
+        // Signed: a negative offset darkens.
+        channels = withLightness(channels, (l) => l + numeric / 100000);
         break;
-      }
       case "alpha":
         alpha *= ratio;
         break;

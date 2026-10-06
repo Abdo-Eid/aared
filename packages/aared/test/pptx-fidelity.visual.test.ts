@@ -246,26 +246,59 @@ visual("visual DOM output: pictures, autofit, numbered bullets, resolved tables,
     expect(tableOutput.gridHeight).toBeGreaterThanOrEqual(rowTotal - 1);
     expect(tableOutput.textClipped).toBe(false);
 
-    // Charts paint typed primitives to SVG, never canvas.
+    // Charts are laid out on the page (the layout code loads with the first
+    // chart, and render() resolves once it has drawn) and painted to SVG,
+    // never canvas: browser text, and one path per series however many bars.
     await view.evaluate(`renderFixture(${JSON.stringify(productionSlide4)}, null)`);
     const chartOutput = await view.evaluate(`(() => {
-      const wrapper = document.querySelector('[data-aared-element="chart"]');
       const svg = document.querySelector('[data-aared-element="chart-geometry"]');
+      const fills = [...svg?.querySelectorAll("path") ?? []].map((path) => path.getAttribute("fill"));
       return {
-        primitives: wrapper?.dataset.aaredChartPrimitives,
-        rects: svg?.querySelectorAll("rect").length,
-        texts: svg?.querySelectorAll("text").length,
-        hasLogged: svg?.textContent.includes("Logged"),
+        primitives: svg?.dataset.aaredChartPrimitives,
+        viewBox: svg?.getAttribute("viewBox"),
+        direction: svg === null ? undefined : getComputedStyle(svg).direction,
+        logged: fills.filter((fill) => fill === "#2E7D74").length,
+        planned: fills.filter((fill) => fill === "#C9D6D3").length,
+        texts: [...svg?.querySelectorAll("text") ?? []].map((text) => text.textContent),
+        role: svg?.getAttribute("role"),
+        label: svg?.getAttribute("aria-label"),
+        desc: svg?.querySelector("desc")?.textContent,
+        described: svg?.getAttribute("aria-describedby") === svg?.querySelector("desc")?.id,
         canvasCount: document.querySelectorAll("canvas").length,
       };
-    })()`) as { primitives?: string; rects: number; texts: number; hasLogged: boolean; canvasCount: number };
+    })()`) as { primitives?: string; viewBox?: string; direction?: string; logged: number; planned: number; texts: string[]; role?: string; label?: string; desc?: string; described: boolean; canvasCount: number };
     expect(Number(chartOutput.primitives)).toBeGreaterThan(10);
-    expect(chartOutput.rects).toBeGreaterThanOrEqual(6);
-    expect(chartOutput.texts).toBeGreaterThanOrEqual(10);
-    expect(chartOutput.hasLogged).toBe(true);
+    // The view box is the frame in points: 7.6 x 4.9in.
+    expect(chartOutput.viewBox).toBe("0 0 547.2 352.8");
+    // Pinned left to right, so a chart in a right-to-left slide or page keeps its labels where the layout put them.
+    expect(chartOutput.direction).toBe("ltr");
+    // Each series' bars (and its legend key) merge into one path per run.
+    expect(chartOutput.logged).toBeGreaterThanOrEqual(1);
+    expect(chartOutput.planned).toBeGreaterThanOrEqual(1);
+    expect(chartOutput.texts).toEqual(expect.arrayContaining(["Logged", "Planned", "Ep 04", "39", "42", "45"]));
+    // An image to a screen reader. The file states no alt text and the chart has no title,
+    // so the name is "Chart" (never the generated shape name, "Chart 0"); the plot is its description.
+    expect(chartOutput.role).toBe("img");
+    expect(chartOutput.label).toBe("Chart");
+    expect(chartOutput.desc).toBe("Column chart. 2 series: Logged, Planned. 3 categories: Ep 04, Ep 05, Ep 06.");
+    expect(chartOutput.described).toBe(true);
     expect(chartOutput.canvasCount).toBe(0);
 
-    // Blood: destroy stops async picture work and revokes object URLs.
+    // A chart the preview does not draw keeps its frame and says why, as XLSX does.
+    const unsupported = {
+      ...productionSlide4,
+      elements: productionSlide4.elements.map((element) => element.kind === "chart"
+        ? { ...element, spec: undefined, unsupportedReason: "chart type surfaceChart is not previewed" }
+        : element),
+    };
+    await view.evaluate(`renderFixture(${JSON.stringify(unsupported)}, null)`);
+    const fallbackOutput = await view.evaluate(`(() => {
+      const box = document.querySelector('[data-aared-element="chart-fallback"]');
+      return { text: box?.textContent, reason: box?.parentElement?.dataset.aaredChartFallback, svg: document.querySelectorAll('[data-aared-element="chart-geometry"]').length };
+    })()`) as { text?: string; reason?: string; svg: number };
+    expect(fallbackOutput).toEqual({ text: "Chart 0: chart type surfaceChart is not previewed", reason: "unsupported", svg: 0 });
+
+    // Destroy stops async picture work and revokes object URLs.
     await view.evaluate(`renderFixture(${JSON.stringify({ size: productionSlide1.size, elements: [picture] })}, "${pictureBase64}")`);
     const destroyedOutput = await view.evaluate(`(() => new Promise((resolve) => {
       const before = document.querySelector('[data-aared-element="slide-scene"]')?.style.transform;

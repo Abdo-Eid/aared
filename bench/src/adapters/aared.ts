@@ -11,66 +11,50 @@ import type { DocxOpened, OpenAdapter, PptxOpened, XlsxOpened } from "./types";
  * the Worker parse, and the first paint, the same span the baselines report.
  */
 
-export const openAaredPptx: OpenAdapter = async (bytes, host): Promise<PptxOpened> => {
+export const openAaredPptx: OpenAdapter = async (bytes, host, signal): Promise<PptxOpened> => {
   const t0 = performance.now();
-  const { open, render } = await import("aared/pptx");
-  const deck = await open(bytes.slice().buffer);
-  host.replaceChildren();
-  let handle = await render({ slide: deck.slides.get(0), target: host });
+  const { preview } = await import("aared/pptx");
+  const viewer = await preview({ source: bytes, target: host, signal });
   return {
     format: "pptx",
-    pageCount: deck.info.count,
+    pageCount: viewer.info.count,
     ms: Math.round(performance.now() - t0),
-    goToSlide: async (index) => {
-      handle.destroy();
-      handle = await render({ slide: deck.slides.get(index), target: host });
-    },
-    destroy: () => {
-      handle.destroy();
-      deck.close();
-      host.replaceChildren();
-    },
+    goToSlide: (index) => viewer.goTo(index),
+    destroy: () => viewer.destroy(),
   };
 };
 
-export const openAaredXlsx: OpenAdapter = async (bytes, host): Promise<XlsxOpened> => {
+export const openAaredXlsx: OpenAdapter = async (bytes, host, signal): Promise<XlsxOpened> => {
   const t0 = performance.now();
-  const { open, render } = await import("aared/xlsx");
-  const workbook = await open(bytes.slice().buffer);
-  host.replaceChildren();
-  const handle = await render({ sheet: workbook.sheets.get(0), target: host });
+  const { preview } = await import("aared/xlsx");
+  const viewer = await preview({
+    source: bytes, target: host, signal,
+    appearance: { spreadsheet: { sheetTabs: false } },
+  });
   return {
     format: "xlsx",
-    pageCount: workbook.info.count,
+    pageCount: viewer.info.count,
     ms: Math.round(performance.now() - t0),
-    sheets: [...workbook.info.titles],
-    renderSheet: (index) => handle.goToSheet(index),
-    destroy: () => {
-      handle.destroy();
-      workbook.close();
-      host.replaceChildren();
-    },
+    sheets: [...viewer.info.titles],
+    renderSheet: (index) => viewer.goTo(index),
+    destroy: () => viewer.destroy(),
   };
 };
 
-export const openAaredDocx: OpenAdapter = async (bytes, host): Promise<DocxOpened> => {
+export const openAaredDocx: OpenAdapter = async (bytes, host, signal): Promise<DocxOpened> => {
   const t0 = performance.now();
-  const { open, render } = await import("aared/docx");
-  const document = await open(bytes.slice().buffer);
-  host.replaceChildren();
-  const handle = await render({ document, target: host, pagination: { mode: "layout" } });
-  const pages = handle.pages.map((page) => ({ width: page.width, height: page.height }));
+  const { preview } = await import("aared/docx");
+  const viewer = await preview({ source: bytes, target: host, signal, pagination: { mode: "layout" } });
+  const docx = viewer.docx;
+  // aared reports inches; the bench's pager uses CSS pixels.
+  const pages = docx.pages.map((page) => ({ width: page.width * 96, height: page.height * 96 }));
   return {
     format: "docx",
-    pageCount: handle.pageCount,
+    pageCount: docx.pageCount,
     ms: Math.round(performance.now() - t0),
-    outline: document.headings.list().map((heading) => ({ level: heading.level, text: heading.title })),
+    outline: docx.headings.map((heading) => ({ level: heading.level, text: heading.title })),
     paperWidth: pages.length > 0 ? Math.max(...pages.map((page) => page.width)) : 0,
     pages,
-    destroy: () => {
-      handle.destroy();
-      document.close();
-      host.replaceChildren();
-    },
+    destroy: () => viewer.destroy(),
   };
 };

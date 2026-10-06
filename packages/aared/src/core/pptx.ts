@@ -1,33 +1,34 @@
 /**
- * Focused PPTX reader for the Arabic/table gate fixture.
+ * PPTX reader: the Worker-side half of `aared/pptx`.
  *
- * This is deliberately headless and returns only plain data. It reads
- * PresentationML for slide order and DrawingML for text/table content;
- * DOM/SVG painting belongs to `aared/pptx`, never here.
+ * Deliberately headless; it returns only plain data. It reads PresentationML
+ * (slide order, layouts, masters, placeholders) and DrawingML (text, shapes,
+ * pictures, charts, groups, tables, fills, theme and table styles) into the
+ * resolved slide model; DOM/SVG painting belongs to `aared/pptx`, never here.
  */
 
 import { BULLET } from "./chars.js";
-import { attr, childElements, firstChild, numberAttr, parseNumber, parseXml, textContent } from "./xml.js";
+import { attr, childElements, firstChild, numberAttr, onOff, parseNumber, parseXml, textContent } from "./xml.js";
+import { resolveDirectFill, resolveGradientFill } from "./fill.js";
+import type { FillOwner } from "./fill.js";
 import type { XmlElement } from "./xml.js";
 import { guessMediaContentType } from "./opc.js";
 import type { OpcPackage } from "./opc.js";
 import { EMU_PER_PT, emuToInches, emuToPt } from "./units.js";
+import { clampSpan } from "./table-span.js";
 import { parseHexColor, relativeLuminance } from "./color.js";
-import { readDrawingTheme, resolveDrawingColor, resolveThemeTypeface } from "./theme.js";
+import { readDrawingTheme, readThemePart, resolveDrawingColor, resolveThemeTypeface, themeForColorMap } from "./theme.js";
 import { arabicPunctuationPieces, isLtrRunInRtl, usesArabic } from "./typography.js";
 import type { DrawingTheme } from "./theme.js";
 import { AaredError, damagedDocument, throwIfAborted } from "./errors.js";
-import { parseChartGraphic } from "./chart.js";
+import { chartFillOwner, readChartModel } from "./chart.js";
+import { chartText } from "./chart/text.js";
 import type {
   BoundsModel,
   ChartModel,
   GroupModel,
   InsetsModel,
-  LinearGradientStopModel,
-  PictureFillModel,
   PictureModel,
-  PictureTileModel,
-  RelativeRectModel,
   ShapeFillModel,
   ShapeModel,
   SlideLayoutModel,
@@ -38,6 +39,7 @@ import type {
   TextBodyModel,
   TextParagraphModel,
   TextRunModel,
+  TransformModel,
 } from "./model.js";
 import { geometryForPreset, unresolvedGeometry } from "./drawingml-shape.js";
 import { symbolFontStandIn } from "./symbol-fonts.js";
@@ -55,10 +57,14 @@ const RTL_LANGUAGE = /^(ar|he|iw|fa|ur|yi|ps|sd|ug|ku-arab|dv)(-|$)/i;
 export interface PptxDeck {
   size: { width: number; height: number };
   slideParts: string[];
+  /** The first master's theme (the deck's, for what no slide names: the document info). */
   theme: DrawingTheme;
   tableStyles: Map<string, PptxTableStyle>;
-  /** Embedded-font parts (`ppt/fonts/*.fntdata`) for future resolver delivery. */
-  embeddedFonts: string[];
+  /**
+   * Each slide master's own theme and the table styles resolved against it, by master part:
+   * a slide takes the theme of the master its layout belongs to (see `themeOfMaster`).
+   */
+  masters: Map<string, { theme: DrawingTheme; tableStyles: Map<string, PptxTableStyle> }>;
   /**
    * The deck's default run size per outline level (`p:defaultTextStyle`), in
    * points: what text with no placeholder or master style (text boxes,
@@ -92,15 +98,6 @@ const TABLE_STYLE_REGIONS = [
 type TableStyleRegionName = typeof TABLE_STYLE_REGIONS[number];
 
 type PptxTableStyle = Partial<Record<TableStyleRegionName, TableStyleRegion>>;
-
-function onOff(element: XmlElement, name: string): boolean | undefined {
-  const value = attr(element, name);
-  if (value === undefined) return undefined;
-  if (value === "1" || value === "true" || value === "on") return true;
-  if (value === "0" || value === "false" || value === "off") return false;
-  // An unknown spelling reads as unset: one odd attribute does not cost the slide.
-  return undefined;
-}
 
 /** PowerPoint's paragraph alignments; an unknown value paints as the default (left), not a failed slide. */
 function align(value: string | undefined): TextParagraphModel["align"] {
@@ -152,65 +149,6 @@ function resolveSolidFill(element: XmlElement | undefined, theme: DrawingTheme):
   return resolveColor(element === undefined ? undefined : firstChild(element, "solidFill"), theme);
 }
 
-function resolveGradientStops(gradient: XmlElement, theme: DrawingTheme): LinearGradientStopModel[] | undefined {
-  const stopList = firstChild(gradient, "gsLst");
-  if (stopList === undefined) return undefined;
-  const stops: LinearGradientStopModel[] = [];
-  for (const stop of childElements(stopList, "gs")) {
-    const position = numberAttr(stop, "pos", "a:gs");
-    const color = resolveColor(stop, theme);
-    if (position === undefined || position < 0 || position > 100000 || color === undefined) return undefined;
-    stops.push({ position: position / 100000, color });
-  }
-  return stops.length > 0 ? stops : undefined;
-}
-
-/** A `CT_RelativeRect` (`l`/`t`/`r`/`b` in 1/1000 %, default 0) as fractions; undefined when the element is absent. */
-function relativeRect(element: XmlElement | undefined): RelativeRectModel | undefined {
-  if (element === undefined) return undefined;
-  const side = (name: string): number => (numberAttr(element, name, `a:${element.local}`) ?? 0) / 100000;
-  return { left: side("l"), top: side("t"), right: side("r"), bottom: side("b") };
-}
-
-const NO_INSET: RelativeRectModel = { left: 0, top: 0, right: 0, bottom: 0 };
-
-function isZeroRect(rect: RelativeRectModel | undefined): boolean {
-  return rect === undefined || (rect.left === 0 && rect.top === 0 && rect.right === 0 && rect.bottom === 0);
-}
-
-function resolveGradientFill(gradient: XmlElement, theme: DrawingTheme): ShapeFillModel {
-  const path = firstChild(gradient, "path");
-  if (path !== undefined) {
-    const stops = resolveGradientStops(gradient, theme);
-    if (stops === undefined) return { kind: "unsupported", source: "gradient-path" };
-    const kind = attr(path, "path");
-    if (kind !== "circle" && kind !== "rect" && kind !== "shape") return { kind: "unsupported", source: "gradient-path" };
-    // Absent rectangles take the schema default: zero insets.
-    return {
-      kind: "path-gradient",
-      path: kind,
-      focus: relativeRect(firstChild(path, "fillToRect")) ?? { ...NO_INSET },
-      extent: relativeRect(firstChild(gradient, "tileRect")) ?? { ...NO_INSET },
-      stops,
-    };
-  }
-  const linear = firstChild(gradient, "lin");
-  if (linear === undefined) return { kind: "unsupported", source: "gradient-linear" };
-  const stops = resolveGradientStops(gradient, theme);
-  if (stops === undefined) return { kind: "unsupported", source: "gradient-linear" };
-  const drawingMlAngle = numberAttr(linear, "ang", "a:lin") ?? 0;
-  return {
-    kind: "linear-gradient",
-    angle: ((drawingMlAngle / 60000) % 360 + 360) % 360,
-    // An absent `scaled` is false: PowerPoint draws slide 4's `<a:lin
-    // ang="2700000"/>` with bands square to a true 45° across a 1.7:1 box
-    // (DECISION_LOG §28), not squashed to the box's diagonal.
-    scaled: onOff(linear, "scaled") ?? false,
-    rotatesWithShape: onOff(gradient, "rotWithShape") ?? true,
-    stops,
-  };
-}
-
 /**
  * A shape/table style reference (`a:fillRef`, `a:lnRef`) as a color.
  * `idx="0"` (or a missing `idx`) means "no reference": PowerPoint renders no
@@ -224,94 +162,6 @@ export function resolveStyleRef(reference: XmlElement | undefined, theme: Drawin
   const index = attr(reference, "idx");
   if (index === undefined || index === "0") return undefined;
   return resolveColor(reference, theme);
-}
-
-/**
- * The part a fill belongs to, so a picture fill's `r:embed` resolves against
- * that part's relationships: the slide, or the layout/master a background or
- * shared graphic comes from.
- */
-interface FillOwner {
-  relationships: ReadonlyArray<{ id: string; type: string; target: string; targetMode: string }>;
-  mediaContentType: (target: string) => string;
-  /** Inherited from the layout or master, so many slides share the picture. */
-  inherited: boolean;
-}
-
-/**
- * `a:pattFill`: a preset bitmap in two colours. The bitmaps themselves live
- * with the renderer; an unknown preset name is marked there, not here.
- * `fgClr`/`bgClr` default to black on white, as PowerPoint writes them.
- */
-function resolvePatternFill(pattern: XmlElement, theme: DrawingTheme): ShapeFillModel {
-  const preset = attr(pattern, "prst");
-  if (preset === undefined) return { kind: "unsupported", source: "pattern" };
-  return {
-    kind: "pattern",
-    preset,
-    foreground: resolveColor(firstChild(pattern, "fgClr"), theme) ?? "#000000",
-    background: resolveColor(firstChild(pattern, "bgClr"), theme) ?? "#FFFFFF",
-  };
-}
-
-const TILE_ALIGNMENTS = new Set(["tl", "t", "tr", "l", "ctr", "r", "bl", "b", "br"]);
-const TILE_FLIPS = new Set(["none", "x", "y", "xy"]);
-
-/**
- * `a:blipFill` as a fill: stretched (optionally into `a:stretch/a:fillRect`)
- * or tiled (`a:tile`: `sx`/`sy` in 1/1000 %, `tx`/`ty` in EMU). A picture the
- * owner's relationships cannot resolve stays `unsupported`.
- */
-function resolvePictureFill(blipFill: XmlElement, owner: FillOwner | undefined): ShapeFillModel {
-  const unsupported = { kind: "unsupported", source: "image" } as const;
-  if (owner === undefined) return unsupported;
-  const blip = firstChild(blipFill, "blip");
-  const embed = blip === undefined ? undefined : (attr(blip, "embed") ?? attr(blip, "r:embed"));
-  const rel = embed === undefined ? undefined : owner.relationships.find((candidate) => candidate.id === embed);
-  if (rel === undefined || rel.targetMode === "External" || !rel.type.endsWith("/image")) return unsupported;
-  const out: PictureFillModel = {
-    kind: "picture",
-    mediaId: rel.target,
-    contentType: owner.mediaContentType(rel.target),
-    ...(owner.inherited ? { shared: true as const } : {}),
-  };
-  const crop = relativeRect(firstChild(blipFill, "srcRect"));
-  if (!isZeroRect(crop)) out.crop = crop!;
-  const tile = firstChild(blipFill, "tile");
-  if (tile !== undefined) {
-    const align = attr(tile, "algn") ?? "tl";
-    const flip = attr(tile, "flip") ?? "none";
-    out.tile = {
-      scaleX: (numberAttr(tile, "sx", "a:tile") ?? 100000) / 100000,
-      scaleY: (numberAttr(tile, "sy", "a:tile") ?? 100000) / 100000,
-      offsetX: emuToInches(numberAttr(tile, "tx", "a:tile") ?? 0),
-      offsetY: emuToInches(numberAttr(tile, "ty", "a:tile") ?? 0),
-      align: (TILE_ALIGNMENTS.has(align) ? align : "tl") as PictureTileModel["align"],
-      flip: (TILE_FLIPS.has(flip) ? flip : "none") as PictureTileModel["flip"],
-    };
-    return out;
-  }
-  const stretch = firstChild(blipFill, "stretch");
-  const fillRect = relativeRect(stretch === undefined ? undefined : firstChild(stretch, "fillRect"));
-  if (!isZeroRect(fillRect)) out.stretch = fillRect!;
-  return out;
-}
-
-/**
- * The fill authored directly on `container` (`p:spPr`, `p:bgPr`, `a:tcPr`):
- * `null` for an explicit `a:noFill`, `undefined` when no fill is authored so
- * the caller's style fallback applies.
- */
-function resolveDirectFill(container: XmlElement, theme: DrawingTheme, owner: FillOwner | undefined): ShapeFillModel | null | undefined {
-  if (firstChild(container, "noFill") !== undefined) return null;
-  const gradient = firstChild(container, "gradFill");
-  if (gradient !== undefined) return resolveGradientFill(gradient, theme);
-  const blipFill = firstChild(container, "blipFill");
-  if (blipFill !== undefined) return resolvePictureFill(blipFill, owner);
-  const pattern = firstChild(container, "pattFill");
-  if (pattern !== undefined) return resolvePatternFill(pattern, theme);
-  const color = resolveSolidFill(container, theme);
-  return color === undefined ? undefined : { kind: "solid", color };
 }
 
 function resolveShapeFill(
@@ -593,14 +443,14 @@ function firstElement(elements: XmlElement[], name: string): XmlElement | undefi
   return undefined;
 }
 
+/** Relationship lists are cached per part by `OpcPackage`, so their link maps can be too. */
+const linkMaps = new WeakMap<object, Map<string, string>>();
+
 /**
  * Hyperlink targets for one part: external URLs verbatim, slide jumps and
  * other internal targets kept as `#`-prefixed part paths. The renderer
  * surfaces them via `linkactivate`; the host decides.
  */
-/** Relationship lists are cached per part by `OpcPackage`, so their link maps can be too. */
-const linkMaps = new WeakMap<object, Map<string, string>>();
-
 function hyperlinkTargets(relationships: Array<{ id: string; type: string; target: string; targetMode: string }>): Map<string, string> {
   const known = linkMaps.get(relationships);
   if (known !== undefined) return known;
@@ -659,6 +509,17 @@ function findBulletEmbed(buBlip: XmlElement): string | undefined {
   return undefined;
 }
 
+/** A paragraph's runs in document order: `a:r`, and `a:fld` (slide number, date), which carries the same rPr/t. `a:br` is not text. */
+function paragraphRuns(paragraph: XmlElement): XmlElement[] {
+  return paragraph.children.filter((child) => child.local === "r" || child.local === "fld");
+}
+
+/** A run's own text: its `a:t`, or nothing. */
+function runText(run: XmlElement): string {
+  const t = firstChild(run, "t");
+  return t === undefined ? "" : textContent(t);
+}
+
 function runProperties(run: XmlElement, paragraphProperties: XmlElement[]): XmlElement[] {
   const direct = firstChild(run, "rPr");
   return [
@@ -685,10 +546,7 @@ function parseRun(
   const solidFill = firstElement(properties, "solidFill");
   const latin = firstElement(properties, "latin");
   const cs = firstElement(properties, "cs");
-  const ea = firstElement(properties, "ea");
-  const sym = firstElement(properties, "sym");
-  const t = firstChild(run, "t");
-  const out: TextRunModel = { text: t === undefined ? "" : textContent(t) };
+  const out: TextRunModel = { text: runText(run) };
   const boldElement = properties.find((property) => attr(property, "b") !== undefined);
   const italicElement = properties.find((property) => attr(property, "i") !== undefined);
   const bold = boldElement === undefined ? undefined : onOff(boldElement, "b");
@@ -700,12 +558,8 @@ function parseRun(
   if (size !== undefined) out.fontSizePt = size / 100;
   const latinTypeface = latin === undefined ? undefined : attr(latin, "typeface");
   const complexScriptTypeface = cs === undefined ? undefined : attr(cs, "typeface");
-  const eastAsianTypeface = ea === undefined ? undefined : attr(ea, "typeface");
-  const symbolTypeface = sym === undefined ? undefined : attr(sym, "typeface");
   if (latinTypeface !== undefined) out.latinTypeface = latinTypeface;
   if (complexScriptTypeface !== undefined) out.complexScriptTypeface = complexScriptTypeface;
-  if (eastAsianTypeface !== undefined) out.eastAsianTypeface = eastAsianTypeface;
-  if (symbolTypeface !== undefined) out.symbolTypeface = symbolTypeface;
   const color = resolveColor(solidFill, theme)
     ?? fontRefs?.map((ref) => resolveDrawingColor(ref, theme)).find((value): value is string => value !== undefined);
   // `p:defaultTextStyle` intentionally does not interpose: the coverage
@@ -751,7 +605,7 @@ function parseRun(
   if (firstElement(properties, "grpFill") !== undefined) out.groupFill = true;
   const hlink = firstElement(properties, "hlinkClick");
   if (hlink !== undefined && links !== undefined) {
-    const rid = attr(hlink, "id") ?? attr(hlink, "r:id");
+    const rid = attr(hlink, "id");
     if (rid !== undefined) {
       const target = links.get(rid);
       if (target !== undefined) out.hyperlink = target;
@@ -914,19 +768,15 @@ function toAlpha(value: number, upper: boolean): string {
 }
 
 function formatAutoNum(type: string, value: number): string {
+  // `ST_TextAutonumberScheme` names: arabicPeriod, romanUcPeriod, alphaLcParenBoth, arabicPlain, …
   const normalized = type.toLowerCase();
-  const isRomanUc = normalized.includes("roman") && (normalized.includes("uc") || normalized.includes("upper") || type.includes("Uc"));
-  const isRomanLc = normalized.includes("roman") && !isRomanUc;
-  const isAlphaUc = normalized.includes("alpha") && (normalized.includes("uc") || normalized.includes("upper") || type.includes("Uc"));
-  const isAlphaLc = normalized.includes("alpha") && !isAlphaUc;
+  const upper = normalized.includes("uc");
   let core: string;
-  if (isRomanUc) core = toRoman(value, true);
-  else if (isRomanLc) core = toRoman(value, false);
-  else if (isAlphaUc) core = toAlpha(value, true);
-  else if (isAlphaLc) core = toAlpha(value, false);
+  if (normalized.includes("roman")) core = toRoman(value, upper);
+  else if (normalized.includes("alpha")) core = toAlpha(value, upper);
   else core = String(value);
-  if (normalized.includes("parenboth") || normalized.includes("parenboth")) return `(${core})`;
-  if (normalized.includes("parenr") || normalized.includes("paren")) return `${core})`;
+  if (normalized.includes("parenboth")) return `(${core})`;
+  if (normalized.includes("paren")) return `${core})`;
   if (normalized.includes("plain")) return core;
   // Default: period form ("1.", "I.", "A.", …) covers arabicPeriod and unknown types.
   return `${core}.`;
@@ -974,9 +824,7 @@ export function parseTextBody(txBody: XmlElement, theme: DrawingTheme, inheritan
       const leftIndent = leftElement === undefined ? undefined : numberAttr(leftElement, "marL", "a:pPr");
       const rightIndent = rightElement === undefined ? undefined : numberAttr(rightElement, "marR", "a:pPr");
       const firstLineIndent = firstLineElement === undefined ? undefined : numberAttr(firstLineElement, "indent", "a:pPr");
-      // `a:fld` (slide number, date) carries the same rPr/t as `a:r`; keep
-      // both in document order.
-      const runs = paragraph.children.filter((child) => child.local === "r" || child.local === "fld");
+      const runs = paragraphRuns(paragraph);
       const paragraphText = runs.map((run) => textContent(firstChild(run, "t") ?? run)).join("");
       const out: TextParagraphModel = {
         runs: runs.map((run) => {
@@ -1178,11 +1026,10 @@ export function parseTextBody(txBody: XmlElement, theme: DrawingTheme, inheritan
       out.wrapping = "square";
       break;
   }
-  if (bodyProperties !== undefined && (firstChild(bodyProperties, "noAutofit") !== undefined
-    || firstChild(bodyProperties, "normAutofit") !== undefined || firstChild(bodyProperties, "spAutoFit") !== undefined)) {
+  if (bodyProperties !== undefined) {
     if (firstChild(bodyProperties, "noAutofit") !== undefined) out.autofit = "none";
     else if (firstChild(bodyProperties, "normAutofit") !== undefined) out.autofit = "shrinkText";
-    else out.autofit = "resizeShape";
+    else if (firstChild(bodyProperties, "spAutoFit") !== undefined) out.autofit = "resizeShape";
   }
   if (fontScale !== undefined) out.fontScale = fontScale;
   if (lineSpacingReduction !== undefined) out.lineSpacingReduction = lineSpacingReduction;
@@ -1201,17 +1048,78 @@ function nonVisualProps(shape: XmlElement): XmlElement | undefined {
   return firstChild(shape, "nvSpPr") ?? firstChild(shape, "nvCxnSpPr");
 }
 
+/** Elements of a shape tree that carry an identity (`p:cNvPr`), and the wrappers that can hold some. */
+const IDENTIFIED = new Set(["sp", "cxnSp", "pic", "grpSp", "graphicFrame"]);
+const WRAPPERS = new Set(["grpSp", "AlternateContent", "Choice", "Fallback"]);
+
+/** Ids made up for elements that state none, by element; filled by `numberShapeTree`. */
+const syntheticIds = new WeakMap<XmlElement, string>();
+
+/**
+ * Give every identified element of a shape tree its position-derived id, for
+ * the ones that state none. It is the element's place in a depth-first walk,
+ * so it is the same on every read, and `auto-N` can never equal a real id
+ * (always a number).
+ */
+function numberShapeTree(tree: XmlElement): void {
+  let ordinal = 0;
+  const walk = (parent: XmlElement): void => {
+    for (const child of parent.children) {
+      if (IDENTIFIED.has(child.local)) syntheticIds.set(child, `auto-${++ordinal}`);
+      if (WRAPPERS.has(child.local)) walk(child);
+    }
+  };
+  walk(tree);
+}
+
+/** How many of `elements`, groups' children included, carry an id `numberShapeTree` made up (a real id is always a number). */
+function countSyntheticIds(elements: readonly SlideModel["elements"][number][]): number {
+  let count = 0;
+  for (const element of elements) {
+    if (element.id.startsWith("auto-")) count++;
+    if (element.kind === "group") count += countSyntheticIds(element.children);
+  }
+  return count;
+}
+
+/**
+ * A shape-tree element's identity: `p:cNvPr` inside its non-visual properties
+ * element `nonVisual` (`p:nvPicPr`, `p:nvGrpSpPr`, `p:nvGraphicFramePr`, …).
+ *
+ * A missing `p:cNvPr` or `@id` is not damage. Probe `group-id` (PowerPoint, Oct
+ * 2026): copies of `fixtures/pptx-coverage.pptx` with the `id` attribute removed
+ * from slide 3's rotated group (`<p:cNvPr id="4" name="Group 3">`), from its
+ * Oval 32 and from its Picture 67. The group opened with no prompt and was drawn
+ * normally. The shape and the picture each raised "found a problem, repair?" and
+ * then "removed some content", but diffing the repaired and saved file shows the
+ * repair only adds `id="6"` to the oval's `<p:cNvPr>` (the lowest id unused on
+ * the slide); nothing is removed, and both are drawn. aared cannot prompt, so it
+ * does the same: the element is kept and takes the id `numberShapeTree` gave it
+ * (`auto-N`, from its position; ids are only internal, so the number does not
+ * matter). The render reports it (`SlideModel.missingIds`, the `pptx-missing-id`
+ * warning).
+ *
+ * A chart and a table (both `graphicFrame`) were probed the same way (probe
+ * `drawing-id`: slide 2's Table 3, the chart-oracle deck's Chart 1): the same
+ * repair prompt, and both still drawn. `KEEP_WITHOUT_ID` is the one place to
+ * change the rule: a kind taken out of the set makes its missing id a damaged
+ * slide again.
+ */
+const KEEP_WITHOUT_ID = new Set(["grpSp", "sp", "cxnSp", "pic", "graphicFrame"]);
+
+function identityOf(element: XmlElement, nonVisual: XmlElement | undefined): { cNvPr: XmlElement | undefined; id: string; name: string } {
+  const cNvPr = nonVisual === undefined ? undefined : firstChild(nonVisual, "cNvPr");
+  const stated = cNvPr === undefined ? undefined : attr(cNvPr, "id");
+  if (stated === undefined && !KEEP_WITHOUT_ID.has(element.local)) throw damagedDocument(`p:${element.local} is missing p:cNvPr/@id`);
+  return { cNvPr, id: stated ?? syntheticIds.get(element) ?? "auto-0", name: (cNvPr === undefined ? undefined : attr(cNvPr, "name")) ?? "" };
+}
+
 function shapeIdentity(shape: XmlElement): { id: string; name: string; placeholder?: NonNullable<ShapeModel["placeholder"]> } {
   const nvSpPr = nonVisualProps(shape);
-  const cNvPr = nvSpPr === undefined ? undefined : firstChild(nvSpPr, "cNvPr");
+  const { id, name } = identityOf(shape, nvSpPr);
   const nvPr = nvSpPr === undefined ? undefined : firstChild(nvSpPr, "nvPr");
   const ph = nvPr === undefined ? undefined : firstChild(nvPr, "ph");
-  const id = cNvPr === undefined ? undefined : attr(cNvPr, "id");
-  if (id === undefined) throw damagedDocument("a shape is missing p:cNvPr/@id");
-  const out: { id: string; name: string; placeholder?: NonNullable<ShapeModel["placeholder"]> } = {
-    id,
-    name: cNvPr === undefined ? "" : attr(cNvPr, "name") ?? "",
-  };
+  const out: { id: string; name: string; placeholder?: NonNullable<ShapeModel["placeholder"]> } = { id, name };
   if (ph !== undefined) out.placeholder = { type: attr(ph, "type") ?? "body", index: attr(ph, "idx") ?? "0" };
   return out;
 }
@@ -1443,23 +1351,13 @@ async function parseShape(
     const dash = lineDash(line === undefined ? undefined : firstChild(line, "prstDash"));
     if (dash !== undefined) out.stroke.dash = dash;
   }
-  if (xfrm !== undefined) {
-    const rotation = numberAttr(xfrm, "rot", "a:xfrm");
-    const flipHorizontal = onOff(xfrm, "flipH");
-    const flipVertical = onOff(xfrm, "flipV");
-    if (rotation !== undefined || flipHorizontal !== undefined || flipVertical !== undefined) {
-      out.transform = {
-        ...(rotation === undefined ? {} : { rotation: rotation / 60000 }),
-        ...(flipHorizontal === undefined ? {} : { flipHorizontal }),
-        ...(flipVertical === undefined ? {} : { flipVertical }),
-      };
-    }
-  }
+  const transform = parseXfrmTransform(xfrm);
+  if (transform !== undefined) out.transform = transform;
   throwIfAborted(signal);
   return out;
 }
 
-function parseXfrmTransform(xfrm: XmlElement | undefined): ChartModel["transform"] {
+function parseXfrmTransform(xfrm: XmlElement | undefined): TransformModel | undefined {
   if (xfrm === undefined) return undefined;
   const rotation = numberAttr(xfrm, "rot", "a:xfrm");
   const flipHorizontal = onOff(xfrm, "flipH");
@@ -1496,14 +1394,10 @@ export function parsePicture(
   relationships: Array<{ id: string; type: string; target: string; targetMode: string }>,
   pkg: OpcPackage,
 ): PictureModel | undefined {
-  const nvPicPr = firstChild(pic, "nvPicPr");
-  const cNvPr = nvPicPr === undefined ? undefined : firstChild(nvPicPr, "cNvPr");
-  const id = cNvPr === undefined ? undefined : attr(cNvPr, "id");
-  if (id === undefined) throw damagedDocument("a picture is missing p:cNvPr/@id");
-  const name = cNvPr === undefined ? "" : attr(cNvPr, "name") ?? "";
+  const { id, name } = identityOf(pic, firstChild(pic, "nvPicPr"));
   const blipFill = firstChild(pic, "blipFill");
   const blip = blipFill === undefined ? undefined : firstChild(blipFill, "blip");
-  const embed = blip === undefined ? undefined : (attr(blip, "embed") ?? attr(blip, "r:embed"));
+  const embed = blip === undefined ? undefined : attr(blip, "embed");
   if (embed === undefined) return undefined;
   const rel = relationships.find((candidate) => candidate.id === embed);
   if (rel === undefined || rel.targetMode === "External") return undefined;
@@ -1543,11 +1437,6 @@ export function parsePicture(
   return out;
 }
 
-/** List embedded-font parts for future resolver delivery (no font bytes decoded here). */
-function listEmbeddedFonts(pkg: OpcPackage): string[] {
-  return pkg.partNames().filter((name) => name.startsWith("ppt/fonts/"));
-}
-
 /** Extract slide notes as plain text from its `notesSlide` part, if present. */
 async function parseSlideNotes(pkg: OpcPackage, slidePart: string, signal?: AbortSignal): Promise<string | undefined> {
   throwIfAborted(signal);
@@ -1585,6 +1474,18 @@ async function parseSlideNotes(pkg: OpcPackage, slidePart: string, signal?: Abor
   return bodies.join("\n\n");
 }
 
+/** The `p:graphicFrame` of an Office 2016 chart: inside `mc:AlternateContent/mc:Choice`, holding a `cx:chart`. */
+function chartExFrame(alternate: XmlElement): XmlElement | undefined {
+  for (const choice of alternate.children) {
+    if (choice.local !== "Choice") continue;
+    const frame = firstChild(choice, "graphicFrame");
+    const graphic = frame === undefined ? undefined : firstChild(frame, "graphic");
+    const data = graphic === undefined ? undefined : firstChild(graphic, "graphicData");
+    if (frame !== undefined && data !== undefined && firstChild(data, "chart") !== undefined) return frame;
+  }
+  return undefined;
+}
+
 async function parseChartFrame(
   pkg: OpcPackage,
   frame: XmlElement,
@@ -1593,40 +1494,40 @@ async function parseChartFrame(
   signal?: AbortSignal,
 ): Promise<ChartModel | undefined> {
   throwIfAborted(signal);
-  const nvGraphicFramePr = firstChild(frame, "nvGraphicFramePr");
-  const cNvPr = nvGraphicFramePr === undefined ? undefined : firstChild(nvGraphicFramePr, "cNvPr");
   const graphic = firstChild(frame, "graphic");
   const graphicData = graphic === undefined ? undefined : firstChild(graphic, "graphicData");
   const chartRef = graphicData === undefined ? undefined : firstChild(graphicData, "chart");
   if (chartRef === undefined) return undefined;
-  const id = cNvPr === undefined ? undefined : attr(cNvPr, "id");
-  if (id === undefined) throw damagedDocument("a chart is missing p:cNvPr/@id");
-  const name = cNvPr === undefined ? "" : attr(cNvPr, "name") ?? "";
+  const { cNvPr, id, name } = identityOf(frame, firstChild(frame, "nvGraphicFramePr"));
+  const alt = cNvPr === undefined ? undefined : attr(cNvPr, "descr") || attr(cNvPr, "title") || undefined;
   const xfrm = firstChild(frame, "xfrm");
   const bounds = parseBounds(xfrm);
   const base: ChartModel = {
     kind: "chart",
     id,
     name,
+    ...(alt === undefined ? {} : { alt }),
     ...(bounds === undefined ? {} : { bounds }),
   };
   const transform = parseXfrmTransform(xfrm);
   if (transform !== undefined) base.transform = transform;
-  const chartId = attr(chartRef, "id") ?? attr(chartRef, "r:id");
-  if (chartId === undefined) return base;
+  const missing = "this chart points at a part the file does not hold; the file may be damaged";
+  const chartId = attr(chartRef, "id");
+  if (chartId === undefined) return { ...base, unsupportedReason: missing };
   const rel = relationships.find((candidate) => candidate.id === chartId);
-  if (rel === undefined || rel.targetMode === "External") return base;
+  if (rel === undefined) return { ...base, unsupportedReason: missing };
+  if (rel.targetMode === "External") return { ...base, unsupportedReason: "this chart is linked from another file and is not previewed" };
   const out: ChartModel = { ...base, sourceChartId: rel.target };
   let chartRoot: XmlElement;
   try {
     chartRoot = await pkg.readXml(rel.target, signal);
   } catch {
-    return out;
+    return { ...out, unsupportedReason: missing };
   }
   throwIfAborted(signal);
-  const chartGraphic = parseChartGraphic(chartRoot, theme);
-  throwIfAborted(signal);
-  if (chartGraphic !== undefined) out.graphic = chartGraphic;
+  const read = readChartModel(chartRoot, theme, { owner: await chartFillOwner(pkg, rel.target, signal) });
+  if ("spec" in read) out.spec = read.spec;
+  else out.unsupportedReason = read.unsupportedReason;
   return out;
 }
 
@@ -1661,6 +1562,37 @@ function resolveCellBorders(
   return Object.keys(out).length === 0 ? undefined : out;
 }
 
+/** A slide table's `a:tbl`, when the graphic frame holds one. */
+function tableOf(frame: XmlElement): XmlElement | undefined {
+  const graphic = firstChild(frame, "graphic");
+  const graphicData = graphic === undefined ? undefined : firstChild(graphic, "graphicData");
+  return graphicData === undefined ? undefined : firstChild(graphicData, "tbl");
+}
+
+/**
+ * The cells of one table row that hold content, with their text bodies. Every
+ * grid column has a `tc`, merge continuations included, so a cell's grid
+ * column is its position among its row's `tc` elements. A continuation is
+ * covered by its master cell's span and is left out, keeping the logical grid
+ * aligned with what PowerPoint paints. A span past the table's last column or
+ * row covers nothing more: it is cut here, so per-cell loops stay bounded by
+ * the grid however large a file claims it is. `gridSpan`, `rowSpan`, `hMerge`
+ * and `vMerge` are attributes of `a:tc` itself (ECMA-376 21.1.3.16).
+ */
+function contentCells(row: XmlElement, rowIndex: number, rowCount: number, columnCount: number) {
+  const rowCells = childElements(row, "tc");
+  const gridColumns = Math.max(columnCount, rowCells.length);
+  return rowCells.flatMap((cell, columnIndex) => {
+    const gridSpan = clampSpan(numberAttr(cell, "gridSpan", "a:tc"), gridColumns - columnIndex);
+    const rowSpan = clampSpan(numberAttr(cell, "rowSpan", "a:tc"), rowCount - rowIndex);
+    const merged = onOff(cell, "hMerge") === true || onOff(cell, "vMerge") === true;
+    if (merged && (gridSpan === undefined || gridSpan <= 1) && (rowSpan === undefined || rowSpan <= 1)) return [];
+    const body = firstChild(cell, "txBody");
+    if (body === undefined) throw damagedDocument("a table cell is missing a:txBody");
+    return [{ cell, columnIndex, gridSpan, rowSpan, body }];
+  });
+}
+
 export function parseTable(
   frame: XmlElement,
   theme: DrawingTheme,
@@ -1672,14 +1604,9 @@ export function parseTable(
   /** The deck's default run sizes (`PptxDeck.defaultTextSizes`) for cell text that states none. */
   defaultSizes?: ReadonlyArray<number | undefined>,
 ): TableModel | undefined {
-  const nvGraphicFramePr = firstChild(frame, "nvGraphicFramePr");
-  const cNvPr = nvGraphicFramePr === undefined ? undefined : firstChild(nvGraphicFramePr, "cNvPr");
-  const graphic = firstChild(frame, "graphic");
-  const graphicData = graphic === undefined ? undefined : firstChild(graphic, "graphicData");
-  const table = graphicData === undefined ? undefined : firstChild(graphicData, "tbl");
+  const table = tableOf(frame);
   if (table === undefined) return undefined;
-  const id = cNvPr === undefined ? undefined : attr(cNvPr, "id");
-  if (id === undefined) throw damagedDocument("a table is missing p:cNvPr/@id");
+  const { id, name } = identityOf(frame, firstChild(frame, "nvGraphicFramePr"));
   const tblPr = firstChild(table, "tblPr");
   const grid = firstChild(table, "tblGrid");
   const styleIdElement = tblPr === undefined ? undefined : firstChild(tblPr, "tableStyleId");
@@ -1707,22 +1634,8 @@ export function parseTable(
     const height = numberAttr(row, "h", "a:tr");
     const cells: TableCellModel[] = [];
     const fills: Array<ShapeFillModel | undefined> = [];
-    // Every grid column has a `tc`, merge continuations included, so a
-    // cell's grid column is its position among its row's `tc` elements.
-    for (const [columnIndex, cell] of childElements(row, "tc").entries()) {
+    for (const { cell, columnIndex, gridSpan, rowSpan, body } of contentCells(row, rowIndex, rowElements.length, columns.length)) {
       const tcPr = firstChild(cell, "tcPr");
-      // Horizontal/vertical merge continuations are covered by their master
-      // cell's span and carry no independent content. Skipping them keeps the
-      // logical grid aligned with what PowerPoint paints.
-      const gridSpan = tcPr === undefined ? undefined : numberAttr(tcPr, "gridSpan", "a:tcPr");
-      const rowSpan = tcPr === undefined ? undefined : numberAttr(tcPr, "rowSpan", "a:tcPr");
-      const hMerge = tcPr === undefined ? undefined : onOff(tcPr, "hMerge");
-      const vMerge = tcPr === undefined ? undefined : onOff(tcPr, "vMerge");
-      if ((hMerge === true || vMerge === true) && (gridSpan === undefined || gridSpan <= 1) && (rowSpan === undefined || rowSpan <= 1)) {
-        continue;
-      }
-      const body = firstChild(cell, "txBody");
-      if (body === undefined) throw damagedDocument("a table cell is missing a:txBody");
       const lastRowIndex = rowIndex + (rowSpan !== undefined && rowSpan > 1 ? rowSpan : 1) - 1;
       const lastColumnIndex = columnIndex + (gridSpan !== undefined && gridSpan > 1 ? gridSpan : 1) - 1;
       const styled = resolveTableStyleCell(style, shape, rowIndex, lastRowIndex, columnIndex, lastColumnIndex, rtl);
@@ -1786,25 +1699,15 @@ export function parseTable(
   const out: TableModel = {
     kind: "table",
     id,
-    name: cNvPr === undefined ? "" : attr(cNvPr, "name") ?? "",
+    name,
     ...(bounds === undefined ? {} : { bounds }),
     direction: rtl ? "rtl" : "ltr",
     columns,
     rows,
     cellFills,
   };
-  if (xfrm !== undefined) {
-    const rotation = numberAttr(xfrm, "rot", "a:xfrm");
-    const flipHorizontal = onOff(xfrm, "flipH");
-    const flipVertical = onOff(xfrm, "flipV");
-    if (rotation !== undefined || flipHorizontal !== undefined || flipVertical !== undefined) {
-      out.transform = {
-        ...(rotation === undefined ? {} : { rotation: rotation / 60000 }),
-        ...(flipHorizontal === undefined ? {} : { flipHorizontal }),
-        ...(flipVertical === undefined ? {} : { flipVertical }),
-      };
-    }
-  }
+  const transform = parseXfrmTransform(xfrm);
+  if (transform !== undefined) out.transform = transform;
   return out;
 }
 
@@ -1824,21 +1727,6 @@ async function slideParts(pkg: OpcPackage, presentationPart: string, signal?: Ab
     }
     return relationship.target;
   });
-}
-
-/**
- * `bg1`/`bg2`/`tx1`/`tx2` are slide-level names that the master's `p:clrMap`
- * points at theme slots (`lt1`, `dk1`, …); dark-master decks swap them. The
- * default map is Office's light one.
- */
-export function themeForColorMap(theme: DrawingTheme, clrMap: XmlElement | undefined): DrawingTheme {
-  const slot = (name: string, fallback: string): string | undefined => theme.colors[(clrMap === undefined ? undefined : attr(clrMap, name)) ?? fallback];
-  const mapped: Record<string, string> = {};
-  for (const [name, fallback] of [["bg1", "lt1"], ["bg2", "lt2"], ["tx1", "dk1"], ["tx2", "dk2"]] as const) {
-    const color = slot(name, fallback);
-    if (color !== undefined) mapped[name] = color;
-  }
-  return { ...theme, colors: { ...theme.colors, ...mapped } };
 }
 
 /**
@@ -1965,9 +1853,10 @@ async function parseShapeTree(
   relationships: PartRelationships,
   deck: PptxDeck,
   theme: DrawingTheme,
-  options: { graphicsOnly: boolean; autoColor?: string },
+  options: { graphicsOnly: boolean; autoColor?: string; tableStyles?: Map<string, PptxTableStyle> },
   signal?: AbortSignal,
 ): Promise<SlideModel["elements"]> {
+  numberShapeTree(tree);
   const isPlaceholder = (element: XmlElement): boolean => options.graphicsOnly && hasPlaceholder(element);
   const visit = async (child: XmlElement, target: SlideModel["elements"]): Promise<void> => {
     throwIfAborted(signal);
@@ -1993,18 +1882,25 @@ async function parseShapeTree(
       return;
     }
     if (child.local === "AlternateContent") {
+      // An Office 2016 chart (waterfall, treemap, ...) is the Choice's graphic frame; its Fallback is a picture of it, never painted beside it.
+      const chartFrame = options.graphicsOnly ? undefined : chartExFrame(child);
+      if (chartFrame !== undefined) {
+        const chart = await parseChartFrame(pkg, chartFrame, relationships, theme, signal);
+        throwIfAborted(signal);
+        if (chart !== undefined) target.push(chart);
+        return;
+      }
       // Ink and other modern content surface their raster fallback here.
       pushFallbackPicture(child);
       return;
     }
     if (child.local === "grpSp") {
-      const group = await parseGroup(child, async (nested, nestedTarget) => visit(nested, nestedTarget));
-      if (group !== undefined) target.push(group);
+      target.push(await parseGroup(child, visit));
       return;
     }
     if (child.local === "graphicFrame") {
       throwIfAborted(signal);
-      const table = parseTable(child, theme, deck.tableStyles, relationships, options.autoColor, (name) => pkg.mediaContentType(name), deck.defaultTextSizes);
+      const table = parseTable(child, theme, options.tableStyles ?? deck.tableStyles, relationships, options.autoColor, (name) => pkg.mediaContentType(name), deck.defaultTextSizes);
       if (table !== undefined) {
         target.push(table);
         return;
@@ -2043,11 +1939,8 @@ function parseChildSpace(xfrm: XmlElement | undefined): BoundsModel | undefined 
 async function parseGroup(
   group: XmlElement,
   visit: (child: XmlElement, target: SlideModel["elements"]) => Promise<void>,
-): Promise<GroupModel | undefined> {
-  const nvGrpSpPr = firstChild(group, "nvGrpSpPr");
-  const cNvPr = nvGrpSpPr === undefined ? undefined : firstChild(nvGrpSpPr, "cNvPr");
-  const id = cNvPr === undefined ? undefined : attr(cNvPr, "id");
-  if (id === undefined) return undefined;
+): Promise<GroupModel> {
+  const { id, name } = identityOf(group, firstChild(group, "nvGrpSpPr"));
   const grpSpPr = firstChild(group, "grpSpPr");
   const xfrm = grpSpPr === undefined ? undefined : firstChild(grpSpPr, "xfrm");
   const bounds = parseBounds(xfrm);
@@ -2058,7 +1951,7 @@ async function parseGroup(
   return {
     kind: "group",
     id,
-    name: cNvPr === undefined ? "" : attr(cNvPr, "name") ?? "",
+    name,
     ...(bounds === undefined ? {} : { bounds }),
     ...(transform === undefined ? {} : { transform }),
     ...(childSpace === undefined ? {} : { childSpace }),
@@ -2094,16 +1987,17 @@ export async function parsePptxLayout(pkg: OpcPackage, deck: PptxDeck, layoutPar
   const cached = byLayout.get(layoutPart);
   if (cached !== undefined) return cached;
   const chain = await layoutChain(pkg, layoutPart, signal);
-  const theme = themeForColorMap(deck.theme, chain.clrMap);
+  const owner = themeOfMaster(deck, chain.masterPart);
+  const theme = themeForColorMap(owner.theme, chain.clrMap);
   const graphics: SlideLayoutModel["graphics"] = [];
   const showsMaster = onOff(chain.layoutRoot, "showMasterSp") !== false;
   const masterTree = chain.masterRoot === undefined ? undefined : shapeTreeOf(chain.masterRoot);
   if (showsMaster && masterTree !== undefined && chain.masterPart !== undefined && chain.masterRelationships !== undefined) {
-    graphics.push(...(await parseShapeTree(pkg, chain.masterPart, masterTree, chain.masterRelationships, deck, theme, { graphicsOnly: true }, signal)));
+    graphics.push(...(await parseShapeTree(pkg, chain.masterPart, masterTree, chain.masterRelationships, deck, theme, { graphicsOnly: true, tableStyles: owner.tableStyles }, signal)));
   }
   const layoutTree = shapeTreeOf(chain.layoutRoot);
   if (layoutTree !== undefined) {
-    graphics.push(...(await parseShapeTree(pkg, layoutPart, layoutTree, chain.layoutRelationships, deck, theme, { graphicsOnly: true }, signal)));
+    graphics.push(...(await parseShapeTree(pkg, layoutPart, layoutTree, chain.layoutRelationships, deck, theme, { graphicsOnly: true, tableStyles: owner.tableStyles }, signal)));
   }
   throwIfAborted(signal);
   const model: SlideLayoutModel = { id: layoutPart, graphics };
@@ -2139,20 +2033,57 @@ export async function indexPptx(pkg: OpcPackage, signal?: AbortSignal): Promise<
   const width = sldSz === undefined ? undefined : numberAttr(sldSz, "cx", "p:sldSz");
   const height = sldSz === undefined ? undefined : numberAttr(sldSz, "cy", "p:sldSz");
   if (width === undefined || height === undefined) throw damagedDocument("the presentation is missing p:sldSz");
-  const theme = await readDrawingTheme(pkg, signal);
+  const masters = await readMasters(pkg, presentationPart, presentation, signal);
+  const first = masters.values().next().value as { theme: DrawingTheme; tableStyles: Map<string, PptxTableStyle> } | undefined;
+  // A deck whose masters name no theme part (a hand-made one) falls back to the first theme in the package.
+  const theme = first?.theme ?? await readDrawingTheme(pkg, signal);
   throwIfAborted(signal);
   const parts = await slideParts(pkg, presentationPart, signal);
   throwIfAborted(signal);
-  const tableStyles = await readTableStyles(pkg, theme, signal);
+  const tableStyles = first?.tableStyles ?? await readTableStyles(pkg, theme, signal);
   throwIfAborted(signal);
   return {
     size: { width: emuToInches(width), height: emuToInches(height) },
     slideParts: parts,
     theme,
     tableStyles,
-    embeddedFonts: listEmbeddedFonts(pkg),
+    masters,
     defaultTextSizes: defaultTextSizes(firstChild(presentation, "defaultTextStyle")),
   };
+}
+
+/**
+ * Every slide master in the presentation's own order (`p:sldMasterIdLst`), with the theme its
+ * relationships name and the table styles resolved against it. Probe: PowerPoint gives each
+ * master its own theme part (a second master's accent colours are its own, not the first's).
+ */
+async function readMasters(
+  pkg: OpcPackage,
+  presentationPart: string,
+  presentation: XmlElement,
+  signal?: AbortSignal,
+): Promise<PptxDeck["masters"]> {
+  const rels = await pkg.relationships(presentationPart, signal);
+  throwIfAborted(signal);
+  const list = firstChild(presentation, "sldMasterIdLst");
+  const listed = list === undefined ? [] : childElements(list, "sldMasterId").map((entry) => attr(entry, "r:id"));
+  const masterParts = listed.length > 0
+    ? listed.flatMap((id) => rels.filter((rel) => rel.id === id).map((rel) => rel.target))
+    : rels.filter((rel) => rel.type.endsWith("/slideMaster")).map((rel) => rel.target);
+  const masters: PptxDeck["masters"] = new Map();
+  for (const masterPart of masterParts) {
+    const themeRel = (await pkg.relationships(masterPart, signal)).find((rel) => rel.type.endsWith("/theme"));
+    throwIfAborted(signal);
+    if (themeRel === undefined) continue;
+    const theme = await readThemePart(pkg, themeRel.target, signal);
+    masters.set(masterPart, { theme, tableStyles: await readTableStyles(pkg, theme, signal) });
+  }
+  return masters;
+}
+
+/** The theme and table styles of the master a layout belongs to; the deck's own when it names none. */
+function themeOfMaster(deck: PptxDeck, masterPart: string | undefined): { theme: DrawingTheme; tableStyles: Map<string, PptxTableStyle> } {
+  return (masterPart === undefined ? undefined : deck.masters.get(masterPart)) ?? { theme: deck.theme, tableStyles: deck.tableStyles };
 }
 
 /** `p:defaultTextStyle`'s run size per outline level (`lvl1pPr` … `lvl9pPr`), in points. */
@@ -2165,8 +2096,8 @@ function defaultTextSizes(style: XmlElement | undefined): Array<number | undefin
   });
 }
 
-/** Inflate and parse exactly one slide previously listed by `indexPptx()`. */
-export async function parsePptxSlide(pkg: OpcPackage, deck: PptxDeck, index: number, signal?: AbortSignal): Promise<SlideModel> {
+/** What every read of one slide starts from: its part, shape tree and relationships, its layout chain, and the theme its colours resolve through. */
+async function openSlide(pkg: OpcPackage, deck: PptxDeck, index: number, signal?: AbortSignal) {
   throwIfAborted(signal);
   const part = deck.slideParts[index];
   if (part === undefined) throw new AaredError("not-found", `aared/core: slide index ${index} is outside this ${deck.slideParts.length}-slide deck`);
@@ -2181,12 +2112,66 @@ export async function parsePptxSlide(pkg: OpcPackage, deck: PptxDeck, index: num
   throwIfAborted(signal);
   // Colours resolve through this slide's colour map (its own override, else
   // its layout's, else the master's), not the bare theme.
-  const theme = themeForColorMap(deck.theme, overrideColorMap(root) ?? chain?.clrMap);
+  const owner = themeOfMaster(deck, chain?.masterPart);
+  const theme = themeForColorMap(owner.theme, overrideColorMap(root) ?? chain?.clrMap);
+  return { part, root, cSld, tree, relationships, chain, owner, theme };
+}
+
+/**
+ * A slide's words, for search: each paragraph of its shapes and table cells,
+ * and its charts' words, in the order `parsePptxSlide` lists their elements.
+ * The same walk as `parseShapeTree` over a slide's own tree, without resolving
+ * what search never shows (colours, fonts, placeholder inheritance, geometry,
+ * the background, notes), and nothing is cloned to the page but these strings.
+ * It must equal the paragraph text of the full model: `pptx-text.test.ts`
+ * checks every slide of the fixture decks.
+ */
+export async function readPptxSlideText(pkg: OpcPackage, deck: PptxDeck, index: number, signal?: AbortSignal): Promise<string[]> {
+  const { tree, relationships, theme } = await openSlide(pkg, deck, index, signal);
+  const words: string[] = [];
+  const addBody = (body: XmlElement): void => {
+    for (const paragraph of childElements(body, "p")) {
+      const text = paragraphRuns(paragraph).map(runText).join("").trim();
+      if (text !== "") words.push(text);
+    }
+  };
+  const addChart = async (frame: XmlElement): Promise<void> => {
+    const chart = await parseChartFrame(pkg, frame, relationships, theme, signal);
+    if (chart?.spec !== undefined) words.push(...chartText(chart.spec));
+  };
+  const visit = async (child: XmlElement): Promise<void> => {
+    throwIfAborted(signal);
+    if (child.local === "sp" || child.local === "cxnSp") {
+      const body = firstChild(child, "txBody");
+      if (body !== undefined) addBody(body);
+    } else if (child.local === "grpSp") {
+      for (const member of child.children) await visit(member);
+    } else if (child.local === "AlternateContent") {
+      const frame = chartExFrame(child);
+      if (frame !== undefined) await addChart(frame);
+    } else if (child.local === "graphicFrame") {
+      const table = tableOf(child);
+      if (table === undefined) return addChart(child);
+      const rows = childElements(table, "tr");
+      const grid = firstChild(table, "tblGrid");
+      const columnCount = grid === undefined ? 0 : childElements(grid, "gridCol").length;
+      for (const [rowIndex, row] of rows.entries()) {
+        for (const { body } of contentCells(row, rowIndex, rows.length, columnCount)) addBody(body);
+      }
+    }
+  };
+  for (const child of tree.children) await visit(child);
+  return words;
+}
+
+/** Inflate and parse exactly one slide previously listed by `indexPptx()`. */
+export async function parsePptxSlide(pkg: OpcPackage, deck: PptxDeck, index: number, signal?: AbortSignal): Promise<SlideModel> {
+  const { part, root, cSld, tree, relationships, chain, owner, theme } = await openSlide(pkg, deck, index, signal);
   // Background first: fill-less runs take PowerPoint "Automatic" contrast
   // against it (white on dark), never CSS inheritance from embedding chrome.
   const background = resolveSlideBackground(pkg, cSld, relationships, chain, theme);
   const autoColor = automaticTextColor(background);
-  const elements = await parseShapeTree(pkg, part, tree, relationships, deck, theme, { graphicsOnly: false, autoColor }, signal);
+  const elements = await parseShapeTree(pkg, part, tree, relationships, deck, theme, { graphicsOnly: false, autoColor, tableStyles: owner.tableStyles }, signal);
   throwIfAborted(signal);
   const notes = await parseSlideNotes(pkg, part, signal);
   throwIfAborted(signal);
@@ -2194,11 +2179,13 @@ export async function parsePptxSlide(pkg: OpcPackage, deck: PptxDeck, index: num
   const layout = chain === undefined ? undefined : await parsePptxLayout(pkg, deck, chain.layoutPart, signal);
   const layoutId = layout === undefined || layout.graphics.length === 0 ? undefined : layout.id;
   const hidesGraphics = onOff(root, "showMasterSp") === false;
+  const missingIds = countSyntheticIds(elements);
   return {
     part,
     size: deck.size,
     elements,
     number: index + 1,
+    ...(missingIds === 0 ? {} : { missingIds }),
     ...(background === undefined ? {} : { background }),
     ...(layoutId === undefined ? {} : { layoutId }),
     ...(hidesGraphics ? { hideBackgroundGraphics: true } : {}),

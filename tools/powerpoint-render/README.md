@@ -4,7 +4,7 @@ Exports a real `.pptx` through the installed Microsoft PowerPoint application,
 not LibreOffice. The output is a PowerPoint-rendered PNG for every slide.
 
 ```bash
-bun tools/powerpoint-render/index.ts fixtures/pptx-coverage.pptx --width 1280
+bun tools/office-export.ts --format pptx fixtures/pptx-coverage.pptx --width 1280
 ```
 
 The tool requires Windows, PowerPoint, and PowerShell 7. It opens the file

@@ -174,15 +174,22 @@ const api = {
     const t0 = performance.now();
     const doc =
       format === "pptx"
-        ? await (await import("aared/pptx")).open(bytes.slice().buffer)
+        ? await (await import("aared/pptx")).open(bytes)
         : format === "xlsx"
-          ? await (await import("aared/xlsx")).open(bytes.slice().buffer)
-          : await (await import("aared/docx")).open(bytes.slice().buffer);
+          ? await (await import("aared/xlsx")).open(bytes)
+          : await (await import("aared/docx")).open(bytes);
     const openMs = performance.now() - t0;
     try {
+      // A workbook is searched one sheet at a time; the whole file is what is timed here, so every sheet is.
+      const searchAll = async (query: string): Promise<number> => {
+        if (!("sheets" in doc)) return (await doc.search(query)).length;
+        let hits = 0;
+        for (const sheet of doc.sheets.list()) hits += (await sheet.search(query)).length;
+        return hits;
+      };
       const time = async (query: string): Promise<{ ms: number; hits: number }> => {
         const start = performance.now();
-        const hits = (await doc.search(query)).length;
+        const hits = await searchAll(query);
         return { ms: performance.now() - start, hits };
       };
       const cold = await time(MISS);

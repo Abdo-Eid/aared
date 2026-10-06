@@ -17,21 +17,6 @@ function columnName(index: number): string {
 }
 
 /**
- * Baseline XLSX renderer (SheetJS community build). Formatted text, not raw
- * values, so dates and currencies read as the sheet shows them. Parsed with
- * `cellStyles: true` so author column widths (`!cols[].wpx`) and hidden
- * rows/columns (`!cols[].hidden`, `!rows[].hidden`) survive: hidden
- * rows/columns collapse and merge spans count visible cells only, exactly
- * like Excel. Per-sheet RTL comes from the sheet's own `<sheetView
- * rightToLeft>` (SheetJS exposes only the workbook-level view, so the
- * baseline reads that one XML flag itself). Cell alignment follows Excel's
- * `general` rule from the SheetJS cell type — numbers at the end edge,
- * booleans/errors centered, strings at the start edge. Fills/fonts/borders
- * do not survive (SheetJS CE exposes only fill pattern/colors in `cell.s`)
- * — the grid reads plainer than Excel here.
- */
-
-/**
  * Per-sheet RTL flags from each sheet's own `<sheetView rightToLeft>`, keyed
  * by relationship id. Harness work, not SheetJS's: it is read once per file
  * (the measurement page primes it before measuring) and never borrows a
@@ -63,6 +48,20 @@ async function readSheetRtlFlags(bytes: Uint8Array): Promise<Map<string, boolean
   }
   return flags;
 }
+
+/**
+ * Baseline XLSX renderer (SheetJS community build). Formatted text, not raw
+ * values, so dates and currencies read as the sheet shows them. Parsed with
+ * `cellStyles: true` so author column widths (`!cols[].wpx`) and hidden
+ * rows/columns (`!cols[].hidden`, `!rows[].hidden`) survive: hidden
+ * rows/columns collapse and merge spans count visible cells only, exactly
+ * like Excel. Per-sheet RTL comes from `sheetRtlFlags` (SheetJS exposes only
+ * the workbook-level view). Cell alignment follows Excel's `general` rule
+ * from the SheetJS cell type: numbers at the end edge, booleans/errors
+ * centered, strings at the start edge. Fills/fonts/borders do not survive
+ * (SheetJS CE exposes only fill pattern/colors in `cell.s`), so the grid
+ * reads plainer than Excel here.
+ */
 export async function openXlsx(
   bytes: Uint8Array,
   host: HTMLElement,

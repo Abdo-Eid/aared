@@ -64,11 +64,18 @@ function versus(chart: { bars: Bar[] }[], format: (value: number) => string): st
 }
 
 const machine = data.machine;
+const chromium = (text: string): string => text.replaceAll("HeadlessChrome", "Chromium");
+// A merged run (aared re-measured, the others measured once) names each date
+// and browser itself, so the machine line then leaves the browser out.
+const measuredText = data.measured !== undefined && data.measured !== ""
+  ? chromium(data.measured)
+  : `measured ${new Date(data.generated).toLocaleDateString("en", { year: "numeric", month: "short", day: "numeric" })}`;
 const machineText =
   machine === null
     ? ""
-    : `${machine.cpu}, ${machine.ram_gb} GB, ${String(machine.browser).replace("HeadlessChrome", "Chromium")}`;
-const measuredOn = new Date(data.generated).toLocaleDateString("en", { year: "numeric", month: "short", day: "numeric" });
+    : data.measured !== undefined && data.measured !== ""
+      ? `${machine.cpu}, ${machine.ram_gb} GB`
+      : `${machine.cpu}, ${machine.ram_gb} GB, ${chromium(String(machine.browser))}`;
 ---
 
 <section class="numbers" aria-labelledby="numbers-title" data-numbers data-set="real" data-mode="warm">
@@ -170,7 +177,7 @@ const measuredOn = new Date(data.generated).toLocaleDateString("en", { year: "nu
   </div>
 
   <p class="numbers-foot">
-    One machine ({machineText}), measured {measuredOn}: {data.method.warmupDiscarded + data.method.runs} opens per cell with the first {data.method.warmupDiscarded} discarded, medians reported. The full run takes about half an hour, so it is repeated only now and then; code since that date may differ.
+    One machine ({machineText}), {measuredText}: {data.method.warmupDiscarded + data.method.runs} opens per cell with the first {data.method.warmupDiscarded} discarded, medians reported. aared is re-measured now and then and the other libraries once, so code since may differ.
     Read these as the shape of the difference, not universal constants; they cover size, speed and memory, not fidelity.
   </p>
 </section>
@@ -362,9 +369,6 @@ const measuredOn = new Date(data.generated).toLocaleDateString("en", { year: "nu
     padding: 1rem;
     border: 1px solid var(--lt-mount-edge);
     border-radius: var(--lt-radius);
-  }
-  .chart.wide {
-    grid-column: 1 / -1;
   }
   .chart h3 {
     margin: 0;

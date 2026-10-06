@@ -42,6 +42,21 @@ visual("visual DOM output: explicit bullet paint and WordArt markers re-read fro
             ...(bytes === undefined ? {} : { mediaResolver: async () => bytes }),
           });
         };
+        // The same render inside a shadow root, as <aared-viewer> paints: a url(#id) reference resolves only in its own tree scope.
+        window.renderShadowFixture = async (model) => {
+          window.renderedFixture?.destroy();
+          let host = document.querySelector("#shadow-host");
+          if (host === null) {
+            host = document.createElement("div");
+            host.id = "shadow-host";
+            host.style.width = "1280px";
+            document.body.append(host);
+            const target = document.createElement("div");
+            target.id = "shadow-target";
+            host.attachShadow({ mode: "open" }).append(target);
+          }
+          window.renderedFixture = await render({ slide: model, target: host.shadowRoot.querySelector("#shadow-target") });
+        };
         window.destroyFixture = () => window.renderedFixture?.destroy();
       </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
@@ -138,6 +153,9 @@ visual("visual DOM output: explicit bullet paint and WordArt markers re-read fro
           stroke: hollow.getAttribute("style") ?? "",
           outline: hollow.dataset.aaredTextOutline,
           nofill: hollow.dataset.aaredTextNofill,
+          // A url(#id) filter resolves in the run's own tree scope: the filter sits inside the run and that scope finds it.
+          filterInRun: hollow.querySelector("filter") !== null,
+          filterInRunScope: hollow.querySelector("filter") !== null && hollow.getRootNode().getElementById(hollow.querySelector("filter").id) !== null,
         } : null,
         warp: warped?.closest("[data-aared-text-warp]")?.dataset.aaredTextWarp ?? null,
         shapeLink: shapeLink ? { href: shapeLink.getAttribute("href"), text: shapeLink.textContent?.slice(0, 12) } : null,
@@ -145,7 +163,7 @@ visual("visual DOM output: explicit bullet paint and WordArt markers re-read fro
     })()`) as {
       graded: { clip: string; color: string; marker?: string } | null;
       glowing: { shadow: string } | null;
-      hollow: { filter: string; stroke: string; outline?: string; nofill?: string } | null;
+      hollow: { filter: string; stroke: string; outline?: string; nofill?: string; filterInRun: boolean; filterInRunScope: boolean } | null;
       warp: string | null;
       shapeLink: { href: string | null; text?: string } | null;
     };
@@ -161,9 +179,25 @@ visual("visual DOM output: explicit bullet paint and WordArt markers re-read fro
     // outline with no seam at the joins — see text-outline.ts.
     expect(wordartOutput.hollow?.filter).toMatch(/^url\("?#aared-hollow-/);
     expect(wordartOutput.hollow?.stroke).not.toContain("-webkit-text-stroke");
-    expect(wordartOutput.hollow).toMatchObject({ outline: "true", nofill: "true" });
+    expect(wordartOutput.hollow).toMatchObject({ outline: "true", nofill: "true", filterInRun: true, filterInRunScope: true });
     expect(wordartOutput.warp).toBe("textArchUp");
     expect(wordartOutput.shapeLink?.href).toBe("https://example.com/");
+
+    // The same slide inside a shadow root (how <aared-viewer> paints): the run's filter must be found
+    // from the shadow root, or the run would paint as solid text.
+    await view.evaluate(`renderShadowFixture(${JSON.stringify(wordartSlide)})`);
+    const shadowHollow = await view.evaluate(`(() => {
+      const root = document.querySelector("#shadow-host")?.shadowRoot;
+      const line = [...(root?.querySelectorAll("p") ?? [])].find((p) => p.textContent.includes("تعبئة"));
+      const run = [...(line?.querySelectorAll('[data-aared-element="paragraph-text"] span') ?? [])].find((s) => s.textContent.trim() !== "");
+      const id = /#([^")]+)/.exec(run?.style.filter ?? "")?.[1] ?? "";
+      return {
+        inShadowRoot: run?.getRootNode() === root,
+        filterInRun: run?.querySelector("filter") != null,
+        resolves: id !== "" && root.getElementById(id) !== null,
+      };
+    })()`) as { inShadowRoot: boolean; filterInRun: boolean; resolves: boolean };
+    expect(shadowHollow).toEqual({ inShadowRoot: true, filterInRun: true, resolves: true });
   } finally {
     server.stop();
   }

@@ -8,25 +8,37 @@ dist/
 coverage/
 test-results/
 
-# visual-regression reference rasters are generated locally, not committed
-tools/reference-render/out/
+# Astro's generated content store (the site)
+.astro/
+
+# native Office renders and captures are generated locally, not committed
 tools/powerpoint-render/out/
 tools/excel-render/out/
 tools/word-render/out/
+tools/chart-oracle/out/
 
-# ground-truth probe sandbox (nested git; never the main repo's concern)
-tools/probe/
+# ground-truth probe sandbox (nested git; never the main repo's concern).
+# The shared helpers and the standard stay tracked: a fresh clone must have
+# the code every probe imports.
+tools/probe/*
+!tools/probe/_common/
+!tools/probe/README.md
+# Python bytecode under the tracked helpers.
+tools/probe/_common/__pycache__/
+tools/probe/_common/*.pyc
 
 # editor/OS noise
 .DS_Store
 Thumbs.db
 
-# fixtures are real Office files and mostly small/curated — keep them
-# committed. If a future large fixture needs to stay out of git, add a
-# specific exception here rather than blanket-ignoring the directory.
+# local agent/editor config, per-developer
+.claude/
 
 # generated search-benchmark fixtures
 tools/bench-search/out/
 
 # deterministic benchmark JSON runs (docs tables regenerate from the latest)
 tools/bench-results/
+
+# api-snippets scratch directory (removed after each run; a killed run leaves it)
+packages/aared/test/.api-snippets/

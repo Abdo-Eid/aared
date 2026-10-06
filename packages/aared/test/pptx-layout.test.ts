@@ -105,13 +105,86 @@ test("a reader that aborts while the layout loads does not fail the next reader"
   }
 });
 
-// These need a fixture with real master/layout content (a master logo or
-// shape, a layout or slide that hides background graphics, a picture
-// background). The current fixtures have none, so they are tracked here
-// instead of silently untested. See docs/ROADMAP.md "Open gaps".
-const pending = (): void => {};
-test.todo("slides on one layout carry the same `layout` object from SlideHandle.read()", pending);
-test.todo("master shapes paint under slide content; layout showMasterSp=0 drops them", pending);
-test.todo("slide showMasterSp=0 sets hideBackgroundGraphics and hides layout and master graphics", pending);
-test.todo("a picture background paints and is fetched once when inherited from the master", pending);
-test.todo("p:clrMapOvr on a layout or slide overrides the master colour map", pending);
+// Slides 15 to 18 of the coverage deck (`tools/probe/pptx-second-master`) sit on a second master that has a
+// logo, a picture background and its own theme, with two layouts: A (shows the master's graphics) and B
+// (`showMasterSp="0"`, hides them). Slide 15 and 16 are on A, 17 on B, and 18 is on A with its own
+// `showMasterSp="0"`.
+const SECOND_MASTER = { a1: 14, a2: 15, b: 16, hidden: 17 };
+
+const namesOf = (graphics: Array<{ name: string }>): string[] => graphics.map((graphic) => graphic.name);
+
+test("slides on one layout carry the same `layout` object from SlideHandle.read()", async () => {
+  const deck = await open(await Bun.file(COVERAGE).arrayBuffer());
+  try {
+    const [first, second, other] = await Promise.all([SECOND_MASTER.a1, SECOND_MASTER.a2, SECOND_MASTER.b].map((index) => deck.slides.get(index).read()));
+    expect(first!.layout).toBeDefined();
+    expect(second!.layout).toBe(first!.layout);
+    expect(other!.layout).not.toBe(first!.layout);
+  } finally {
+    deck.close();
+  }
+});
+
+test("master graphics come first, then the layout's; a layout with showMasterSp=0 drops the master's", async () => {
+  const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
+  const deck = await indexPptx(pkg);
+  const [a, b] = await Promise.all([SECOND_MASTER.a1, SECOND_MASTER.b].map(async (index) => {
+    const slide = await parsePptxSlide(pkg, deck, index);
+    return parsePptxLayout(pkg, deck, slide.layoutId!);
+  }));
+  expect(namesOf(a!.graphics)).toEqual(["Master logo", "Layout A graphic"]);
+  expect(namesOf(b!.graphics)).toEqual(["Layout B graphic"]);
+});
+
+test("slide showMasterSp=0 sets hideBackgroundGraphics, and only that slide", async () => {
+  const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
+  const deck = await indexPptx(pkg);
+  const flags = await Promise.all([SECOND_MASTER.a1, SECOND_MASTER.a2, SECOND_MASTER.b, SECOND_MASTER.hidden].map(async (index) => (await parsePptxSlide(pkg, deck, index)).hideBackgroundGraphics));
+  expect(flags).toEqual([undefined, undefined, undefined, true]);
+  // The hidden slide still names its layout: the renderer, not the parser, leaves the graphics out.
+  expect((await parsePptxSlide(pkg, deck, SECOND_MASTER.hidden)).layoutId).toBeDefined();
+});
+
+test("a picture background set on the master is inherited by every slide on it, as one shared image fetched once", async () => {
+  const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
+  const deck = await indexPptx(pkg);
+  const backgrounds = await Promise.all([SECOND_MASTER.a1, SECOND_MASTER.a2, SECOND_MASTER.b, SECOND_MASTER.hidden].map(async (index) => (await parsePptxSlide(pkg, deck, index)).background));
+  for (const background of backgrounds) expect(background).toMatchObject({ kind: "picture", contentType: "image/png", shared: true });
+  const ids = new Set(backgrounds.map((background) => (background as { mediaId: string }).mediaId));
+  expect(ids.size).toBe(1);
+  // The first master's slides do not inherit it.
+  expect((await parsePptxSlide(pkg, deck, 0)).background).not.toMatchObject({ kind: "picture" });
+  // Shared media goes through one request per session, whoever asks.
+  const live = await open(await Bun.file(COVERAGE).arrayBuffer());
+  try {
+    const post = spyOn(Worker.prototype, "postMessage");
+    try {
+      const session = live as unknown as { session: { sharedMedia(id: string): Promise<ArrayBuffer> } };
+      const [mediaId] = ids;
+      const [x, y] = await Promise.all([session.session.sharedMedia(mediaId!), session.session.sharedMedia(mediaId!)]);
+      expect(y).toBe(x);
+      expect(post.mock.calls.filter(([message]) => (message as { type?: string }).type === "media")).toHaveLength(1);
+    } finally {
+      post.mockRestore();
+    }
+  } finally {
+    live.close();
+  }
+});
+
+// A slide resolves its colours against the theme of the master its layout belongs to: accent 1 is a dark
+// green on the second master (`1E6B3C`) and blue on the first (`156082`).
+test("a slide on the second master resolves accent 1 from its own theme, and the first master's slides keep theirs", async () => {
+  const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
+  const deck = await indexPptx(pkg);
+  expect([...deck.masters.values()].map((master) => master.theme.colors.accent1)).toEqual(["#156082", "#1E6B3C"]);
+  expect(deck.theme.colors.accent1).toBe("#156082");
+  const slide = await parsePptxSlide(pkg, deck, SECOND_MASTER.a1);
+  const box = slide.elements.find((element) => element.kind === "shape" && element.name === "Accent box");
+  if (box?.kind !== "shape") throw new Error("fixture structure changed: expected the Accent box on slide 15");
+  expect(box.fill).toEqual({ kind: "solid", color: "#1E6B3C" });
+  // A shape filled with accent 1 on a first-master slide still takes the blue one: the table-fills slide's header cells.
+  const first = await parsePptxSlide(pkg, deck, 9);
+  expect(JSON.stringify(first.elements)).toContain("#156082");
+  expect(JSON.stringify(first.elements)).not.toContain("#1E6B3C");
+});

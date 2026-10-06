@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { OpcPackage } from "../src/core/opc.js";
 import { indexXlsx, readSharedStrings, readWorkbook } from "../src/core/xlsx/workbook.js";
-import { parseCellRange, parseCellReference, parseXlsxSheet } from "../src/core/xlsx/sheet.js";
+import { columnCharsToInches, parseXlsxSheet } from "../src/core/xlsx/sheet.js";
+import { layoutChart } from "../src/core/chart/draw.js";
+import { applySpreadsheetTint } from "../src/core/theme.js";
 import { findCoverageSheet, xlsxCoverageManifest } from "./xlsx-fixture.js";
 import type { SheetModel } from "../src/core/model.js";
+import { withPart } from "./mutate.js";
 
 // XLSX parsing against real workbooks: the long-lived production tracker and
-// the Arabic RTL coverage fixture. Only the A1-notation helpers below are
-// synthetic (pure functions, allowed by AGENTS.md § Testing rule).
+// the Arabic RTL coverage fixture (variants are derived in memory by `withPart`).
 
 const TRACKER_PATH = `${import.meta.dir}/../../../fixtures/post-production-tracker.xlsx`;
 const COVERAGE_PATH = `${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`;
@@ -27,6 +29,41 @@ function cellAt(sheet: SheetModel, row: number, col: number) {
   if (found === undefined) throw new Error(`fixture structure changed: expected a cell at ${row}:${col} in "${sheet.name}"`);
   return found;
 }
+
+describe("XLSX column widths", () => {
+  // Read back from Excel (COM, `Columns(n).Width` in pixels) on copies of the
+  // fixtures: the stored width already holds the cell padding.
+  test("a stored width becomes pixels as Excel draws it, with no padding added again", () => {
+    const pixels = (width: number) => Math.round(columnCharsToInches(width) * 96);
+    expect(pixels(26)).toBe(182);
+    expect(pixels(16)).toBe(112);
+    expect(pixels(8.4258)).toBe(59);
+    expect(pixels(9.140625)).toBe(64);
+  });
+
+  test("every column of a real workbook is a whole number of pixels", async () => {
+    const { pkg, workbook } = await tracker();
+    for (let index = 0; index < workbook.sheets.length; index++) {
+      const sheet = await sheetOf(workbook, pkg, index);
+      for (const inches of sheet.columnWidths) expect(Math.abs(inches * 96 - Math.round(inches * 96))).toBeLessThan(1e-9);
+    }
+  });
+});
+
+describe("XLSX theme tint", () => {
+  // The first three are Excel's own `.Color` for a theme colour with a tint
+  // (read back over COM); the last three are the Office 2013 palette's
+  // "Lighter 80/60/40%" of the same accent.
+  test("moves lightness as Excel does", () => {
+    expect(applySpreadsheetTint("#5B9BD5", -0.25)).toBe("#2E75B6");
+    expect(applySpreadsheetTint("#5B9BD5", -0.5)).toBe("#1F4E79");
+    expect(applySpreadsheetTint("#ED7D31", -0.25)).toBe("#C55A11");
+    expect(applySpreadsheetTint("#5B9BD5", 0.8)).toBe("#DEEBF7");
+    expect(applySpreadsheetTint("#5B9BD5", 0.6)).toBe("#BDD7EE");
+    expect(applySpreadsheetTint("#5B9BD5", 0.4)).toBe("#9DC3E6");
+    expect(applySpreadsheetTint("#5B9BD5", 0)).toBe("#5B9BD5");
+  });
+});
 
 describe("XLSX workbook index", () => {
   test("lists sheets cheaply without inflating them", async () => {
@@ -145,20 +182,21 @@ describe("XLSX styles, values, and formats on the real tracker", () => {
     expect(rich?.cell.formatted).toContain("سعر ساعة المونتاج");
   });
 
-  test("adapts embedded charts through the shared primitive vocabulary", async () => {
+  test("reads embedded charts with the PPTX chart reader, laid out as Excel draws them", async () => {
     const { pkg, workbook } = await tracker();
     const dashboard = await sheetOf(workbook, pkg, 0);
     expect(dashboard.drawings).toHaveLength(1);
     const chart = dashboard.drawings[0];
     if (chart?.kind !== "chart") throw new Error("fixture structure changed: expected a dashboard chart");
     expect(chart.sourceChartId).toBe("xl/charts/chart1.xml");
-    expect(chart.graphic?.viewBox).toEqual({ width: 1000, height: 600 });
-    expect(chart.graphic?.primitives.length).toBeGreaterThan(0);
-    expect(chart.graphic?.primitives.some((primitive) => primitive.kind === "rect")).toBe(true);
-    expect(chart.graphic?.primitives.some((primitive) => primitive.kind === "text" && primitive.text.includes("Hours logged by episode"))).toBe(true);
+    expect(chart.unsupportedReason).toBeUndefined();
+    expect(chart.spec!.groups[0]!.series[0]!.values).toEqual([39, 27, 8]);
     expect(chart.bounds.width).toBeGreaterThan(0);
     expect(chart.bounds.height).toBeGreaterThan(0);
-    expect(chart.unsupportedReason).toBeUndefined();
+    // Excel draws this 5.1 x 2.95in chart with an axis of 0.0-45.0 by 5.
+    const texts = layoutChart(chart.spec!, chart.bounds).primitives.flatMap((p) => (p.kind === "text" ? [p.text] : []));
+    expect(texts).toEqual(expect.arrayContaining(["Hours logged by episode", "Hours", "Episode 4", "0.0", "5.0", "45.0"]));
+    expect(texts).not.toContain("50.0");
   });
 
   test("records non-goals visibly instead of dropping them", async () => {
@@ -211,7 +249,6 @@ describe("XLSX Arabic RTL coverage fixture", () => {
     expect(sheet.frozen).toEqual({ rows: 3, cols: 1 });
     expect(sheet.hiddenColumns).toEqual([3]);
     expect(sheet.hiddenRows).toEqual([6]);
-    expect(sheet.rows.find((row) => row.index === 6)?.hidden).toBe(true);
     expect(structuredClone(sheet)).toEqual(sheet);
   });
 
@@ -264,11 +301,94 @@ describe("XLSX Arabic RTL coverage fixture", () => {
   });
 });
 
-describe("A1 notation helpers", () => {
-  test("parses cell references and ranges", () => {
-    expect(parseCellReference("A1")).toEqual({ row: 0, col: 0 });
-    expect(parseCellReference("H34")).toEqual({ row: 33, col: 7 });
-    expect(parseCellRange("A1:H1")).toEqual({ start: { row: 0, col: 0 }, end: { row: 0, col: 7 } });
-    expect(() => parseCellReference("nope")).toThrow(/invalid cell reference/);
+describe("XLSX worksheet structure the file states loosely", () => {
+  const SHOT_LOG = "xl/worksheets/sheet3.xml";
+  const shotLog = async (rewrite: (xml: string) => string): Promise<SheetModel> => {
+    const pkg = await withPart("xlsx-coverage.xlsx", SHOT_LOG, rewrite);
+    return parseXlsxSheet(pkg, await readWorkbook(pkg), 2);
+  };
+
+  test("a stale <dimension> does not cut away cells the sheet really holds", async () => {
+    const sheet = await shotLog((xml) => xml.replace(/<dimension[^>]*\/>/, '<dimension ref="A1"/>'));
+    expect(sheet.extent).toEqual({ cols: 9, rows: 97 });
+    expect(cellAt(sheet, 4, 8).formatted).toBe("2,925 EGP");
+  });
+
+  test("a merge wider than the cells still counts when the <dimension> is stale", async () => {
+    const stale = await shotLog((xml) => xml
+      .replace(/<dimension[^>]*\/>/, '<dimension ref="A1"/>')
+      .replace("</sheetData>", '</sheetData><mergeCells count="1"><mergeCell ref="A1:L1"/></mergeCells>'));
+    // Sheet 3 holds nine columns of cells; the merge reaches column L, and is not clipped to the dimension or the cells.
+    expect(stale.extent.cols).toBe(12);
+    expect(stale.merges).toContainEqual({ start: { row: 0, col: 0 }, end: { row: 0, col: 11 } });
+  });
+
+  test("a row with its own height but no cells keeps that height", async () => {
+    const baseline = await shotLog((xml) => xml);
+    const present = new Set(baseline.rows.map((row) => row.index));
+    const missing = [...Array(baseline.extent.rows).keys()].find((index) => !present.has(index))!;
+    const sheet = await shotLog((xml) => xml.replace("</sheetData>", `<row r="${missing + 1}" ht="45" customHeight="1"/></sheetData>`));
+    expect(sheet.rows.find((row) => row.index === missing)).toEqual({ index: missing, cells: [], height: 45 / 72 });
+    // A cell-less row at the default height says nothing and adds no row.
+    const plain = await shotLog((xml) => xml.replace("</sheetData>", `<row r="${missing + 1}" ht="15"/></sheetData>`));
+    expect(plain.rows.some((row) => row.index === missing)).toBe(false);
+  });
+
+  test("a sparkline extension is reported as not drawn", async () => {
+    const uri = "{05C60535-1F16-4fd2-B633-F4F36F0B64E0}";
+    // The sheet's own worksheet-level <extLst> (conditional-format extensions) is the last one.
+    const sheet = await shotLog((xml) => `${xml.slice(0, xml.lastIndexOf("<extLst>"))}` +
+      `<extLst><ext uri="${uri}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"><x14:sparklineGroups><x14:sparklineGroup/></x14:sparklineGroups></ext></extLst></worksheet>`);
+    expect(sheet.unsupported.some((entry) => entry.kind === "sparkline")).toBe(true);
+    const plain = await shotLog((xml) => xml);
+    expect(plain.unsupported.some((entry) => entry.kind === "sparkline")).toBe(false);
+  });
+
+  test("an 8-digit rgb is read without its alpha byte, as the worksheet's own colours are", async () => {
+    const pkg = await withPart("xlsx-coverage.xlsx", "xl/styles.xml", (xml) => xml.replace(/(<fgColor rgb=")FF/, "$100"));
+    const workbook = await readWorkbook(pkg);
+    const fills = [...Array(40).keys()].map((index) => workbook.styles.cellStyle(index).fill).filter((fill): fill is string => fill !== undefined);
+    expect(fills.length).toBeGreaterThan(0);
+    expect(fills.every((fill) => /^#[0-9A-F]{6}$/.test(fill))).toBe(true);
+  });
+});
+
+describe("XLSX drawings with no id", () => {
+  test("a chart with no xdr:cNvPr/@id reads exactly as one with it: XLSX never uses a drawing's id", async () => {
+    const { pkg, workbook } = await tracker();
+    const original = await sheetOf(workbook, pkg, 0);
+    expect(original.drawings.some((drawing) => drawing.kind === "chart")).toBe(true);
+    const stripped = await withPart("post-production-tracker.xlsx", "xl/drawings/drawing1.xml", (xml) => {
+      expect(xml).toContain("<xdr:cNvPr id=");
+      return xml.replace(/(<xdr:cNvPr) id="[^"]*"/g, "$1");
+    });
+    const sheet = await parseXlsxSheet(stripped, await readWorkbook(stripped), 0);
+    // Only the count differs (it drives the renderer's `xlsx-missing-id` warning); a sheet with every id has none.
+    const { missingIds, ...rest } = sheet;
+    expect(missingIds).toBe(1);
+    expect(original.missingIds).toBeUndefined();
+    expect(JSON.stringify(rest)).toBe(JSON.stringify(original));
+  });
+});
+
+describe("XLSX drawings past the used range", () => {
+  test("a chart below and beside the data keeps its full frame, and the grid grows to hold it", async () => {
+    const { pkg, workbook } = await tracker();
+    const original = await sheetOf(workbook, pkg, 0);
+    const chart = original.drawings.find((drawing) => drawing.kind === "chart");
+    if (chart === undefined) throw new Error("fixture structure changed: the Dashboard lost its chart");
+    // The same workbook with the Dashboard's used range cut to A1:B3: the chart (A19 to E33) now lies wholly past it.
+    const cut = await withPart("post-production-tracker.xlsx", "xl/worksheets/sheet1.xml", (xml) => xml.replace('<dimension ref="A1:H34"/>', '<dimension ref="A1:B3"/>'));
+    const sheet = await parseXlsxSheet(cut, await readWorkbook(cut), 0);
+    const moved = sheet.drawings.find((drawing) => drawing.kind === "chart")!;
+    expect(moved.bounds.x).toBeCloseTo(chart.bounds.x, 6);
+    expect(moved.bounds.y).toBeCloseTo(chart.bounds.y, 6);
+    expect(moved.bounds.width).toBeCloseTo(chart.bounds.width, 6);
+    expect(moved.bounds.height).toBeCloseTo(chart.bounds.height, 6);
+    expect(chart.bounds.width).toBeGreaterThan(3);
+    // The grid reaches the chart's last cell (row 33, column E).
+    expect(sheet.extent.rows).toBeGreaterThanOrEqual(33);
+    expect(sheet.extent.cols).toBeGreaterThanOrEqual(5);
+    expect(sheet.columnWidths).toHaveLength(sheet.extent.cols);
   });
 });

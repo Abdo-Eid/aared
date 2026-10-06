@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy } from "unpdf/pdfjs";
-import { abortError, isAbort, type OpenedDoc } from "./types";
+import { abortError, type OpenedDoc } from "./types";
 
 const MAX_THUMBS = 24;
 const THUMB_WIDTH = 96;
@@ -76,9 +76,7 @@ export async function openPdf(
       }
     }
   } catch (error) {
-    if (!isAbort(error)) {
-      await safeDestroy(doc);
-    }
+    await safeDestroy(doc);
     throw error;
   }
 

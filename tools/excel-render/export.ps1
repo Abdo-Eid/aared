@@ -6,13 +6,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$input = [System.IO.Path]::GetFullPath($InputPath)
+$source = [System.IO.Path]::GetFullPath($InputPath)
 $output = [System.IO.Path]::GetFullPath($OutputDir)
-if (-not [System.IO.File]::Exists($input)) {
-  throw "aared Excel export: input workbook does not exist: $input"
+if (-not [System.IO.File]::Exists($source)) {
+  throw "aared Excel export: input workbook does not exist: $source"
 }
 
-# Parts arrive as JSON: [{sheet (1-based tab position), name, range}].
+# Parts arrive as JSON: [{sheet (1-based position among the visible sheets), name, range}].
 # Names become file slugs.
 $parsedParts = @()
 foreach ($entry in ($PartsJson | ConvertFrom-Json)) {
@@ -49,7 +49,7 @@ try {
   $previousSecurity = $application.AutomationSecurity
   $application.AutomationSecurity = 3 # msoAutomationSecurityForceDisable
   try {
-    $workbook = $application.Workbooks.Open($input, 0, $true)
+    $workbook = $application.Workbooks.Open($source, 0, $true)
     $exported = @()
     $position = 0
     foreach ($sheet in $workbook.Worksheets) {

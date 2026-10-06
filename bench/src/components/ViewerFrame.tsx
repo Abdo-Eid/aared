@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { UsePreviewReady } from "aared/react";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import {
   AlertTriangle,
@@ -10,12 +11,12 @@ import {
   List,
   Loader2,
   PanelLeft,
+  Search,
   X,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
 import { isAbort, type OpenedDoc, type OutlineEntry } from "../adapters";
-import type { BenchTheme } from "../adapters";
 import { FORMAT_BADGE } from "../lib/format";
 import {
   clamp,
@@ -37,9 +38,12 @@ function snapZoom(value: number): number {
   return Math.abs(value - 1) < 0.01 ? 1 : value;
 }
 
+/** Chrome reads display data; the mounting card owns teardown. */
+type FrameDocument<T = OpenedDoc> = T extends OpenedDoc ? Omit<T, "destroy"> : never;
+
 export type Status =
   | { state: "loading" }
-  | { state: "ready"; handle: OpenedDoc }
+  | { state: "ready"; handle: FrameDocument }
   | { state: "error"; message: string; ms: number };
 
 /**
@@ -64,7 +68,7 @@ export interface ViewerController {
   railOpen: boolean;
   setRailOpen: Dispatch<SetStateAction<boolean>>;
   activeSheet: number;
-  setActiveSheet: Dispatch<SetStateAction<number>>;
+  setActiveSheet: (index: number) => void;
   ms: number | null;
   failed: boolean;
   goToPage: (page: number) => void;
@@ -78,14 +82,12 @@ export interface ViewerController {
  */
 let activeFrameId: string | null = null;
 
-export function claimViewerFrame(id: string): void {
+function claimViewerFrame(id: string): void {
   activeFrameId = id;
 }
 
 export function useViewerFrame(args: {
   doc: DocMeta;
-  /** Accepted for call-site symmetry; chrome-owned and never resets navigation. */
-  theme: BenchTheme;
   /** Unique per card (`doc.key` + renderer); owns keyboard paging while claimed. */
   frameId: string;
   /** aared drives its own real zoom for DOCX (see `AaredViewerCard`'s
@@ -94,13 +96,22 @@ export function useViewerFrame(args: {
   renderer: Renderer;
   status: Status;
   hostRef: RefObject<HTMLDivElement | null>;
-  reportError: (message: string, ms: number) => void;
+  /** Called when a sheet or page fails to show; absent when the host reports it elsewhere (aared's `notice`). */
+  reportError?: (message: string, ms: number) => void;
+  viewer?: UsePreviewReady["viewer"] | null;
+  index?: number;
 }): ViewerController {
-  const { doc, frameId, renderer, status, hostRef, reportError } = args;
-  const [currentPage, setCurrentPage] = useState(1);
+  const { doc, frameId, renderer, status, hostRef, reportError, viewer, index = 0 } = args;
+  const [scrollPage, setScrollPage] = useState(1);
+  const currentPage = viewer?.format === "pptx" ? index + 1 : scrollPage;
   const [zoom, setZoom] = useState(1);
   const [railOpen, setRailOpen] = useState(true);
-  const [activeSheet, setActiveSheet] = useState(0);
+  const [baselineSheet, setBaselineSheet] = useState(0);
+  const activeSheet = viewer?.format === "xlsx" ? index : baselineSheet;
+  const setActiveSheet = (next: number): void => {
+    if (viewer?.format === "xlsx") void viewer.goTo(next).catch(() => {});
+    else setBaselineSheet(next);
+  };
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const paperWidthRef = useRef(0);
 
@@ -108,10 +119,9 @@ export function useViewerFrame(args: {
   // viewer chrome only and must never reset navigation — appearance
   // forwards in place via `setAppearance()`, keeping the current page.
   useEffect(() => {
-    setCurrentPage(1);
+    setScrollPage(1);
     setZoom(1);
-    setActiveSheet(0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setBaselineSheet(0);
   }, [doc]);
 
   // Fit-to-width is the default zoom for paged documents, the way the
@@ -133,15 +143,15 @@ export function useViewerFrame(args: {
 
   // XLSX tabs re-render through the handle; the open timing is untouched.
   useEffect(() => {
-    if (status.state === "ready" && status.handle.format === "xlsx") {
+    if (!viewer && status.state === "ready" && status.handle.format === "xlsx") {
       void Promise.resolve(status.handle.renderSheet(activeSheet)).catch((error: unknown) => {
         if (isAbort(error)) return;
         const message = error instanceof Error ? error.message : "Could not show this sheet.";
         console.error(`[bench] ${doc.name} sheet ${activeSheet + 1} failed:`, message);
-        reportError(message, status.handle.ms);
+        reportError?.(message, status.handle.ms);
       });
     }
-  }, [status, activeSheet, doc.name, reportError]);
+  }, [status, activeSheet, doc.name, reportError, viewer]);
 
   // The pager follows the scroll for paged documents.
   useEffect(() => {
@@ -169,7 +179,7 @@ export function useViewerFrame(args: {
             best = { page, ratio: entry.intersectionRatio };
           }
         }
-        if (best) setCurrentPage(best.page);
+        if (best) setScrollPage(best.page);
       },
       { root, threshold: [0, 0.25, 0.5, 0.75, 1] },
     );
@@ -214,14 +224,22 @@ export function useViewerFrame(args: {
 
   const goToPage = (page: number): void => {
     const next = clamp(page, 1, Math.max(pageCount, 1));
-    setCurrentPage(next);
+    if (viewer?.format === "pptx") {
+      void viewer.goTo(next - 1).catch(() => {});
+      return;
+    }
+    if (viewer?.format === "docx") {
+      void viewer.docx.goToPage(next - 1).catch(() => {});
+      return;
+    }
+    setScrollPage(next);
     if (status.state !== "ready") return;
     const handle = status.handle;
     if (handle.format === "pptx") {
       void Promise.resolve(handle.goToSlide(next - 1)).catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Could not show this slide.";
         console.error(`[bench] ${doc.name} slide ${next} failed:`, message);
-        reportError(message, handle.ms);
+        reportError?.(message, handle.ms);
       });
     } else if (handle.format === "pdf") {
       handle.scrollToPage(next);
@@ -267,7 +285,7 @@ export function useViewerFrame(args: {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [status, currentPage, frameId]);
+  }, [status, currentPage, frameId, viewer]);
 
   const ms =
     status.state === "error"
@@ -307,13 +325,14 @@ export function useViewerFrame(args: {
  * renderer behind it is interchangeable — baseline library or aared — which
  * is the whole point of the bench.
  */
-export function ViewerFrame({ doc, renderer, onClose, controller, notice }: {
+export function ViewerFrame({ doc, renderer, onClose, controller, notice, search }: {
   doc: DocMeta;
   renderer: Renderer;
   onClose: () => void;
   controller: ViewerController;
   /** A failure that leaves the view usable (a page that could not be shown): a bar above the stage, never the error screen. */
   notice?: string | null;
+  search?: { open: boolean; onToggle: () => void } | null;
 }) {
   const {
     status,
@@ -357,7 +376,7 @@ export function ViewerFrame({ doc, renderer, onClose, controller, notice }: {
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           {renderer === "aared" ? (
             <p className="font-mono text-[0.625rem] font-bold uppercase tracking-[0.083rem] text-accent-blue">
-              aared · milestone renderer
+              aared · usePreview()
             </p>
           ) : null}
           <div className="flex min-w-0 items-center gap-[0.5625rem]">
@@ -374,6 +393,11 @@ export function ViewerFrame({ doc, renderer, onClose, controller, notice }: {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          {search ? (
+            <IconButton label="Search document" pressed={search.open} aria-expanded={search.open} onClick={search.onToggle}>
+              <Search className="size-[1.0625rem]" />
+            </IconButton>
+          ) : null}
           <IconLink
             label={`Download ${doc.name}`}
             href={doc.url}

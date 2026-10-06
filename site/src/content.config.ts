@@ -8,6 +8,8 @@ export const collections = {
     schema: z.object({
       title: z.string(),
       description: z.string().optional(),
+      /** List the page's headings beside it; the playground's tabs need the width. */
+      sidebar: z.boolean().default(true),
     }),
   }),
 };

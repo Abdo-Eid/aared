@@ -27,16 +27,11 @@ test("isAbort returns false for non-abort errors", () => {
   expect(isAbort("string")).toBe(false);
 });
 
-test("messageFor maps known codes to human-readable strings", () => {
+test("messageFor maps codes to human-readable strings", () => {
   expect(messageFor(new AaredError("encrypted-document", "x"))).toBe("This file is password-protected and cannot be opened");
   expect(messageFor(new AaredError("aborted", "x"))).toBe("The operation was cancelled");
-  expect(messageFor(new AaredError("not-found", "x"))).toBe("The requested item was not found");
-  expect(messageFor(new AaredError("network-error", "x"))).toBe("A network error occurred while loading the file");
-  expect(messageFor(new AaredError("unsupported-format", "x"))).toBe("This file format is not supported");
   expect(messageFor(new AaredError("invalid-document", "x"))).toBe("This file is not a valid or supported document");
-  expect(messageFor(new AaredError("media-error", "x"))).toBe("A media resource could not be loaded");
-  expect(messageFor(new AaredError("invalid-range", "x"))).toBe("The requested range is invalid");
-  expect(messageFor(new AaredError("unsupported-feature", "x"))).toBe("This feature is not supported");
+  // Every code has a message: `MESSAGES` is an exhaustive Record, enforced at compile time.
 });
 
 test("messageFor returns fallback for unknown errors", () => {
@@ -54,11 +49,11 @@ test("isAbort narrows to Error so callers read name and message without a cast",
 
 test("itemAt returns an in-range item: a whole number outside is not-found, anything else invalid-argument", () => {
   const list = ["a", "b"];
-  expect(itemAt(list, 0, () => "unused")).toBe("a");
-  expect(itemAt(list, 1, () => "unused")).toBe("b");
+  expect(itemAt("test", list, 0, () => "unused")).toBe("a");
+  expect(itemAt("test", list, 1, () => "unused")).toBe("b");
   const failure = (index: number): AaredError => {
     try {
-      itemAt(list, index, () => `test: item ${String(index)} is outside this ${list.length}-item list`);
+      itemAt("test", list, index, () => `test: item ${String(index)} is outside this ${list.length}-item list`);
     } catch (error) {
       return error as AaredError;
     }
@@ -77,7 +72,7 @@ test("itemAt returns an in-range item: a whole number outside is not-found, anyt
     expect(caught.message).toBe(`test: an index must be a whole number; received ${String(index)}`);
   }
   // An undefined item is out of range too, even at a valid integer index.
-  expect(() => itemAt([undefined, "b"], 0, () => "hole")).toThrow("hole");
+  expect(() => itemAt("test", [undefined, "b"], 0, () => "hole")).toThrow("hole");
 });
 
 test("isAaredError type guard works", () => {

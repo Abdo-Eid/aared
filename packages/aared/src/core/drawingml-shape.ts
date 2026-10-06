@@ -134,7 +134,7 @@ export function geometryForPreset(
 }
 
 /** A deliberate bounds-preserving rectangle for geometry that cannot be represented yet. */
-export function fallbackGeometry(size: DrawingMlShapeSize | undefined, fallback: GeometryFallback): ShapeGeometryModel {
+function fallbackGeometry(size: DrawingMlShapeSize | undefined, fallback: GeometryFallback): ShapeGeometryModel {
   const viewBox = localViewBox(size);
   return { path: `M 0 0 H ${viewBox.width} V ${viewBox.height} H 0 Z`, viewBox, fallback };
 }

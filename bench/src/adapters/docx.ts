@@ -47,6 +47,8 @@ export function scrapeDocxOutline(
 /** A `w:pgSz` width in twips (twentieths of a point) as CSS pixels at 96 dpi. */
 const TWIPS_TO_PX = (0.05 * 96) / 72;
 
+const sectionWidths = new WeakMap<Uint8Array, Promise<number>>();
+
 /**
  * Widest `w:pgSz` section in the file, in CSS px (dxa → pt → px with the
  * same factors docx-preview itself uses, so the number matches a renderer's
@@ -57,8 +59,6 @@ const TWIPS_TO_PX = (0.05 * 96) / 72;
  * measuring) and never through a library under measurement. Never throws:
  * 0 means "unparseable, fall back to rendered widths".
  */
-const sectionWidths = new WeakMap<Uint8Array, Promise<number>>();
-
 export function maxSectionWidthPx(bytes: Uint8Array): Promise<number> {
   let width = sectionWidths.get(bytes);
   if (width === undefined) {
@@ -78,6 +78,7 @@ async function readMaxSectionWidthPx(bytes: Uint8Array): Promise<number> {
   }
   return max > 0 ? max * TWIPS_TO_PX : 0;
 }
+
 /**
  * Shared mount for the docx-preview lineage (docx-preview, docx-renderer,
  * apollo): a hidden style container beside the body container — so clearing

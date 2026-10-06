@@ -163,7 +163,7 @@ export class Page {
 
   constructor(
     private readonly browser: Browser,
-    readonly view: Bun.WebView,
+    private readonly view: Bun.WebView,
     private readonly session: string,
   ) {}
 
@@ -172,7 +172,7 @@ export class Page {
     return this.view.evaluate(expression) as Promise<T>;
   }
 
-  workers(): string[] {
+  private workers(): string[] {
     return this.browser.workersOf(this.session);
   }
 

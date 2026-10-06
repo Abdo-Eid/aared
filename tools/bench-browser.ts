@@ -38,7 +38,7 @@ const DIST = join(ROOT, "bench", "dist");
 const FIXTURE_DIRS = [join(ROOT, "fixtures"), join(ROOT, "tools", "bench-search", "out")];
 const TIMEOUT_MS = 90_000;
 
-interface Request {
+interface LoggedRequest {
   path: string;
   /** `Sec-Fetch-Dest`: `script`, `worker`, `empty` (a fetch, e.g. WASM)… */
   dest: string;
@@ -47,7 +47,7 @@ interface Request {
 interface Server {
   url: string;
   /** Every path the server was asked for since the last `clear()`, in order. */
-  requests: Request[];
+  requests: LoggedRequest[];
   clear(): void;
   stop(): void;
 }
@@ -58,7 +58,7 @@ interface Server {
  * for again in each fresh page and shows up in the request log.
  */
 function serve(options: { noStore?: boolean } = {}): Server {
-  const requests: Request[] = [];
+  const requests: LoggedRequest[] = [];
   const headers: HeadersInit = options.noStore === true ? { "cache-control": "no-store" } : {};
   const server = Bun.serve({
     port: 0,
@@ -304,7 +304,7 @@ export async function runSearchPass(browser: Browser, log: (line: string) => voi
  * after it then fails for the same reason. (A second browser can't be started
  * in the same process, so the recovery is a new run of the rest.)
  */
-const isWedged = (error: string | null): boolean => error !== null && /timed out|DevTools/.test(error);
+const isWedged = (error: string | null): boolean => error !== null && /timed out/.test(error);
 
 export async function runBrowserPass(
   browser: Browser,
@@ -371,6 +371,7 @@ export async function runSizePass(
   browser: Browser,
   versionOf: (renderer: string, format: BenchFormat) => string | null,
   log: (line: string) => void,
+  include: (renderer: string) => boolean = () => true,
 ): Promise<SizeRow[]> {
   requireDist();
   const server = serve({ noStore: true });
@@ -379,6 +380,7 @@ export async function runSizePass(
     for (const fixture of FIXTURES) {
       const format: BenchFormat = formatOfFixture(fixture);
       for (const renderer of RENDERERS_BY_FORMAT[format]) {
+        if (!include(renderer)) continue;
         const row: SizeRow = { renderer, format, fixture, version: versionOf(renderer, format), files: [], status: "measured", error: null };
         const page = await browser.open(server.url);
         try {

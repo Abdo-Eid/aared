@@ -28,7 +28,7 @@ describe("PPTX DrawingML parser", () => {
   test("re-reads slides and RTL text from the real Arabic fixture", async () => {
     const doc = await fixture();
     expect(doc.deck.size).toEqual({ width: 12192000 / 914400, height: 6858000 / 914400 });
-    expect(doc.deck.slideParts).toHaveLength(12);
+    expect(doc.deck.slideParts).toHaveLength(18);
     expect(doc.deck.theme.colors.dk1).toBe("#000000");
     expect(doc.deck.theme.fonts.minor.scripts.Arab).toBe("Arial");
     // Medium Style 2 Accent 1, every region read: fills, text, fonts and all six edges.
@@ -249,7 +249,7 @@ describe("PPTX DrawingML parser", () => {
     });
   });
 
-  test("resolves positioned, styled common shapes from the real LibreOffice fixture", async () => {
+  test("resolves positioned, styled common shapes from the real coverage deck", async () => {
     const doc = await fixture();
     const { slide } = await findCoverageSlide(doc.slides, "shapes");
     const presets = ["rect", "roundRect", "ellipse", "line", "triangle", "rtTriangle", "diamond", "parallelogram", "hexagon", "octagon", "star5"];
@@ -444,6 +444,39 @@ describe("PPTX DrawingML parser", () => {
     expect(table.cellFills[1]!.slice(0, 2)).toEqual([{ kind: "solid", color: "#CCD2D8" }, { kind: "solid", color: "#CCD2D8" }]);
     expect(table.cellFills[1]![2]).toEqual({ kind: "pattern", preset: "smGrid", foreground: "#E8A33D", background: "#FFF4E0" });
     expect(table.cellFills[2]![2]).toMatchObject({ kind: "path-gradient", path: "rect", focus: { left: 0.5, top: 0.5, right: 0.5, bottom: 0.5 } });
+  });
+
+  // Slide 13, appended through PowerPoint (`tools/probe/pptx-merged-chartex`): a table whose first row's
+  // first two cells are merged across and whose third-column cell is merged down two rows.
+  test("reads merged table cells as PowerPoint wrote them, with the covered cells empty", async () => {
+    const doc = await fixture();
+    const { slide } = await findCoverageSlide(doc.slides, "merged-cells");
+    const table = findTableWithText(slide, "العنوان المدمج");
+    const cell = (row: number, col: number) => table.rows[row]!.cells[col]!;
+    expect(cell(0, 0).columnSpan).toBe(2);
+    expect(cell(0, 0).rowSpan).toBeUndefined();
+    expect(joined(cell(0, 0).text)).toBe("العنوان المدمج");
+    expect(cell(1, 2).rowSpan).toBe(2);
+    expect(joined(cell(1, 2).text)).toBe("جارٍ");
+    // The cells a merge covers (`hMerge`, `vMerge`) are not in the row: the spanning cell stands for them.
+    expect(table.rows.map((row) => row.cells.length)).toEqual([3, 4, 3, 4]);
+    expect(table.rows[0]!.cells.map((entry) => joined(entry.text))).toEqual(["العنوان المدمج", "الحالة", "المبلغ"]);
+    expect(table.rows[2]!.cells.map((entry) => joined(entry.text))).toEqual(["المونتاج", "٢", "٣٠"]);
+  });
+
+  // Slide 14: Excel's own waterfall, pasted into PowerPoint, which writes it as a `cx:` chart part with its data cached
+  // as `cx:lvl` (the form the reader reads in PPTX and DOCX; Excel itself writes cell formulas instead).
+  test("reads an Office 2016 chart PowerPoint wrote, from its cached data", async () => {
+    const doc = await fixture();
+    const { slide } = await findCoverageSlide(doc.slides, "waterfall");
+    const chart = flattenElements(slide.elements).find((element) => element.kind === "chart");
+    if (chart === undefined) throw new Error("fixture structure changed: expected the waterfall chart on slide 14");
+    expect(chart.unsupportedReason).toBeUndefined();
+    const series = chart.spec!.groups[0]!.series[0]!;
+    expect(series.categories).toEqual(["البداية", "المبيعات", "التكاليف", "الضرائب", "الصافي"]);
+    expect(series.values).toEqual([100, 60, -40, -15, 105]);
+    // A waterfall: each bar floats from where the last one ended.
+    expect(series.spans).toEqual([[0, 100], [100, 160], [160, 120], [120, 105], [0, 105]]);
   });
 
   // PowerPoint writes every line and connector as `p:cxnSp` (slide 11,

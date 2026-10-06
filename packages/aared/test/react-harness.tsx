@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { useDocx, usePreview, usePptx, useXlsx } from "../src/react/index.js";
 import type { UsePreviewResult } from "../src/react/index.js";
-import type { ZoomValue } from "../src/core/index.js";
+import type { Appearance, ViewerTheme, ZoomValue } from "../src/core/index.js";
 
 type HookWindow = Window &
   typeof globalThis & {
@@ -13,27 +13,22 @@ type HookWindow = Window &
           status: string;
           format: string | null;
           count: number | null;
-          index: number;
+          index: number | null;
           zoom: unknown;
           error: string | null;
           navigationError: string | null;
         }
       | undefined;
-    hookActions?:
-      | {
-          goTo: (index: number) => Promise<void>;
-          setZoom: (zoom: ZoomValue) => void;
-          retry: () => void;
-        }
-      | undefined;
+    /** Distinct viewers a probe has seen (a remount makes a new one) and distinct result objects. */
+    seen?: { viewers: number; results: number } | undefined;
+    setStartProps?: (props: StartProps) => void;
+    hookRetry?: (() => void) | undefined;
     mountHook?: (kind: string, source: string, strict?: boolean) => void;
     unmountHook?: () => number;
-    hookGoTo?: (index: number) => Promise<unknown>;
-    hookGoToFailure?: (index: number) => Promise<{ code: unknown; message: string } | null>;
+    viewerGoTo?: (index: number) => Promise<unknown>;
     viewerGoToFailure?: (index: number) => Promise<{ code: unknown; message: string } | null>;
     hookViewer?: UsePreviewResult["viewer"] | undefined;
-    goToWhileLoading?: () => Promise<{ code: unknown; message: string } | "mounted-too-fast">;
-    hookSetZoom?: (zoom: ZoomValue) => Promise<unknown>;
+    viewerSetZoom?: (zoom: ZoomValue) => Promise<unknown>;
     rerenderHook?: () => void;
     workerFactoryCalls?: number;
     snapshot?: () => unknown;
@@ -41,38 +36,83 @@ type HookWindow = Window &
 
 const w = window as HookWindow;
 
+let lastViewer: unknown = null;
+let lastResult: unknown = null;
+
 function publish(result: UsePreviewResult): void {
   w.probe = {
     status: result.status,
-    format: result.format,
-    count: result.info?.count ?? null,
+    format: result.viewer?.format ?? null,
+    count: result.viewer?.info.count ?? null,
     index: result.index,
     zoom: result.zoom,
-    error: result.error == null
-      ? null
-      : String((result.error as Error)?.message ?? result.error),
-    navigationError: result.navigationError == null
-      ? null
-      : String((result.navigationError as Error)?.message ?? result.navigationError),
+    // Typed by the union: an AaredError when failed, null otherwise; no casts.
+    error: result.error?.message ?? null,
+    navigationError: result.navigationError?.message ?? null,
   };
-  w.hookActions = { goTo: result.goTo, setZoom: result.setZoom, retry: result.retry };
+  const seen = w.seen ?? { viewers: 0, results: 0 };
+  if (result.viewer !== null && result.viewer !== lastViewer) seen.viewers += 1;
+  if (result !== lastResult) seen.results += 1;
+  lastViewer = result.viewer ?? lastViewer;
+  lastResult = result;
+  w.seen = seen;
+  w.hookRetry = result.retry;
   w.hookViewer = result.viewer;
 }
 
 function PptxProbe({ source }: { source: string }) {
   const result = usePptx({ source });
+  // Compile-time check: destructuring keeps the narrowing, and the viewer is a PPTX one.
+  const { status, viewer } = result;
+  if (status === "ready") {
+    const format: "pptx" = viewer.info.format;
+    void format;
+    // @ts-expect-error teardown is the hook's: its viewer has no destroy().
+    void viewer.destroy;
+    // The hook's viewer searches its deck, with PPTX matches. Type-checked,
+    // never called: a search started on each render could still be reading
+    // slides at unmount, and it would reject with `closed`, unhandled.
+    void (async () => (await viewer.search("x"))[0]?.slide.index satisfies number | undefined);
+  }
   publish(result);
   return <div ref={result.ref} />;
 }
 
 function XlsxProbe({ source }: { source: string }) {
   const result = useXlsx({ source });
+  // Compile-time check: a ready XLSX result has non-null cell controls.
+  if (result.status === "ready") void result.viewer.xlsx.selection;
   publish(result);
   return <div ref={result.ref} />;
 }
 
 function DocxProbe({ source }: { source: string }) {
   const result = useDocx({ source, pagination: { mode: "layout" } });
+  // Compile-time check: a ready DOCX result has non-null page controls.
+  if (result.status === "ready") void result.viewer.docx.pageCount;
+  publish(result);
+  return <div ref={result.ref} />;
+}
+
+interface StartProps {
+  zoom?: ZoomValue;
+  index?: number;
+  theme?: ViewerTheme;
+  appearance?: Appearance;
+  /** Pass a media resolver written inline: a new function every render. */
+  inlineMedia?: boolean;
+}
+
+/** Index/zoom start values, reactive appearance, and stable inline resolvers. */
+function StartProbe({ source, props }: { source: string; props: StartProps }) {
+  const appearance = props.appearance ?? (props.theme === undefined ? undefined : { theme: props.theme });
+  const result = usePreview({
+    source,
+    ...(props.zoom === undefined ? {} : { zoom: props.zoom }),
+    ...(props.index === undefined ? {} : { index: props.index }),
+    ...(appearance === undefined ? {} : { appearance }),
+    ...(props.inlineMedia === true ? { mediaResolver: () => new Promise<ArrayBuffer>(() => {}) } : {}),
+  });
   publish(result);
   return <div ref={result.ref} />;
 }
@@ -103,7 +143,11 @@ function unmountHook(): number {
   root?.unmount();
   root = null;
   w.probe = undefined;
-  w.hookActions = undefined;
+  w.hookRetry = undefined;
+  w.hookViewer = undefined;
+  w.seen = undefined;
+  lastViewer = null;
+  lastResult = null;
   return document.querySelector("#hook-root > div")?.childElementCount ?? 0;
 }
 
@@ -126,9 +170,19 @@ w.mountHook = (kind: string, source: string, strict?: boolean) => {
     ? <DocxProbe source={source} />
     : kind === "worker"
     ? <WorkerProbe source={source} />
+    : kind === "start"
+    ? <StartProbe source={source} props={{ zoom: "fit-page" }} />
     : <AutoProbe source={source} />;
   mounted = { node, strict: strict === true };
   root.render(mounted.strict ? <StrictMode>{node}</StrictMode> : node);
+};
+
+/** Re-render the start probe with new options (a parent changing its props). */
+w.setStartProps = (props: StartProps) => {
+  if (root === null || mounted === null) return;
+  const source = (mounted.node.props as { source: string }).source;
+  mounted = { ...mounted, node: <StartProbe source={source} props={props} /> };
+  root.render(mounted.strict ? <StrictMode>{mounted.node}</StrictMode> : mounted.node);
 };
 
 /** Render the mounted probe again with the same props (a parent re-render). */
@@ -138,22 +192,13 @@ w.rerenderHook = () => {
   root.render(mounted.strict ? <StrictMode>{node}</StrictMode> : node);
 };
 
-w.hookGoTo = async (index: number) => {
-  await w.hookActions?.goTo(index);
+/** Move through the hook's viewer (`viewer.goTo`), the one way to change the unit. */
+w.viewerGoTo = async (index: number) => {
+  await w.hookViewer?.goTo(index);
   return w.probe;
 };
 
-/** `goTo(index)` expected to fail: the rejection's code and message, or null if it resolved. */
-w.hookGoToFailure = async (index: number) => {
-  try {
-    await w.hookActions?.goTo(index);
-    return null;
-  } catch (error) {
-    return { code: (error as { code?: unknown }).code, message: String((error as Error).message) };
-  }
-};
-
-/** The same, through the handle itself (`viewer.goTo`), bypassing the hook's `goTo`. */
+/** `viewer.goTo(index)` expected to fail: the rejection's code and message, or null if it resolved. */
 w.viewerGoToFailure = async (index: number) => {
   try {
     await w.hookViewer?.goTo(index);
@@ -163,17 +208,8 @@ w.viewerGoToFailure = async (index: number) => {
   }
 };
 
-/** Call `goTo(0)` the moment the hook reports "loading", before any viewer exists. */
-w.goToWhileLoading = async () => {
-  while (w.probe?.status !== "loading") {
-    if (w.probe?.status === "ready") return "mounted-too-fast";
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  return (await w.hookGoToFailure!(0)) ?? { code: "resolved", message: "" };
-};
-
-w.hookSetZoom = async (zoom: ZoomValue) => {
-  w.hookActions?.setZoom(zoom);
+w.viewerSetZoom = async (zoom: ZoomValue) => {
+  w.hookViewer?.setZoom(zoom);
   return w.probe;
 };
 

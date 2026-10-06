@@ -95,16 +95,6 @@ export function attachDemo(frame: HTMLElement, resolveRunner: ResolveRunner): vo
     const file = upload.files?.[0];
     if (file) paint(file);
   });
-  for (const pill of frame.querySelectorAll<HTMLElement>("[data-format-pill]")) {
-    pill.addEventListener("click", () => {
-      frame.dataset.format = pill.dataset.formatPill ?? "";
-      for (const other of frame.querySelectorAll("[data-format-pill]")) {
-        other.toggleAttribute("data-active", other === pill);
-      }
-      if (current !== null) paint(current);
-    });
-  }
-
   if (current === null) return;
   const initial = current;
   const start = (): void => {

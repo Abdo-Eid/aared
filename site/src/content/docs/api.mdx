@@ -1,128 +1,73 @@
 ---
 title: API reference
-description: Public API for aared — format entrypoints, preview facade, React hooks, and the web component.
+description: Public API for aared — format entrypoints, auto-detect preview, React hooks, and the web component.
 ---
+
+import ChoosingALayer from '../../partials/choosing-a-layer.mdx';
 
 aared previews real PowerPoint, Excel and Word files in the browser, painted
 to DOM and SVG — never canvas — so text stays selectable and Arabic and other
 RTL content shapes the way the browser shapes it.
 
-## Start here
-
-```bash
-npm install @aared/viewer
-```
-
-> **Not released yet** — this is the target install. `@aared/viewer` is
-> reserved on npm with no code in it, and the imports below still read
-> `aared/...`; they become `@aared/viewer/...` when the package is renamed
-> for its first release (`0.1.0`). Until then, clone the repo and build it:
-> `bun install && bun run --cwd packages/aared build`.
-
-Point the element at a file and you have a viewer:
-
-```html
-<script type="module">
-  import "aared/element";
-</script>
-
-<aared-viewer src="quarterly-report.pptx" controls></aared-viewer>
-```
-
-It detects the format, opens the file, and draws it with built-in paging,
-zoom and a full-screen toggle.
-
-aared has two layers: **format entrypoints** with a headless
-open/collection/read/render lifecycle you can build any UI on top of, and
-a **web component** (`<aared-viewer>`) that's the default UI for most
-consumers. The element is implemented entirely in terms of the format
-entrypoints — nothing it does is unavailable to you directly.
-
-Every integration path runs live in the [playground](/playground/). To pick
-the one that fits, start with [Choosing a layer](#choosing-a-layer).
+This page is the reference. New here? [Start](/start/) covers installing,
+picking an entry, copy-ready recipes and the usual first problems, and the
+[playground](/playground/) runs every entry live.
 
 ## Choosing a layer
 
-`aared` is a viewer, not a converter. The layers differ in how much you
-drive yourself, not in how well a file renders — they all paint through the
-same renderers.
+<ChoosingALayer />
 
-| You want to… | Use |
-|---|---|
-| Show a file with no UI work | `<aared-viewer>` |
-| Same, in a React app | `aared/react` hooks |
-| Same, from imperative code, with an arbitrary file type | `preview()` |
-| Build your own chrome (slide list, sheet tabs, search box), read or search content, or show more than one unit at once | `open()` + `render()` from `aared/pptx`, `aared/xlsx`, or `aared/docx` |
+The element, `preview()` and the hooks forward a fixed set of options; they
+search the opened document (`viewer.search()`) but don't hand it out. Where
+they differ from the low-level `open()` / `render()` API:
 
-`preview()` (and the element and hooks built on it) is **not** the same
-customization as the format entrypoints with auto-detect added. It forwards
-a fixed subset of options and does not expose the opened document:
-
-| | `<aared-viewer>` | `preview()` / hooks | Format entrypoints |
+| | `<aared-viewer>` | `preview()` / hooks | `open()` / `render()` |
 |---|---|---|---|
-| Open → render → switch units → zoom → teardown | Yes (attributes; remove the element to tear down) | Yes | Yes |
-| `info` (`format`, `count`, `titles`, `sizes`, `theme`) | Yes (`viewer.info`, `load`) | Yes | Yes |
-| Format auto-detection | Yes | Yes | No — you choose the import |
-| Starting `zoom`, `index` | Yes (attributes) | Yes | Yes (`zoom` on `render()`; you pick the unit) |
-| `appearance.theme` | Yes (`theme` attribute) | Yes | Yes |
-| Other `appearance` knobs, `fontResolver`, `mediaResolver`, DOCX `pagination` | No (XLSX always shows sheet tabs; `worker` is a property) | Yes | Yes |
-| Moving within a unit: XLSX `goToCell`/`scrollTo`/`focus`/`selection`, DOCX `goToHeading`/`goToPage`/`pages`/`headings` | No — events only | Yes (`viewer.xlsx`, `viewer.docx`) | Yes |
-| `search()`, `read()`, `media.get()`, slide/sheet/section collections | No | No | Yes |
-| Render several units at once, or render an already-read model | No | No | Yes |
+| Format auto-detection | Yes | Generic entry only | No — you choose the import |
+| `appearance` beyond `theme`, `fontResolver`, `mediaResolver` | No | Yes | Yes |
+| Moving within a unit: cells, headings, pages | Yes (`el.viewer.xlsx`, `el.viewer.docx`) | Yes (`viewer.xlsx`, `viewer.docx`) | Yes |
+| `search()` | Yes (`el.viewer.search()`) | Yes (`viewer.search()`) | Yes |
+| `read()`, `media.get()`, the collections; several units at once | No | No | Yes |
 
-**Bundle size.** Two separate things ship, and they behave differently:
+The element, `preview()` and the hooks run on one viewer, so they share its
+codes, events and rules: options set where it starts, its methods change it
+(see [Design principle](#design-principle)). A workbook shows its sheet tabs
+in all three; the low-level `render()` leaves them off for an app that draws
+its own.
 
-- **Main-thread code.** `preview()`, `<aared-viewer>`, and the hooks reach
-  each format through a dynamic `import()`. Bundlers emit a chunk for all
-  three formats — that is the build-output cost of not choosing a format up
-  front — but at runtime only the detected format's chunk is fetched. The
-  type-asserting hooks (`usePptx`, `useXlsx`, `useDocx`) skip detection, not
-  the chunks. Importing `aared/pptx`, `aared/xlsx`, or `aared/docx` directly
-  puts only that format's main-thread code in your build.
-- **The Worker.** Parsing runs in one self-contained Worker script
-  (`aared/core`'s `worker.mjs`, every format parser bundled flat into the
-  one file): no sibling chunks to deploy, and the same file backs Blob-URL
-  workers directly (see [Worker override](#worker-override)).
+**Bundle size.** The element, auto-detect preview and the hooks reach each format
+through a dynamic `import()`: bundlers emit a chunk per format, and only the
+detected one is fetched. Importing `aared/pptx`, `aared/xlsx` or `aared/docx`
+directly puts only that format in your build. Parsing runs in one
+self-contained Worker script for every format.
 
-**What the headless API is for.** Its main purpose is custom UI. `read()`
-returns the same resolved model the renderers consume, so reading cell
-values or slide text is supported, but data extraction is a by-product, not a
-goal: there is no export or conversion tooling, formulas are never evaluated
-(cached values only), and editing is out of scope. See
-[Resolved models](#resolved-models).
-
-Whichever layer you pick, the shared types — `Source`, `OpenOptions`,
-`Appearance`, `AaredError`, `DocumentInfo` — are defined once in
-[Shared core](#shared-core-aaredcore).
+Use `preview()` for custom toolbars and search UI. Use the low-level API for
+model access or several units sharing a document. `read()` returns the model the
+renderers
+paint, so reading cell values or slide text works, but there is no export or
+conversion, formulas are never evaluated (cached values only), and nothing
+edits.
 
 ## Packages
 
 | Package | Purpose |
 |---|---|
 | `aared` | Everything below — shared core, per-format entrypoints (lazy-loaded), and `<aared-viewer>` |
-| `aared-fonts` | Frozen, not published. Calibrated OFL look-alikes behind a CDN-backed `fontResolver`, for an app that needs Office's line breaks exactly. Without it the browser's own fonts paint, which a real phone showed to be faster and easier to read ([Sources and options](#sources-and-options)) |
+| `aared-fonts` | Frozen, not published: calibrated look-alike fonts for an app that needs Office's line breaks exactly (see [`fontResolver`](#sources-and-options)) |
 
-`aared` exposes its surface through subpath exports so a consumer only
-loads the code of the formats they actually use — on the main thread *and*
-in the Worker (see [Bundle size](#choosing-a-layer)):
+`aared` exposes its surface through subpath exports, so a consumer loads only
+the formats it uses:
 
 | Import | Contains |
 |---|---|
 | `aared/core` | Shared grammar: sources, options, collections, appearance, media, `AaredError`, and the resolved model types. Opens nothing itself. |
-| `aared/pptx` | `open()`, `PptxDocument`, slide collections/handles, `render()` — `import()`ed automatically by `aared/element` the first time a `.pptx` opens |
-| `aared/xlsx` | `open()`, `XlsxDocument`, sheet collections/handles with range reads, `render()`, same lazy-load behavior |
-| `aared/docx` | `open()`, `DocxDocument`, section/heading collections, `render()`, `SoftBreakPolicy`, same lazy-load behavior |
-| `aared/preview` | `preview()`, `detect()`, `PreviewHandle` — one-call auto-detect embed; lazily `import()`s only the detected format entrypoint at runtime |
+| `aared/pptx` | Format-local `preview()`, plus `open()`, `PptxDocument`, slide collections/handles and `render()` |
+| `aared/xlsx` | Format-local `preview()`, plus `open()`, `XlsxDocument`, sheet collections/handles with range reads and `render()` |
+| `aared/docx` | Format-local `preview()`, plus `open()`, `DocxDocument`, section/heading collections, `render()` and `SoftBreakPolicy` |
+| `aared/preview` | `preview()`, `detect()`, `PreviewHandle` — auto-detect preview; lazily `import()`s only the detected format entrypoint at runtime |
 | `aared/react` | `usePreview()`, `usePptx()`, `useXlsx()`, `useDocx()` — React hooks owning the `preview()` mount lifecycle; `react` is an optional peer |
 | `aared/element` | `<aared-viewer>` — registers the custom element |
 | `aared/worker` | The self-contained Worker script (`dist/core/worker.mjs`), for bundler `?url`/`?raw` imports — see [Worker override](#worker-override) |
-| `aared` (`.`) | Alias for `aared/core` — convenience import for shared types/errors only |
-
-### What's not included (by design)
-
-- **No viewer decorations API.** Viewer-only annotations
-  (`decorations: [{ range, kind }]`) are deferred to a follow-up.
-
 ## Web component
 
 ```html
@@ -131,81 +76,108 @@ in the Worker (see [Bundle size](#choosing-a-layer)):
   type="pptx"
   theme="system"
   controls></aared-viewer>
-
-<script type="module">
-  import "aared/element";
-  // For content that isn't at a URL (an upload, a drop target):
-  document.querySelector("aared-viewer").file = myFile;
-</script>
 ```
 
-The element intentionally supports all three formats — importing it pulls
-in every format entrypoint lazily (each renderer `import()`s on first
-use). Consumers shipping one format should use that format's `open()` +
-`render()` directly instead.
+```ts check
+// Your bundled app code (see Install on the Start page).
+import "aared/element";
+
+// For content that isn't at a URL (an upload, a drop target). The import
+// types the tag, so this is an `AaredViewer` with no cast:
+document.querySelector("aared-viewer")!.file = myFile;
+```
+
+The element takes every format, each loaded on first use; an app that shows
+one format can use that format's `open()` + `render()` instead.
 
 ### Attributes / properties
 
 | Name | Type | Notes |
 |---|---|---|
 | `src` | attribute, URL | Fetched and opened automatically |
-| `file` | property only | `File \| Blob \| ArrayBuffer`, for content that isn't at a URL (drag-and-drop, upload) |
-| `type` | attribute and property | `"pptx" \| "xlsx" \| "docx"` — optional assertion against auto-detection; a mismatch raises `error` (`unsupported-format`) |
-| `index` | attribute and property, number | Zero-based unit to show. A slide and a sheet are each one unit; a DOCX document is one unit. XLSX always shows the workbook's sheet tabs (with or without `controls`); clicking one updates `index` and fires `indexchange` |
-| `zoom` | attribute and property | `"fit-width" \| "fit-page" \| <number>` — drives the render's own zoom. Unset, each format opens at its default (see [Zoom](#zoom)); removing the attribute goes back to it |
+| `file` | property only | `File \| Blob \| ArrayBuffer` or a typed array, for content that isn't at a URL (drag-and-drop, upload). Of `src` and `file`, the one set last opens |
+| `type` | attribute and property | `"pptx" \| "xlsx" \| "docx"` — optional assertion against auto-detection; a mismatch raises `error` (`unsupported-format`), at once when a document of another format is open |
+| `index` | attribute and property, number | Zero-based unit to show. A slide and a sheet are each one unit; a DOCX document is one unit. It always names the unit on screen: a sheet tab, the controls and `viewer.goTo()` write it, and a unit that cannot be shown fires `error` and puts it back |
+| `zoom` | attribute and property | `"fit-width" \| "fit-page" \| <number>` — drives the viewer's zoom, and `viewer.setZoom()` writes it back. Unset, each format opens at its default (see [Zoom](#zoom)); removing the attribute goes back to it |
 | `controls` | boolean attribute | Built-in nav/zoom bar with a full-screen toggle (hidden where the Fullscreen API is unavailable), in the spirit of `<video controls>` |
 | `theme` | attribute and property | `"light" \| "dark" \| "system"` (default `"light"`) — viewer chrome; document content is always source-faithful (see [Dark mode](#dark-mode)) |
+| `pagination` | attribute and property | `"flow" \| "layout"` (default `"flow"`) — DOCX only: `"layout"` paints physical pages (`viewer.docx.pages`, `goToPage()`), each with the page shadow. Changing it re-opens a DOCX; other formats ignore it |
 | `worker` | property only | `WorkerInit` — see [Worker override](#worker-override) |
-| `format` | read-only property | The detected (or asserted) format of the open document, or `null` |
-| `info` | read-only property | The open document's `DocumentInfo` (the `load` detail), or `null` |
+| `viewer` | read-only property | The open document's viewer (`AaredViewerHandle`), or `null`: `format`, `info`, `index`, `zoom`, `defaultZoom`, `scale`, `goTo()`, `setZoom()`, the toolbar methods (`next()`, `previous()`, `zoomIn()`, `zoomOut()`, `resetZoom()`), `search()`, the places inside a unit (`xlsx`, `docx`) and the events. See [Methods](#methods) |
 
 ### Events
 
 Events report **changes**. The starting state is the `load` event (or read
-`index`, `info` and `zoom`): opening a file fires no `indexchange` or
+`index`, `zoom` and `viewer.info`): opening a file fires no `indexchange` or
 `zoomchange`, and going to the unit already shown fires nothing.
 
 | Event | `detail` |
 |---|---|
 | `load` | `DocumentInfo` — the document opened and its first unit painted |
-| `indexchange` | `{ index: number }` — the unit changed (`goTo()`, the `index` attribute, a sheet tab, the controls) |
+| `indexchange` | `{ index: number }` — the unit changed (`viewer.goTo()`, the `index` attribute, a sheet tab, the controls) |
 | `slidechange` | `{ index: number; title: string }` — PPTX, alongside `indexchange` |
 | `sheetchange` | `{ index: number; title: string }` — XLSX, alongside `indexchange` |
-| `progress` | `{ loaded: number; total?: number }` — bytes read before parsing starts: streamed chunks for a URL, one event before and one after for a `file` |
+| `progress` | `LoadProgress`, `{ loaded: number; total?: number }` — bytes read before parsing starts: each streamed chunk for a URL (`total` when the server sends `Content-Length`), one event before and one after for a `file`. Parsing reports none, so `load` or `error` follows the last one |
 | `error` | `{ message: string; cause: AaredError }` — once per failure |
 | `zoomchange` | `{ zoom: ZoomValue }` — the zoom changed (forwarded from the render handle) |
 | `linkactivate` | Forwarded from the render handle — see each format's hyperlink notes |
 | `cellactivate` | `{ sheet: { index, title }; address; row; col; model }` — XLSX, forwarded |
 | `selectionchange` | `{ sheet: { index, title }; selection: { address, row, col } \| null }` — XLSX, forwarded |
 
+Every event is typed (`AaredViewerEventMap`), so a listener reads `detail`
+with no cast:
+
+```ts check
+import "aared/element";
+
+const viewer = document.querySelector("aared-viewer")!;
+viewer.addEventListener("load", (event) => console.log(event.detail.count));
+viewer.addEventListener("error", (event) => console.warn(event.detail.cause.code));
+```
+
+In TSX, `<aared-viewer>` needs an entry in `JSX.IntrinsicElements`, which
+you declare yourself: React is an optional peer, so aared adds none.
+
 ### Methods
 
-```ts
-const viewer = document.querySelector("aared-viewer");
-await viewer.open();      // (re)load current src/file
-await viewer.goTo(3);     // show unit 3; resolves once painted
+```ts check
+import "aared/element";
+
+const element = document.querySelector("aared-viewer")!;
+await element.open();               // (re)load whichever of src and file was set last
+element.index = 3;                  // show unit 3 (zero-based); or, to wait until painted:
+await element.viewer?.goTo(3);      // element.index follows
+if (element.viewer?.format === "xlsx") await element.viewer.xlsx.goToCell("D14");
 ```
 
 ```ts
 type ZoomValue = "fit-width" | "fit-page" | number;
-type ViewerThemeAttribute = "light" | "dark" | "system";
 
 class AaredViewer extends HTMLElement {
-  readonly format: DocumentFormat | null;
-  readonly info: DocumentInfo | null;
+  readonly viewer: AaredViewerHandle | null;  // null until a document opens
   open(): Promise<void>;
-  goTo(index: number): Promise<void>;
 }
+
+// The preview() handle without what the element owns: `theme` stands in for
+// setAppearance(), and removing the element for destroy(). Checking `format`
+// narrows it the same way.
+type AaredViewerHandle =
+  | Omit<PptxPreview, "setAppearance" | "destroy">
+  | Omit<XlsxPreview, "setAppearance" | "destroy">
+  | Omit<DocxPreview, "setAppearance" | "destroy">;
 ```
 
-Failures are `AaredError`s with the same codes `preview()` uses for the same
-situation: `unsupported-format` (a bad `type`, or one that doesn't match the
-file), `invalid-state` (`open()` with no `src`/`file`), `not-found` (an index
-outside `0 <= index < info.count`), `invalid-argument` (an index that is not
-a whole number), `network-error` (the fetch failed), `invalid-document`
-(nothing to show). Each fires `error` once with the error as `detail.cause`;
-`open()` and `goTo()` also reject with that same instance. An `open()` that a
-newer one replaced rejects with `aborted` and fires nothing.
+**The attributes and `viewer` are one state.** Setting `index` or `zoom`
+calls the viewer. The viewer's `indexchange` and `zoomchange` (from
+`viewer.goTo()`, `viewer.setZoom()`, a sheet tab or the controls) write the
+attribute back, the way `<input value>` follows typing. So `index` and
+`zoom` always say what is on screen, whichever way it got there.
+
+Failures are `AaredError`s with the codes `preview()` uses for the same
+situation (it is the same viewer; see [Errors](#errors)). Each fires `error`
+once with the error as `detail.cause`, and `open()` and `viewer.goTo()`
+reject with that same instance. An `open()` that a newer one replaced
+rejects with `aborted` and fires nothing.
 
 ### Styling
 
@@ -220,78 +192,166 @@ aared-viewer::part(button) { border-radius: 999px; }
 aared-viewer::part(label) { color: #666; }
 ```
 
-`page` is the box the render paints into. For DOCX it is the page column and
-carries the drop shadow; for PPTX it stretches to the stage and the slide
-inside it carries the shadow (so the slide can fit the stage); for XLSX it
-is the grid. Change the shadow with `--aared-page-shadow` (see
-[Dark mode](#dark-mode)) rather than `::part(page)`, so it lands on the
-right box in every format.
+`toolbar` is an alias of `controls`. `page` is the box the render paints
+into: the page column for DOCX, the grid for XLSX; for PPTX it stretches to
+the stage and the slide inside it carries the shadow. Change the shadow with
+`--aared-page-shadow` (see [Dark mode](#dark-mode)) rather than
+`::part(page)`, so it lands on the right box in every format. Sheet tabs and
+row and column headings are inside the shadow root, so page CSS can't reach
+them; style those through a low-level `render()` into your own container.
 
-Chrome is intentionally minimal — most layout/theming flexibility is meant
-to come from building a custom UI on the headless entrypoints above, not
-from extensively customizing the built-in element. The `theme` attribute
-defaults to `"light"`. Set `theme="system"` to resolve it via
-`prefers-color-scheme` (reflected as `data-aared-theme` on the host, alongside
-`data-aared-format` once a document is open); the
-element then also listens for OS theme changes and re-renders chrome
-automatically. To match your own site's toggle instead, set `theme` to
-`"light"` or `"dark"` yourself whenever it changes.
+The chrome is deliberately minimal: build custom toolbars and search UI on
+`preview()`, or use `open()` + `render()` for model access and manual rendering.
+`theme="system"` follows `prefers-color-scheme`, OS changes
+included; the host carries `data-aared-theme`, and `data-aared-format` once a
+document is open.
 
 ### Lifecycle and cleanup
 
 The element has no `destroy()`: removing it from the document is its
 teardown. It aborts pending reads, tears down the render (observers, image
 object URLs) and closes the Worker session. Putting it back, or changing
-`src`, `file` or `type`, opens the file again.
+`src` or `file`, opens the file again; so do changing `type` while nothing
+is open and changing `pagination` on a DOCX. An open that a newer one
+replaced stops before it paints, so it never covers the newer one.
 
-## Preview facade (`aared/preview`)
+Clearing the source (`file = null` with no `src`, or removing `src` with no
+`file`) empties the viewer quietly, even mid-load: the page is cleared,
+`viewer` goes back to `null`, and no event fires, since an empty viewer is
+not a failure. Calling `open()` with nothing to open is one: it rejects with
+`invalid-state` and fires `error`.
 
-```ts
-import { preview, detect, type PreviewHandle, type PreviewOptions } from "aared/preview";
+## Single-format preview
 
-const viewer: PreviewHandle = await preview(file, container);
-await viewer.goTo(2);
-viewer.setZoom(1.5);
-viewer.setAppearance({ theme: "dark" });  // in place: index, zoom, and session survive
+Each format entry offers the same complete viewer without including sibling
+renderers. The import determines the format, skips detection and narrows the
+returned handle. It owns its document: `destroy()` tears down rendering, search
+state and the Worker session together. A wrong file rejects `unsupported-format`.
+
+```ts check
+import { preview } from "aared/pptx";
+
+const viewer = await preview({ source: file, target: container });
+await viewer.next();
+await viewer.goTo(3);
+const matches = await viewer.search("budget");
 viewer.destroy();
 ```
 
-One call for embeds that accept an arbitrary file: format detection runs in
-the Worker (the same probe `<aared-viewer>` uses), only the detected format
-entrypoint is lazily `import()`ed, and the returned `PreviewHandle` owns
-navigation, zoom, render-event forwarding, and full teardown. This supersedes
-the earlier deferred `preview()`/auto-detect decisions (see the
-[decision log](https://github.com/Abdo-Eid/aared/blob/main/docs/DECISION_LOG.md)):
-the one-format bundle concern behind those deferrals is preserved for
-main-thread code because the facade lives behind its own subpath — consumers
-who import `aared/xlsx` directly never include it, and `preview()` loads
-exactly one format chunk at runtime; the single-file Worker parses any format
-from its one script.
+```ts check
+import { preview } from "aared/xlsx";
+
+const viewer = await preview({ source: file, target: container });
+await viewer.goTo(1); // Switch sheets
+await viewer.xlsx.goToCell("D14");
+viewer.destroy();
+```
+
+```ts check
+import { preview } from "aared/docx";
+
+const viewer = await preview({
+  source: file,
+  target: container,
+  pagination: { mode: "layout" },
+});
+await viewer.docx.goToPage(2);
+viewer.destroy();
+```
+
+```ts
+// Exported from each format entry, alongside its matching preview handle:
+interface PptxPreviewInput extends Omit<PreviewInput, "type" | "pagination"> {}
+interface XlsxPreviewInput extends Omit<PreviewInput, "type" | "pagination"> {}
+interface DocxPreviewInput extends Omit<PreviewInput, "type"> {}
+```
+
+The handles are the same `PptxPreview`, `XlsxPreview` and `DocxPreview` described
+below, with the same navigation, zoom, appearance, search, events and teardown.
+Each format also re-exports `PreviewSearchOptions`, `PreviewEventMap`,
+`SearchNavigation` and `SearchNavigationState`. XLSX preview shows sheet tabs by
+default; its low-level `render()` leaves them off. DOCX preview defaults to flow
+mode; page navigation needs layout mode. No `type` option is needed or accepted
+by the single-format inputs.
+
+For shared documents, resolved models or several rendered units, use the
+existing `open()` + `render()` instead: render `destroy()` and document
+`close()` remain separate. The format-local viewer does not expose its owned
+document. Its Worker still contains all three parsers; only renderer code is
+isolated. The auto-detect entry below still emits all format chunks and fetches
+only the chosen one.
+
+## Auto-detect preview (`aared/preview`)
+
+```ts check
+import { preview, detect, type PreviewHandle, type PreviewInput, type PreviewOptions } from "aared/preview";
+
+const viewer: PreviewHandle = await preview({ source: file, target: container });
+await viewer.goTo(2);
+viewer.setZoom(1.5);
+viewer.setAppearance({ theme: "dark" });  // in place: index, zoom, and session survive
+if (viewer.format === "xlsx") await viewer.xlsx.goToCell("D14");  // narrowed: xlsx is non-null
+viewer.destroy();
+```
+
+One call for embeds that take any file: the format is detected in the
+Worker, only that format's code loads, and the returned `PreviewHandle` owns
+navigation, zoom, events and teardown.
 
 ```ts
 interface PreviewOptions {
   type?: DocumentFormat;   // assert a format, skip detection; mismatch rejects `unsupported-format`
-  index?: number;          // initial unit index, default 0
+  index?: number;          // starting unit index, default 0; goTo() changes it
   signal?: AbortSignal;
   fontResolver?: FontResolver;   // opt-in, forwarded to open() (see aared-fonts)
   worker?: WorkerInit;
-  appearance?: Appearance;
-  zoom?: ZoomValue;              // starting zoom; default per format (see Zoom)
+  appearance?: Appearance;       // starting appearance; setAppearance() changes it
+  zoom?: ZoomValue;              // starting zoom, default per format (see Zoom); setZoom() changes it
   mediaResolver?: MediaResolver; // override; defaults to the owning session
   pagination?: DocxPagination;   // DOCX flow or physical pages; ignored for other formats
 }
 
-interface PreviewHandle extends EventTarget {
-  readonly format: DocumentFormat;
-  readonly info: DocumentInfo;
+interface PreviewInput extends PreviewOptions {
+  source: Source;
+  target: HTMLElement;
+}
+
+function preview(input: PreviewInput): Promise<PreviewHandle>;
+
+// One handle type per format; checking `format` narrows to it.
+type PreviewHandle = PptxPreview | XlsxPreview | DocxPreview;
+
+interface PptxPreview extends PreviewBase {
+  readonly format: "pptx"; readonly info: PptxInfo; readonly xlsx: null; readonly docx: null;
+  search(query: string, options?: PreviewSearchOptions): Promise<PptxSearchMatch[]>;
+}
+interface XlsxPreview extends PreviewBase {
+  readonly format: "xlsx"; readonly info: XlsxInfo; readonly xlsx: XlsxPreviewControls; readonly docx: null;
+  search(query: string, options?: PreviewSearchOptions): Promise<XlsxSearchMatch[]>;
+}
+interface DocxPreview extends PreviewBase {
+  readonly format: "docx"; readonly info: DocxInfo; readonly xlsx: null; readonly docx: DocxPreviewControls;
+  search(query: string, options?: PreviewSearchOptions): Promise<DocxSearchMatch[]>;
+}
+
+// What every format's handle has (not exported: use PreviewHandle).
+// addEventListener is typed by PreviewEventMap: indexchange, slidechange,
+// sheetchange, zoomchange, error, and the forwarded linkactivate,
+// cellactivate, selectionchange, plus searchchange for find position updates.
+interface PreviewBase extends EventTarget {
+  readonly searchNavigation: SearchNavigation;
   readonly index: number;
-  readonly zoom: ZoomValue;     // the requested zoom, kept across goTo()
-  readonly scale: number;       // the scale actually painted
+  readonly zoom: ZoomValue;          // the requested zoom, kept across goTo()
+  readonly defaultZoom: ZoomValue;   // the zoom this format opens at (see Zoom)
+  readonly scale: number;            // the scale actually painted
   goTo(index: number): Promise<void>;  // emits `indexchange` + `slidechange`/`sheetchange`
-  setZoom(zoom: ZoomValue): void;       // emits `zoomchange` when the value changes
+  next(): Promise<void>;               // one unit on; nothing at the last
+  previous(): Promise<void>;           // one unit back; nothing at the first
+  setZoom(zoom: ZoomValue): void;      // emits `zoomchange` when the value changes
+  zoomIn(step?: number): void;         // zoom + step (default 0.1 = 10 points), at most 300%
+  zoomOut(step?: number): void;        // zoom - step (default 0.1), at least 25%
+  resetZoom(): void;                   // back to defaultZoom
   setAppearance(appearance: Appearance): void;  // replaces, in place: index and zoom survive
-  readonly xlsx: XlsxPreviewControls | null;  // XLSX only
-  readonly docx: DocxPreviewControls | null;  // DOCX only
   destroy(): void;                     // full teardown: render + worker + painted DOM
 }
 
@@ -302,110 +362,214 @@ interface XlsxPreviewControls {
   focus(cell: string): void;
 }
 
+interface PreviewSearchOptions extends ReadOptions {
+  highlight?: boolean;  // default true; false clears previous highlights
+}
+
+interface SearchNavigationState {
+  readonly index: number | null; // active position, zero-based; null when inactive
+  readonly count: number;
+}
+interface SearchNavigation extends SearchNavigationState {
+  next(): Promise<void>;     // select, reveal and outline the next match; wraps
+  previous(): Promise<void>; // same, in reverse
+}
+
 interface DocxPreviewControls {
   readonly pageCount: number;                 // 0 in flow mode
   readonly pages: readonly DocxPageInfo[];    // [] in flow mode
   readonly headings: readonly HeadingInfo[];  // body outline, in document order
   goToHeading(target: string | number): Promise<void>;
-  goToPage(index: number): Promise<void>;     // layout mode only
+  goToPage(index: number): Promise<void>;
+  goToSearchMatch(match: DocxSearchMatch): Promise<void>;     // flow and layout
 }
 ```
 
 `index`/`goTo()` switch **units** — slides, sheets, or the one DOCX document.
 Moving **within** the unit on screen is format-specific, so it hangs off
-`viewer.xlsx` (cells) and `viewer.docx` (headings and pages): `null` for the
-other formats, and one stable object per render — the same methods the
-format's own render handle has (see [Navigation](#navigation)). PPTX has no
+`viewer.xlsx` (cells) and `viewer.docx` (headings and pages), with the same
+methods the format's own render handle has (see [Navigation](#navigation)).
+They are `null` for the other formats, so `viewer.format === "xlsx"` makes
+`viewer.xlsx` non-null. Each is one object for the viewer's whole life,
+acting on whichever unit is on screen: one kept across `goTo()` keeps
+working, and after `destroy()` its moves reject with `closed`. PPTX has no
 places inside a slide, so there is no `viewer.pptx`. The `DocxPageInfo`,
-`DocxPagination`, `HeadingInfo` and `SoftBreakPolicy` types are re-exported
-from `aared/preview` for convenience.
+`DocxPagination`, `HeadingInfo` and `SoftBreakPolicy` types, and the three
+search match types, are re-exported from `aared/preview` for convenience.
+
+`search(query)` runs the format's search ([Search grammar](#search-grammar))
+over the document the viewer already has open, so a search box needs no
+second `open()`. It returns results and highlights painted matches by default
+in every format. Each new search replaces the active query; an empty query
+clears it. The application owns the search input, visibility toggle and results
+list; these controls are not built into the package. Each match is a place to go:
+
+For a compact find bar, use `viewer.searchNavigation.index` and `.count` to
+display “2 of 4”, and call `.next()` / `.previous()` for the arrows. Listen to
+`searchchange` for counter updates. All occurrences get a soft highlight;
+the current match gets a stronger fill and outline, without changing text layout.
+Steps wrap at both ends. PPTX navigates occurrences across slides; XLSX navigates
+matching cells on the active sheet, including virtualized rows; DOCX navigates
+painted occurrences, including each displayed header/footer copy. Its navigation
+count can therefore exceed the deduplicated source results returned by `search()`.
+Empty or data-only search resets navigation to `{ index: null, count: 0 }`.
+
+```ts check
+import { preview } from "aared/preview";
+
+const viewer = await preview({ source: file, target: container });
+await viewer.search("nile");
+await viewer.searchNavigation.next();
+const { index, count } = viewer.searchNavigation;
+console.log(index === null ? "No active match" : `${index + 1} of ${count}`);
+await viewer.searchNavigation.previous();
+```
+
+| Format | A match | Go there |
+|---|---|---|
+| PPTX | `slide` (`UnitRef`), `text` | `viewer.goTo(match.slide.index)` |
+| XLSX | `address`, `text` (on the sheet on screen; `sheet` names it) | `viewer.xlsx.goToCell(match.address)` |
+| DOCX | `kind`, `heading` (nearest above, or `null`), `text`, optional `story` | `viewer.docx.goToSearchMatch(match)` |
+
+```ts check
+import { preview } from "aared/preview";
+
+const viewer = await preview({ source: file, target: container });
+// Results and highlights together:
+const matches = await viewer.search("revenue");
+// Results only; also clears previous highlights:
+await viewer.search("revenue", { highlight: false });
+// Clear the active search:
+await viewer.search("");
+
+if (viewer.format === "pptx") {
+  const [first] = await viewer.search("revenue");
+  if (first !== undefined) await viewer.goTo(first.slide.index);
+}
+```
 
 Behavior notes:
 
-- `preview()` normalizes `source` to bytes once, so URL sources are fetched
-  exactly once across detect + open. `detect(source, { signal })` exposes the
-  probe alone (headless-safe, no DOM) without opening anything.
-- A document that opens but has nothing to show (zero slides, sheets, or
-  sections) rejects with an `invalid-document` `AaredError` — the facade
-  never returns a handle over an empty document.
-- `goTo()` validates `0 <= index < info.count` with a `not-found`
-  `AaredError`; stale navigations lose (newest wins, like the element's
-  generation guards): an overtaken `goTo()` resolves having changed nothing,
-  and only the newest moves `index` and announces. A failed `goTo()` rejects
-  and also fires `error` (`{ message, cause }`, the element's shape), so
-  whoever holds the handle hears it even when the caller dropped the
-  promise; the unit on screen stays. After `destroy()` it rejects with
-  `closed`. Events report changes: the initial unit emits no
-  `indexchange` (read `.index` once `preview()` resolves), and going to the
-  unit already shown emits nothing.
-- Zoom belongs to the handle: `setZoom()` before a `goTo()` still applies
-  after it, with no second `zoomchange`.
-- `destroy()` is full teardown (render handle + Worker session + painted
-  DOM); the target element itself stays in the caller's document. There is
-  deliberately no separate `close()`: the facade owns the whole session, so
-  one teardown verb applies. Consumers needing finer control (search, range
-  reads, media access, per-unit rendering) use the headless format
-  entrypoints, where `destroy()`/`close()` stay split.
-- Navigation emits the same event set as `<aared-viewer>`: `indexchange`
-  (`{ index }`) with the format-native sibling `slidechange` or
-  `sheetchange` (`{ index, title }`) alongside it — whether the change came
-  from `goTo()` or from a click on an XLSX sheet tab, which also updates
-  `.index`. Render-handle events (`zoomchange`, `linkactivate`,
-  `cellactivate`, `selectionchange`) are forwarded to the handle as well.
+- A URL is fetched once for detection and opening together.
+  `detect(source, { signal })` runs the probe alone, opening nothing.
+- A document with nothing to show (no slides, sheets or sections) rejects
+  with `invalid-document`; there is never a handle over an empty document.
+- A workbook shows its sheet tabs unless `appearance.spreadsheet.sheetTabs`
+  is `false`. `setAppearance()` replaces the appearance whole, and what it
+  leaves out goes back to that default, so `setAppearance({ theme: "dark" })`
+  keeps the tabs; a host that hides them passes `sheetTabs: false` each time.
+- The newest `goTo()` wins: an overtaken one resolves having changed nothing.
+  A failed one rejects and also fires `error` (`{ message, cause }`, the
+  element's shape), so a dropped promise is still heard; the unit on screen
+  stays. After `destroy()` it rejects with `closed`.
+- A toolbar is the viewer's own methods behind buttons (`viewer.next()`,
+  `viewer.previous()`, `viewer.zoomIn()`, `viewer.zoomOut()`,
+  `viewer.resetZoom()`, reading `viewer.defaultZoom`), as the element's
+  built-in bar is. `next()` and `previous()` step on from where the newest
+  move is heading, so three quick presses move three units, and do nothing
+  at either end (a DOCX is one unit). `zoomIn(step)` and `zoomOut(step)` add
+  or take away `step`, where `1` is 100% (default `0.1`, so 100% to 110%;
+  a step that is not above 0 throws `invalid-argument`). From a fit mode they
+  start at the scale on screen, so a slide fitted at 62% goes to 72%. They
+  round to whole percents and stay within 25%–300%. `resetZoom()` goes back
+  to `defaultZoom`, the zoom the format opens at; for a slide or a document
+  that is a fit mode, not `setZoom(1)`, which pins the natural size.
+- A failed `search()` only rejects: it fires no `error`, which reports moves
+  (the hooks show it as `navigationError`). `signal` cancels it; after
+  `destroy()` it rejects with `closed`. The first search of a deck or
+  workbook reads every slide or sheet through the Worker the viewer paints
+  from; later ones reuse the text it kept.
+- `destroy()` is the whole teardown (render, Worker session, painted DOM);
+  there is no separate `close()`. The target element stays yours.
+- The events are the element's (it runs on this same viewer):
+  `indexchange` with `slidechange` or `sheetchange` beside it (a sheet-tab
+  click included), plus the render handle's, forwarded.
 
 ## React hooks (`aared/react`)
 
-```tsx
+```tsx check
+import { messageFor } from "aared/core";
 import { usePptx } from "aared/react";
 
 function SlidePreview({ file }: { file: File }) {
-  const { ref, status, info, index, error, navigationError, goTo, retry } = usePptx({ source: file });
+  const { ref, status, viewer, index, error, navigationError, retry } = usePptx({ source: file });
   return (
     <>
       <div ref={ref} />
       {status === "loading" && <p>Loading…</p>}
-      {status === "error" && <p>{String((error as Error)?.message)} <button onClick={retry}>Retry</button></p>}
-      {status === "ready" && <p>{info.titles[index]} <button onClick={() => void goTo(index + 1).catch(() => {})}>Next</button></p>}
+      {status === "error" && <p>{messageFor(error)} <button onClick={retry}>Retry</button></p>}
+      {status === "ready" && (
+        <p>
+          {viewer.info.titles[index]}{" "}
+          {/* A failed move lands in navigationError; the rejection needs no handling of its own. */}
+          <button disabled={index >= viewer.info.count - 1} onClick={() => void viewer.next().catch(() => {})}>Next</button>
+        </p>
+      )}
       {navigationError !== null && <p>That slide could not be shown.</p>}
     </>
   );
 }
 ```
 
-`usePreview()` mounts `preview(source, target)` inside an effect and owns
+`usePreview()` mounts `preview({ source, target })` inside an effect and owns
 what every embed otherwise rewrites: the `AbortController`, the
 loading/ready/error state, `index`/`zoom` mirroring from handle events, and
 full teardown on unmount or source change. `usePptx()`, `useXlsx()`, and
 `useDocx()` are the same hook with `type` asserted — detection is skipped,
 only that format's chunk is fetched at runtime (bundlers still emit all
-three), and `info` is narrowed to `PptxInfo` / `XlsxInfo` / `DocxInfo`. The
+three), and `viewer` is a `PptxPreview` / `XlsxPreview` / `DocxPreview`. The
 wrappers add no lifecycle of their own.
+
+The result is one shape per `status`. Checking it tells TypeScript what is
+there, destructured or not: once `"ready"`, `viewer`, `index` and `zoom` are
+set (in the example, `viewer.info` needs no null check); once `"error"`,
+`error` is an `AaredError`; before either, all of them are `null`. The
+document's `info` and `format` are read from `viewer`.
+
+`index` and `zoom` are start values; the viewer's methods change them, and the
+result follows the screen. Buttons call the viewer directly (as `viewer.goTo()`
+above). `appearance` is reactive: a dark-mode switch updates the same viewer
+without another effect or reopening the document:
+
+```tsx check
+import { usePreview } from "aared/react";
+
+function ThemedPreview({ file, theme }: { file: File; theme: "light" | "dark" }) {
+  const { ref } = usePreview({ source: file, appearance: { theme } });
+  return <div ref={ref} />;
+}
+```
 
 ```ts
 interface UsePreviewOptions extends Omit<PreviewOptions, "signal"> {
-  source: Source;   // must be referentially stable — memoize ArrayBuffers
+  source: Source;   // must be referentially stable: pass the bytes you hold, not a copy per render
   // type, index, zoom, appearance, fontResolver, mediaResolver, worker,
-  // pagination — as on preview()
+  // pagination — as on preview(); index and zoom are start values, appearance is reactive
 }
 
 type UsePreviewPhase = "idle" | "loading" | "ready" | "error";
 
-interface UsePreviewResult {
-  ref: RefObject<HTMLDivElement | null>;  // attach: <div ref={ref} />
-  status: UsePreviewPhase;
-  viewer: PreviewHandle | null;           // set when `status` is "ready"; viewer.xlsx / viewer.docx
-  format: DocumentFormat | null;
-  info: DocumentInfo | null;
-  index: number;                          // mirrored from `indexchange`
-  zoom: ZoomValue;                        // mirrored from `zoomchange`
-  error: unknown;                         // set when `status` is "error" (the mount failed)
-  navigationError: unknown;               // the last failed unit change (the handle's `error`); the page stays
-  goTo: (index: number) => Promise<void>; // rejects `invalid-state` before mount
-  setZoom: (zoom: ZoomValue) => void;     // silent no-op before mount
-  setAppearance: (appearance: Appearance) => void;  // replaces, in place, no remount
-  retry: () => void;                      // re-run the mount
-}
+type UsePreviewResult<V extends PreviewHandle = PreviewHandle> =
+  UsePreviewPending | UsePreviewReady<V> | UsePreviewFailed;
 
+// Every state also has: ref (attach: <div ref={ref} />) and retry (re-run
+// the mount, from the latest start values). Changes go through viewer.
+interface UsePreviewPending { status: "idle" | "loading"; viewer: null; index: null; zoom: null; error: null; navigationError: null }
+interface UsePreviewReady<V extends PreviewHandle = PreviewHandle> {
+  status: "ready";
+  viewer: UsePreviewViewer<V>;            // viewer.info, viewer.format, viewer.xlsx / viewer.docx
+  index: number;                          // mirrored from `indexchange`
+  zoom: ZoomValue;                        // mirrored from `zoomchange`; the painted scale is viewer.scale
+  error: null;
+  navigationError: AaredError | null;     // the last failed navigation (the handle's `error`); the page stays
+}
+interface UsePreviewFailed { status: "error"; viewer: null; index: null; zoom: null; error: AaredError; navigationError: null }
+
+// The preview() handle without destroy(): teardown is the hook's (unmount,
+// a new source, retry()). Per format, so checking `format` still narrows it.
+type UsePreviewViewer<V extends PreviewHandle = PreviewHandle> = V extends PreviewHandle ? Omit<V, "destroy"> : never;
+
+// usePptx → UsePreviewResult<PptxPreview>, useXlsx → <XlsxPreview>, useDocx → <DocxPreview>
 interface UsePptxOptions extends Omit<UsePreviewOptions, "type" | "pagination"> {}
 interface UseXlsxOptions extends Omit<UsePreviewOptions, "type" | "pagination"> {}
 interface UseDocxOptions extends Omit<UsePreviewOptions, "type"> {}
@@ -414,34 +578,37 @@ interface UseDocxOptions extends Omit<UsePreviewOptions, "type"> {}
 Behavior notes:
 
 - The hook owns the host element's contents while mounted and clears them
-  on teardown; the element itself stays yours. Aborted mounts never reach
-  `error` state — swapping `source` mid-flight cancels the stale mount.
-- Failures land in state, never only in a promise nobody awaits. A failed
-  mount sets `status: "error"` and `error`. A failed unit change sets
-  `navigationError` from the handle's `error` event, so it lands whether
-  `goTo()` came from the hook or from `viewer.goTo()`, while `status` stays
-  `"ready"` and the unit on screen stays shown: a host says "that page could
-  not be shown" without losing the view. A unit change and every mount clear
-  it; a cancelled or overtaken `goTo()` never sets it. Navigation inside a
-  unit (`viewer.xlsx`, `viewer.docx`) reports through its own promises.
-- Plain-data mount options (`type`, `index`, `zoom`, `pagination`) are keyed
-  by value, so inline literals don't remount. `appearance` is live: changing
-  it forwards via `setAppearance()` without re-opening, so the unit index,
-  zoom, and Worker session survive dark/light toggles. `source` and the
-  function resolvers are identity-keyed: hold the same `File`/`Blob`/URL
-  across renders and memoize any `ArrayBuffer` you build. `worker` is read at
-  mount and never remounts on its own, so an inline factory is fine.
-- `index` and `zoom` are the *starting* unit and zoom; change them afterward
-  with `goTo()` and `setZoom()`. Changing either option remounts. Zoom
-  survives `goTo()`.
-- StrictMode-safe: mount → cleanup → remount resolves exactly once with no
-  leaked worker or painted output.
-- Same capability boundary as `aared/preview`: open → render → navigate →
-  destroy, with cell, heading and page navigation on `viewer.xlsx` /
-  `viewer.docx`. Search, range reads, and media stay on the headless format
-  entrypoints. A DOCX document is one unit, so its `goTo()` only accepts `0`.
-- `react` (`>=18`) is an optional peer: vanilla consumers never install
-  it, and the entrypoint is import-time safe (no DOM/`Worker` at import).
+  on teardown, so its `viewer` has no `destroy()`. Swapping `source`
+  mid-flight cancels the stale mount, which never reaches `"error"` and
+  never paints over the new one.
+- Failures land in state. A failed mount sets `status: "error"`. A failed
+  navigation (`viewer.goTo()`, or a move on `viewer.xlsx`/`viewer.docx`)
+  sets `navigationError` while `status` stays `"ready"` and the unit on
+  screen stays; the next unit change clears it.
+- `index` and `zoom` are start values, read when the document mounts. Later
+  changes take effect on the next mount (`source` change or `retry()`);
+  `viewer.goTo()` and `viewer.setZoom()` change what is on screen now.
+- `appearance` updates in place when its field values change, preserving the
+  viewer, Worker session, unit, zoom and selection. Removing it resets the
+  defaults. Inline objects and property order do not trigger extra updates.
+  An imperative `viewer.setAppearance()` remains effective until the option's
+  values change or the viewer remounts.
+- `type` and `pagination` re-open the document when their value changes;
+  inline literals don't, since they are compared by value. `source` is
+  compared by identity: hold the same `File`/`Blob`/URL or bytes across
+  renders (a `Uint8Array` kept in state is stable; a copy made per render
+  is not).
+- The function options never re-open it on their own, so inline functions
+  are fine: a `mediaResolver` is called through the latest one given (adding
+  or removing one re-opens), and `fontResolver` and `worker` are read at the
+  next mount (a `source` change or `retry()`).
+- The result object keeps its identity until something in it changes, so it
+  can be an effect dependency.
+- StrictMode-safe: mount, cleanup and remount resolve once, leaking nothing.
+- Search is `viewer.search()`, as on `preview()`; range reads and media stay
+  on the low-level API. A DOCX document is one unit, so its
+  `viewer.goTo()` takes only `0`.
+- `react` (`>=18`) is an optional peer.
 
 ## Design principle
 
@@ -449,59 +616,54 @@ Separate format entrypoints, shared API grammar, native terminology:
 
 > **Same API grammar, format-native vocabulary.**
 
-```ts
-// PPTX
-import { open, render } from "aared/pptx";
-const deck = await open(file);
-const slide = deck.slides.get(0);
-const viewer = await render({ slide, target: container });
+```ts check
+import * as pptx from "aared/pptx";
+import * as xlsx from "aared/xlsx";
+import * as docx from "aared/docx";
 
-// XLSX
-import { open, render } from "aared/xlsx";
-const workbook = await open(file);
+const deck = await pptx.open(file);
+const slideView = await pptx.render({ slide: deck.slides.get(0), target: container });
+
+const workbook = await xlsx.open(file);
 const sheet = workbook.sheets.get("Revenue");
 const data = await sheet.read({ range: "A1:M200" });
-const viewer = await render({ sheet, target: container });
+const sheetView = await xlsx.render({ sheet, target: container });
 
-// DOCX
-import { open, render } from "aared/docx";
-const document = await open(file);
-const viewer = await render({ document, target: container });
+const doc = await docx.open(file);  // not `document`: that would shadow the page's
+const docView = await docx.render({ document: doc, target: container });
 ```
 
-The nouns differ because the file formats differ. The lifecycle —
-`open()` → collection `list()`/`get()` → `read()` where applicable →
-`render()` → `destroy()` → `close()` — is identical, and so are these rules,
-in every format and every layer:
+The nouns differ because the formats differ; the lifecycle (`open()`, the
+collection's `list()`/`get()`, `read()` where it applies, `render()`,
+`destroy()`, `close()`) and these rules are the same in every format and
+layer:
 
-1. **Units vs places.** `count` and `goTo(index)` are *units* — what one
-   `render()` draws, known at `open()`: a slide, a sheet, or the whole DOCX
-   document (`count` is always `1` for DOCX). Moving *within* the rendered
-   unit is `goTo<Place>()`: XLSX `goToCell`, DOCX `goToHeading` and
-   `goToPage`. See [Navigation](#navigation).
-2. **Every `goTo…` returns `Promise<void>`** and rejects with a `not-found`
-   `AaredError` when the target doesn't exist (`invalid-argument` when the
-   index is not a whole number).
-3. **A unit reference is `{ index, title }`** (`UnitRef`): `index` is the
-   `goTo` key, `title` the label. Slide and sheet info, unit events and search
-   matches all use it.
-4. **A cell location is `{ address, row, col }`** (`CellRef`): `address` is
-   the A1 string, `row`/`col` zero-based.
-5. **Looking up by title** (`sheets.get("Revenue")`, `goToSheet`,
-   `goToHeading`, `headings.get`) matches exactly, then case-insensitively —
-   never a substring. Substring matching is only `search()`.
-6. **Events describe changes, not the starting state.** `indexchange`,
-   `slidechange`, `sheetchange` and `zoomchange` fire only when something
-   changed; the ready signal (`load`, `preview()` resolving, the hook's
-   `"ready"`) carries the start.
-7. **Options that can change live are `appearance`; the rest are
-   structural.** `appearance` (`setAppearance()` replaces it whole) holds the
-   chrome; structural options such as `pagination` have the same top-level
-   name in `render()`, `preview()` and the hooks.
-8. **One error model.** Every failure is an `AaredError`, with the same
-   `code` for the same situation in every layer (see [Errors](#errors)).
-9. **After `destroy()`** every method is a no-op that fires no events;
-   `destroyed` is readable on every render handle.
+1. **Units and places.** `count` and `goTo(i)` switch units: a slide, a
+   sheet, or the one DOCX document. Moving inside the unit on screen is
+   `goTo<Place>()` (see [Navigation](#navigation)).
+2. **Every `goTo…` returns `Promise<void>`.** A target that doesn't exist
+   rejects `not-found`; an index that is not a whole number, `invalid-argument`.
+3. **A unit is `{ index, title }`** (`UnitRef`) and **a cell
+   `{ address, row, col }`** (`CellRef`, zero-based), everywhere.
+4. **A title lookup** matches exactly, then ignoring case; never a substring
+   (that is `search()`).
+5. **Events describe changes.** The ready signal (`load`, `preview()`
+   resolving, the hook's `"ready"`) carries the starting state.
+6. **Start values and updates are explicit.** `index` and `zoom` say where a
+   viewer starts; changing these hook options later waits for the next mount.
+   React `appearance` changes apply in place; removing it resets defaults.
+   `goTo()`, `setZoom()` and `setAppearance()` (which replaces it whole)
+   change the mounted viewer, events report
+   the change, and the state a layer shows (`viewer.index`, the hook's
+   `index`, the element's attributes) is a copy of the screen. Structural
+   options such as `pagination` re-open the document and have the same name
+   in `render()`, `preview()` and the hooks.
+7. **One error model:** every failure is an `AaredError`, with the same
+   `code` for the same situation in every layer ([Errors](#errors)).
+8. **After `destroy()`** viewer navigation and search reject with `closed`;
+   zoom and appearance setters do nothing, and repeated cleanup is harmless.
+   Low-level render handles expose `destroyed` and stop changing their output.
+   A render that a newer `render()` into the same target replaced destroys itself.
 
 ### Navigation
 
@@ -519,7 +681,7 @@ is empty.
 
 ### Zoom
 
-Every render handle and facade has the same zoom: `setZoom(zoom)`, the
+Every render handle and viewer has the same zoom: `setZoom(zoom)`, the
 requested `zoom`, and the `scale` it actually painted. `zoom` can also be
 passed to `render()` and `preview()` (and set as the element's attribute) to
 start there without an event.
@@ -536,8 +698,12 @@ start there without an event.
 | XLSX | `1` — 100%, like Excel | the grid, headers included. Fit modes fit the sheet's used area (never the fill cells), with a 25% floor so a huge sheet stays readable and virtualized |
 | DOCX | `"fit-width"` | layout mode: the pages — `fit-width` fits the widest, `fit-page` also keeps the tallest in view. Flow mode: fit modes are 100%, since the column already flows to its container; a number scales it |
 
-Fit modes re-fit when the container resizes. Zoom belongs to the facade: it
-survives `goTo()` in `preview()`, the hooks and the element.
+Fit modes re-fit when the container resizes. Zoom belongs to the viewer: it
+survives `goTo()` in `preview()`, the hooks and the element. Their viewer
+also reads the default back (`defaultZoom`) and steps it the way a toolbar
+does (`zoomIn()`, `zoomOut()`, `resetZoom()`; see the
+[auto-detect preview](#auto-detect-preview-aaredpreview)). How much room the host must
+give is on the Start page: [Sizing](/start/#sizing).
 
 ## PPTX (`aared/pptx`)
 
@@ -549,6 +715,7 @@ import {
   type PaintSlideInput,
   type PptxDocument,
   type PptxInfo,
+  type PptxRenderEventMap,
   type PptxRenderHandle,
   type PptxRenderInput,
   type PptxSearchMatch,
@@ -559,7 +726,7 @@ import {
 ```
 
 ```ts
-const deck = await open(file);            // File | Blob | ArrayBuffer | URL string
+const deck = await open(file);            // File | Blob | ArrayBuffer | Uint8Array | URL string
 deck.info;                                // PptxInfo — format narrowed to "pptx"
 deck.slides;                              // SlideCollection
 deck.media;                               // MediaCollection
@@ -592,12 +759,10 @@ const slide = deck.slides.get(0);
 const model: SlideModel = await slide.read();
 ```
 
-A slide's `title` is `"Slide N"` (1-based), not the text of its title
-placeholder: finding that would mean parsing every slide at `open()`, and
-opening a 200-slide deck must cost the same as opening a 2-slide one. Read
-the slide (`slide.read()`) when you need its real title text.
+A slide's `title` is `"Slide N"` (1-based): its real title text needs the
+slide parsed, which `open()` never does, so read it from `slide.read()`.
 
-### Rendering
+### Rendering a slide
 
 ```ts
 interface PptxRenderInput {
@@ -606,47 +771,50 @@ interface PptxRenderInput {
   appearance?: Appearance;
   zoom?: ZoomValue;               // default "fit-page"
   mediaResolver?: MediaResolver;
+  signal?: AbortSignal;           // cancels before the paint (see Cancellation)
 }
 
+// addEventListener is typed by PptxRenderEventMap: zoomchange, linkactivate.
 interface PptxRenderHandle extends EventTarget {
   readonly slide: SlideInfo;
   readonly zoom: ZoomValue;
   readonly scale: number;
   readonly destroyed: boolean;
-  readonly warnings: readonly RenderWarning[];  // font fidelity only, for PPTX
+  readonly warnings: readonly RenderWarning[];  // elements with no id, and font fidelity, for PPTX
   setZoom(zoom: ZoomValue): void;
   setAppearance(appearance: Appearance): void;
   destroy(): void;
 }
 
 interface RenderWarning {
-  code: string;     // e.g. "font-unavailable"; stable, safe to switch on
+  code: string;     // e.g. "font-unavailable", "pptx-missing-id"; stable, safe to switch on
   message: string;  // for a human
 }
 
-const viewer = await render({ slide, target: container });
-viewer.setZoom(1.5);           // emits `zoomchange`
-viewer.setAppearance({ theme: "dark" });  // theme marker only; slides stay source-faithful
-viewer.destroy();
+const slideView = await render({ slide, target: container });
+slideView.setZoom(1.5);           // emits `zoomchange`
+slideView.setAppearance({ theme: "dark" });  // theme marker only; slides stay source-faithful
+slideView.destroy();
 ```
 
-`viewer.warnings` lists non-fatal things this render noticed about its own
-output — currently a font this render couldn't actually paint with (neither
-the requested family nor a delivered substitute answered, so text painted
-with the browser's own unrelated fallback). A working substitution is not a
-warning: it is the expected outcome for a font nobody has installed. Empty
-unless something is off. The slide is on screen as soon as it is painted;
-`render()` then waits (at most two seconds) for the fonts it paints with to
-arrive before it reads them and resolves, since a delivered substitute
-downloads only once text needs it.
+`slideView.warnings` is empty unless the render noticed something off. Today that
+is a font it could not paint with (`font-unavailable`: neither the requested
+family nor a substitute, so the browser's own fallback painted), and a slide
+whose file gave some shapes, pictures, charts, tables or groups no id
+(`pptx-missing-id`, once per slide; the file is damaged, but PowerPoint's own
+repair only adds the ids, so aared does the same and draws the slide in full).
+The model carries the count as `SlideModel.missingIds`. DOCX and XLSX give the
+same kind of warning (`docx-missing-id`, `xlsx-missing-id`: Word and Excel also
+call a drawing with no id damaged and offer to repair it, and aared draws it in
+full); their models carry the count as `DocumentSection.missingIds` (on the
+first section, for the whole document) and `SheetModel.missingIds`. The slide shows as soon
+as it is painted; `render()` resolves once its fonts arrive (at most two
+seconds), since it reads which font painted.
 
-`render()` accepts a handle (read from the Worker on demand, with picture
-media defaulting to the owning session) or an already-resolved model.
-`paintSlide(input)` is the underlying synchronous paint primitive for
-callers that already hold a model — the same object form as `render()`,
-with the model in place of the handle. Being synchronous, it reads
-`warnings` against whatever fonts have arrived at that moment, so a
-substitute still downloading reports as unavailable:
+`render()` takes a handle (read on demand, media from its session) or an
+already-read model. `paintSlide(input)` is the synchronous paint underneath,
+for a model you hold; it reads `warnings` against whatever fonts have
+arrived at that moment:
 
 ```ts
 interface PaintSlideInput {
@@ -657,83 +825,40 @@ interface PaintSlideInput {
   mediaResolver?: MediaResolver;
 }
 
-const viewer = paintSlide({ model, target: container, mediaResolver: (id) => deck.media.get(id) });
+const slideView = paintSlide({ model, target: container, mediaResolver: (id) => deck.media.get(id) });
 ```
 
 ### Backgrounds and master graphics
 
-A slide paints, back to front: its **background**, the **shared layout
-graphics**, then its own elements.
+A slide paints its background, then its layout's and master's graphics (a
+logo, a header box; placeholders never paint), then its own elements.
+`SlideModel.background` is already resolved through layout and master, a
+`ShapeFillModel` painted like any fill; one that cannot paint stays white
+and marks the slide `data-aared-background="unsupported"`.
+`SlideModel.layout` (`SlideLayoutModel`) is one object shared by every slide
+on that layout: read-only, like every model. What each fill and text feature
+paints is in ARCHITECTURE's format rules.
 
-- **Background** — `SlideModel.background` is the *effective* background,
-  already resolved slide → layout → master (a slide with none of its own
-  inherits, so a dark master paints dark on every slide that doesn't
-  override it). It is a `ShapeFillModel`, the same fill type shapes and
-  table cells use, and paints the same way: solid colours, linear gradients,
-  path gradients of every kind (`circle`, `rect` and `shape`, any focus),
-  the 54 preset patterns, and pictures, stretched, cropped or tiled
-  (`{ kind: "picture", mediaId }`, fetched through the media resolver). A theme background style (`bgRef`) is
-  resolved through the theme's background fill styles, recolored with the
-  reference's own color and the master's color map — so a dark master with a
-  "Background Style" paints the tinted, saturated color PowerPoint shows, not
-  the bare scheme color. A background that cannot paint (a picture with no
-  media resolver, or one whose part is missing) stays white and marks the slide
-  `data-aared-background="unsupported"`, so it is not mistaken for an
-  authored white.
-- **Layout graphics** — the non-placeholder shapes, pictures, and tables on a
-  slide's layout and master (a logo, a header text box). `SlideModel.layout`
-  is a `SlideLayoutModel` shared **by reference**: every slide on a layout
-  carries the same object, which the Worker parses once and the document
-  fetches once, so a master logo isn't repeated per slide. Placeholders on a
-  layout or master are prototypes and are never painted. Charts on layouts
-  and masters are not painted yet. A slide that hides background graphics
-  (`hideBackgroundGraphics`) skips them.
-- **Fields** — a `slidenum` text run shows the slide's `number`; a
-  `datetime` run keeps the date cached in the file.
-
-`SlideHandle.read()` attaches `layout`; `search()` never does (it only needs
-text). Resolved models are read-only — the shared `layout` object in
-particular is the same instance across slides.
-
-The renderer creates a responsive viewport around a fixed authored scene.
-The scene uses the model's inch geometry at 96 CSS pixels per inch and
-applies one uniform scale as the viewport changes, so text, shapes,
-insets, and table tracks retain their authored relationships at every
-display size. `setZoom()` switches between `fit-page` (default),
-`fit-width`, and an explicit scale of the 96-DPI scene.
-
-### Search
+### Searching a deck
 
 ```ts
 interface PptxSearchMatch {
   slide: UnitRef;  // { index, title } — goTo(slide.index)
-  text: string;    // first matching paragraph text on the slide
+  text: string;    // this occurrence's paragraph text (at most 120 characters)
 }
 
 const matches = await deck.search("revenue", { signal });
 ```
 
-Search reads each slide in order (one match per slide) and honors
-cancellation between slides. See [Search grammar](#search-grammar) in the shared core for
-cost and coverage.
+One result per non-overlapping text occurrence, in slide/paragraph order.
+Several results can name the same slide, including repeated occurrences in
+one paragraph. Each result navigates to its slide; highlighting marks every
+painted occurrence. Cancellation is checked between slides. See
+[Search grammar](#search-grammar).
 
-Run hyperlinks (`<a:hlinkClick>` on runs) and whole-shape links
-(`p:cNvPr/a:hlinkClick`) resolve through slide relationships and paint as
-real anchors that notify instead of navigating (`linkactivate` with
-`{ target }`, like XLSX/DOCX): externals carry the URL, internal slide jumps
-carry a `#`-prefixed part path for the host to decide; run-level links win inside
-shape-level ones. Run styling covers underline (`u` + `uFill`/`uLn`,
-style-mapped), strikethrough, caps, character spacing, baseline shift,
-highlight, `ea`/`sym` typeface slots, `noFill` (transparent, marked), and
-`grpFill` (marked). Bullets carry explicit `buClr` color and
-`buSzPct`/`buSzPts` size (absent groups follow the paragraph text);
-picture bullets (`buBlip`) load through the session media with a character
-fallback. Numbering counters restart per autonum type. Text color falls
-back through shape/layout/master `fontRef` and table-style text to
-PowerPoint "Automatic" background contrast. WordArt run outline paints via
-text-stroke, linear text gradients via background-clip (path gradients are
-marked, never approximated), glow/shadow approximate as text-shadow, and
-`prstTxWarp` presets paint unwarped and marked.
+Hyperlinks, on a run or a whole shape, paint as real anchors that notify
+instead of navigating: `linkactivate` with `{ target }`, the URL, or for a
+jump inside the deck a `#`-prefixed part path for the host to decide.
 
 ## XLSX (`aared/xlsx`)
 
@@ -747,6 +872,7 @@ import {
   type SheetReadOptions,
   type XlsxDocument,
   type XlsxInfo,
+  type XlsxRenderEventMap,
   type XlsxRenderHandle,
   type XlsxRenderInput,
   type XlsxSearchMatch,
@@ -778,17 +904,14 @@ interface SheetReadOptions extends ReadOptions {
 class SheetHandle {
   readonly info: SheetInfo;
   read(options?: SheetReadOptions): Promise<SheetRangeModel>;
+  search(query: string, options?: ReadOptions): Promise<XlsxSearchMatch[]>;   // this sheet only
   media(mediaId: string, options?: MediaOptions): Promise<ArrayBuffer>;
 }
 ```
 
-A large spreadsheet never implies reading the whole sheet. A1 syntax is
-first-class (`"A1:M200"`, or a single cell `"D14"`); structured
-`CellRange` form works too; reversed corners normalize to logical order
-for A1 strings. Malformed references reject with an `invalid-range`
-`AaredError`. Note: structured `CellRange` objects do not normalize
-reversed corners — `{ start: { row: 5, col: 5 }, end: { row: 1, col: 1 } }`
-rejects with `invalid-range`.
+A range is an A1 string (`"A1:M200"`, or one cell `"D14"`) or a structured
+`CellRange`. Reversed A1 corners are put in order; a reversed `CellRange`, or
+a malformed reference, rejects with `invalid-range`.
 
 ```ts
 const data = await sheet.read({ range: "A1:M200" });
@@ -796,23 +919,16 @@ const cell = await sheet.read({ range: "D14" });
 const block = await sheet.read({ range: { start: { row: 0, col: 0 }, end: { row: 199, col: 12 } } });
 ```
 
-`read()` returns a `SheetRangeModel`: full sheet metadata (name, extent,
-frozen panes, column widths, merges, drawings) with `rows` windowed to
-the requested range and merges clipped to it. Rows outside the window
-read as empty, exactly like sparse authored rows. The Worker caches the
-parsed sheet per session, so repeated windows slice without re-parsing;
-stale window requests cancel via `AbortSignal`.
+`read()` returns a `SheetRangeModel`: the whole sheet's metadata (name,
+extent, frozen panes, column widths, merges, drawings) with `rows` cut to the
+range and merges clipped to it; rows outside it read as empty. The Worker
+keeps the parsed sheet, so another range is a slice, not a re-parse.
 
-**Sizing a sheet to a container.** Pass `zoom: "fit-width"` (or
-`"fit-page"`) to `render()`: the viewer fits the sheet's used area and
-re-fits when the container resizes; the handle's `scale` is the ratio it
-chose. To size it yourself, read the model: `extent` is the used range as
-`{ cols, rows }` (the worksheet's saved `dimension`, or derived from the
-cells when it is missing), `columnWidths` are inches per column,
-`defaultRowHeight` is inches and a row's own height, when it has one, is
-`rows[n].height` (inches). Multiply inches by 96 for CSS pixels. There is no
-single content-size getter, and the numbers exclude the viewer's own chrome
-(row numbers, column letters, sheet tabs).
+**Sizing a sheet yourself.** `zoom: "fit-width"` or `"fit-page"` fits the
+sheet's used area for you (see [Sizing](/start/#sizing) for the host). To lay it
+out yourself, the model has the used range as `extent` (`{ cols, rows }`),
+`columnWidths` and `defaultRowHeight` in inches, and a row's own height as
+`rows[n].height`; the numbers leave out the viewer's headings and tabs.
 
 ```ts
 interface SheetRangeModel extends SheetModel {
@@ -820,7 +936,7 @@ interface SheetRangeModel extends SheetModel {
 }
 ```
 
-### Rendering
+### Rendering a sheet
 
 ```ts
 interface XlsxRenderInput {
@@ -829,15 +945,17 @@ interface XlsxRenderInput {
   appearance?: Appearance;
   zoom?: ZoomValue;               // default 1 (100%, like Excel)
   mediaResolver?: MediaResolver;
+  signal?: AbortSignal;           // cancels before the paint (see Cancellation)
 }
 
+// addEventListener is typed by XlsxRenderEventMap (the events table below).
 interface XlsxRenderHandle extends EventTarget {
   readonly sheet: SheetInfo;
   readonly selection: CellRef | null;
   readonly zoom: ZoomValue;
   readonly scale: number;
   readonly destroyed: boolean;
-  readonly warnings: readonly RenderWarning[];  // font fidelity only, as for PPTX
+  readonly warnings: readonly RenderWarning[];  // drawings with no id (`xlsx-missing-id`), and font fidelity
   setZoom(zoom: ZoomValue): void;
   setAppearance(appearance: Appearance): void;
   goToCell(cell: string): Promise<void>;
@@ -847,12 +965,12 @@ interface XlsxRenderHandle extends EventTarget {
   destroy(): void;
 }
 
-const viewer = await render({ sheet, target: container });
-await viewer.goToCell("D14");          // select + scroll + focus
-viewer.scrollTo({ range: "F120:J140", align: "center" });
-viewer.focus("F120");                  // select + focus, no scrolling
-await viewer.goToSheet("Revenue");     // switch tabs by title or index; stale reads cancel
-viewer.destroy();
+const sheetView = await render({ sheet, target: container });
+await sheetView.goToCell("D14");          // select + scroll + focus
+sheetView.scrollTo({ range: "F120:J140", align: "center" });
+sheetView.focus("F120");                  // select + focus, no scrolling
+await sheetView.goToSheet("Revenue");     // switch tabs by title or index; stale reads cancel
+sheetView.destroy();
 ```
 
 `goToCell` and `focus` take one cell; `scrollTo` takes exactly one of `cell`
@@ -860,25 +978,16 @@ viewer.destroy();
 empty target, a malformed address — is an `invalid-range` `AaredError`
 (`goToCell` rejects with it; `focus` and `scrollTo` throw it). `goToSheet`
 needs a `SheetHandle` input to reach the workbook; after rendering a bare
-model it rejects `unsupported-feature`.
+model it rejects `unsupported-feature`. Through a preview viewer these are
+the `xlsx` place: `viewer.xlsx.goToCell`, `viewer.xlsx.scrollTo`,
+`viewer.xlsx.focus`, `viewer.xlsx.goToSheet`.
 
-`render()` accepts a handle (read from the Worker on demand) or an
-already-resolved model. The viewer owns row virtualization (with
-overscan), so consumers never compute visible ranges. Columns are
-rendered in full — row virtualization keeps the DOM lightweight for
-sheets with many rows, while all visible columns are painted.
-Renderer-driven Worker re-reads on scroll are out of scope: the grid
-virtualizes the DOM from the model it was given, and
-`sheet.read({ range })` is the API a future windowed loader would
-drive.
+`render()` takes a handle (read on demand) or an already-read model. Rows are
+virtualized for you; columns paint in full.
 
-Zoom scales the whole grid — cells, headers and frozen panes together — and
-the viewer keeps its own scrollbars and fill at every zoom. `fit-width` and
-`fit-page` fit the sheet's used area; see [Zoom](#zoom).
-
-The default viewer looks like a spreadsheet: headers and readonly
-selection are on; sheet tabs are off (the host owns tab switching). Disable
-additional pieces explicitly:
+The default render looks like a spreadsheet: headings and the read-only
+selection are on, sheet tabs are off (the host owns tab switching). Turn
+pieces off explicitly:
 
 ```ts
 await render({
@@ -888,11 +997,11 @@ await render({
 });
 ```
 
-Selection is readonly but fully interactive: click selects, arrows/Home/End/
-PageUp/PageDown move, Enter or double-click activates (`cellactivate`),
-with `role="grid"` semantics and a single tab stop. Hyperlinks render as
-links that notify instead of navigating. Every event names its sheet as a
-unit reference and its cell as a cell location:
+The selection is read-only but interactive: a click selects, the arrow keys,
+Home, End and the page keys move, and Enter or a double-click activates
+(`cellactivate`), with `role="grid"` semantics and one tab stop. Hyperlinks
+notify instead of navigating. The events (`XlsxRenderEventMap`) name the
+sheet as a unit and the cell as a cell location:
 
 | Event | `detail` |
 |---|---|
@@ -903,24 +1012,31 @@ unit reference and its cell as a cell location:
 | `zoomchange` | `{ zoom: ZoomValue }` |
 
 ```ts
-viewer.addEventListener("cellactivate", (event) => console.log(event.detail.address));
-viewer.addEventListener("linkactivate", (event) => { /* host decides */ });
+sheetView.addEventListener("cellactivate", (event) => console.log(event.detail.address));
+sheetView.addEventListener("linkactivate", (event) => { /* host decides */ });
 ```
 
-### Search
+### Searching a workbook
 
 ```ts
 interface XlsxSearchMatch extends CellRef {   // { address, row, col }
   sheet: UnitRef;   // { index, title }
   text: string;
+  chart?: { name: string };   // a chart's word, at the chart's top-left cell
 }
 
-const matches = await workbook.search("revenue", { signal });
+const matches = await sheet.search("revenue", { signal });
 ```
 
-One match per matching cell, across every sheet including hidden ones. See
-[Search grammar](#search-grammar) in the shared core for cost and coverage. Formulas are
-never evaluated: a cell matches on its cached, formatted value.
+A workbook is searched one sheet at a time, as Excel's Find searches the
+sheet you are on: `sheet.search()` covers that sheet alone, and the viewer's
+`search()` covers the sheet on screen. For a workbook-wide search, loop over
+`workbook.sheets.list()` (hidden sheets included).
+
+One match per matching cell, against the cached, formatted value (formulas
+are never evaluated). A chart's words (its title, axis titles, series names
+and categories) match too, reported at the cell the chart is anchored to,
+with `chart` set. See [Search grammar](#search-grammar).
 
 ## DOCX (`aared/docx`)
 
@@ -932,6 +1048,7 @@ import {
   type DocxInfo,
   type DocxPageInfo,
   type DocxPagination,
+  type DocxRenderEventMap,
   type DocxRenderHandle,
   type DocxRenderInput,
   type DocxSearchMatch,
@@ -943,23 +1060,21 @@ import {
 ```
 
 ```ts
-const document = await open(file);
-document.info;       // DocxInfo
-document.sections;   // SectionCollection — the source/document structure
-document.headings;   // HeadingCollection — outline in document order
-document.media;      // MediaCollection
-document.close();
+const doc = await open(file);
+doc.info;       // DocxInfo
+doc.sections;   // SectionCollection — the source/document structure
+doc.headings;   // HeadingCollection — outline in document order
+doc.media;      // MediaCollection
+doc.close();
 ```
 
-A DOCX section is source structure, not a physical page. Sections resolve
-together at `open()` (one Worker round-trip) and are consumed together by
-rendering/layout — there is deliberately no `section.read()`, and no
-source-level `document.pages`. Physical pages are derived layout output
-and live on the render result only.
+A section is source structure, not a page: all of them arrive with `open()`,
+so there is no `section.read()`. Pages are layout, and exist only on a
+layout-mode render (`pages`).
 
 ```ts
-const sections = document.sections.list();
-const section = document.sections.get(0);
+const sections = doc.sections.list();
+const section = doc.sections.get(0);
 
 interface HeadingInfo {
   index: number;    // position in headings.list(); goToHeading(index)
@@ -967,26 +1082,21 @@ interface HeadingInfo {
   level: number;    // 1-based outline level
   section: number;  // zero-based section index
 }
-const headings = document.headings.list();
-const intro = document.headings.get("Introduction");  // by title, or get(0) by index
+const headings = doc.headings.list();
+const intro = doc.headings.get("Introduction");  // by title, or get(0) by index
 ```
 
-The outline is the document's **body** headings, in order — what Word's
-Navigation pane lists. A heading-styled paragraph in a header, footer, text
-box or table cell is not part of it, and has no index. The same outline
-backs `headings.list()`, `goToHeading()`, `viewer.docx.headings` and search
-matches, so an index means the same heading everywhere.
+The outline is the document's **body** headings, in order, as Word's
+Navigation pane lists them; a heading in a header, footer, text box or table
+cell is not in it. The same index means the same heading in
+`headings.list()`, `goToHeading()`, `docView.docx.headings` and search matches.
 
-`info.titles` holds one entry: the document's title from its file
-properties, or `"Document"` when it has none. `info.sizes` is omitted — a
-document has no single size; per-section page setup is on
-`document.sections.list()`, laid-out pages on the render handle's `pages`.
+`info.titles` has one entry, the title from the file's properties or
+`"Document"`; `info.sizes` is omitted (see [`DocumentInfo`](#documentinfo)).
 
-### Rendering
+### Rendering a document
 
-Flow is the default; physical layout is opt-in. One async object form,
-matching `aared/pptx` and `aared/xlsx` — the envelope is shared, the unit
-noun stays format-native (`slide` / `sheet` / `document`):
+Flow is the default; physical pages are opt-in:
 
 ```ts
 type SoftBreakPolicy = "ignore" | "prefer" | "force";
@@ -1003,6 +1113,7 @@ interface DocxRenderInput {
   appearance?: Appearance;
   zoom?: ZoomValue;              // default "fit-width"
   mediaResolver?: MediaResolver;
+  signal?: AbortSignal;          // cancels before the paint (see Cancellation)
 }
 
 interface DocxPageInfo {
@@ -1012,89 +1123,136 @@ interface DocxPageInfo {
   orientation: "portrait" | "landscape";
 }
 
+// addEventListener is typed by DocxRenderEventMap: zoomchange, linkactivate.
 interface DocxRenderHandle extends EventTarget {
   readonly pageCount: number;              // 0 in flow mode
   readonly pages: readonly DocxPageInfo[]; // [] in flow mode
   readonly zoom: ZoomValue;
   readonly scale: number;
   readonly destroyed: boolean;
-  readonly warnings: readonly RenderWarning[];  // layout-mode pagination edge cases, plus font fidelity in either mode
+  readonly warnings: readonly RenderWarning[];  // layout-mode pagination edge cases, drawings with no id (`docx-missing-id`), and font fidelity in either mode
   setZoom(zoom: ZoomValue): void;
   setAppearance(appearance: Appearance): void;
   goToHeading(target: string | number): Promise<void>;
   goToPage(index: number): Promise<void>;
+  goToSearchMatch(match: DocxSearchMatch): Promise<void>;
   destroy(): void;
 }
 
-const viewer = await render({ document, target: container });   // flow: pageCount 0
-const paged = await render({
-  document,
+const docView = await render({ document: doc, target: container });   // flow: pageCount 0
+await docView.goToHeading("Introduction");   // by title, or goToHeading(2) by index
+docView.destroy();
+
+const pagedDocView = await render({
+  document: doc,
   target: container,
   pagination: { mode: "layout", softBreaks: "prefer" },        // physical pages
 });
-await viewer.goToHeading("Introduction");   // by title, or goToHeading(2) by index
-await paged.goToPage(3);                    // layout mode only
-viewer.destroy();
+await pagedDocView.goToPage(3);                    // layout mode only
 ```
 
-Flow concatenates the section roots into one continuous article (last
-section's header/footer); layout paginates into per-page DOM reusing the
-structural paginator. `softBreaks` is DOCX-native policy for preferred
-(`w:lastRenderedPageBreak`) breaks: `"ignore"` | `"prefer"` (default) |
-`"force"`. Every page stays in the DOM (find-in-page, selection and links
-reach all of it), but where the browser supports `content-visibility`, a
-page off screen skips style and layout until it is scrolled near; `pages` and
-`pageCount` come from the layout, not from measuring the DOM. Paragraph runs
-are direct children of `[data-aared-element="paragraph"]` and `heading`.
+Flow is one continuous article (with the last section's header and footer);
+layout paints one box per page. `softBreaks` is what to do with the page
+breaks Word stored at its last save (`w:lastRenderedPageBreak`): `"ignore"`,
+`"prefer"` (default) or `"force"`. Every page stays in the DOM, so
+find-in-page, selection and links reach all of it.
 
-`goToHeading` works in both modes (a number is the `headings.list()` index;
-a string matches the title exactly, then ignoring case). `goToPage` rejects
-`unsupported-feature` in flow mode — flow has no pages — and `not-found`
-outside `0 <= index < pageCount`. See [Navigation](#navigation).
+`goToHeading` works in both modes; `goToPage` rejects `unsupported-feature`
+in flow mode and `not-found` outside the pages (see
+[Navigation](#navigation)). Through a preview viewer this is the `docx`
+place: `viewer.docx.goToHeading`. Passing the `DocxDocument` loads pictures through
+its session; pass a `mediaResolver` only for a bare section list (without
+one, its pictures paint as placeholders).
 
-Pass the `DocxDocument` (not a bare section list) and picture media resolves
-through the owning session automatically — the same rule as PPTX/XLSX handle
-inputs. Pass an explicit `mediaResolver` only to override that boundary (or
-when rendering detached sections). Detached sections without a resolver paint
-image placeholders.
+> **DOCX pages are laid out like Word's, but pixel-identical Word pagination
+> is not part of the contract.**
 
-The fidelity boundary is explicit:
+### Searching a document
 
-> **DOCX physical pagination is supported, but pixel-identical Microsoft
-> Word pagination is not part of the contract.**
-
-### Search
-
-Async like the other formats. Sections are already in memory, so it
-resolves quickly; the searchable blocks are indexed once on the first call:
+Sections are already in memory, so it resolves quickly; the blocks are
+indexed on the first call:
 
 ```ts
 interface DocxSearchMatch {
-  kind: "heading" | "paragraph" | "list" | "table" | "footnote" | "endnote";
+  kind: "heading" | "paragraph" | "list" | "table" | "footnote" | "endnote" | "chart" | "textBox" | "header" | "footer";
   section: number;
   heading: { index: number; title: string } | null;  // nearest preceding body heading
   text: string;
   table?: { index: number; row: number; col: number };  // kind "table"
   note?: { id: string; label: string };                 // notes
+  textBox?: { index: number };                          // kind "textBox", document order
+  story?: { part: string; variant: "default" | "first" | "even" }; // headers/footers
 }
 
-const matches = await document.search("revenue", { signal });
+const matches = await doc.search("revenue", { signal });
 ```
 
-Covers heading, paragraph, list, table-cell, and footnote/endnote text, one
-match per matching block in document order, notes last.
+Covers heading, paragraph, list, table-cell, text-box, and footnote/endnote text, one
+match per matching block in document order, notes last, and a chart's words
+(`kind: "chart"`, with the section and heading the chart sits under).
 
 - **Tables.** `table.index` counts tables in the section in document order
   (nested tables included); `row` and `col` locate the innermost cell
   (`col` is the logical cell order, not the visual position in an RTL
   table). A heading inside a table cell does not change `heading`.
 - **Headings.** `heading.index` is the outline index, so
-  `viewer.goToHeading(match.heading.index)` jumps to the match's heading.
-- **Notes.** Word stores every note after the body. A note match reports the
-  `section` and `heading` of the paragraph that first *references* it, so the
-  location points at where a reader meets the footnote mark.
-- Headers, footers, text boxes, and image alt text are not searched. See
-  [Search grammar](#search-grammar) in the shared core.
+  `docView.goToHeading(match.heading.index)` jumps to the match's heading.
+- **Notes.** A note match reports the `section` and `heading` of the
+  paragraph that first references it, where a reader meets the mark.
+- **Headers and footers.** One result per matching block in a distinct source part,
+  with `kind: "header"` or `"footer"`, `heading: null`, and `story` identifying
+  its part and first indexed variant. Inherited copies do not repeat results;
+  separate parts with identical text remain separate. Image alt text is not searched.
+
+Text inside body text boxes is searched under `kind: "textBox"`; the
+`textBox.index` identifies the box in section document order.
+
+Viewer search highlights matching text by default in PPTX, XLSX and DOCX.
+Pass `{ highlight: false }` to return results without highlighting and clear
+previous highlights. An empty query clears the active search and returns `[]`.
+Document and sheet APIs remain data-only.
+
+The active query follows slide/sheet navigation and newly painted text, including
+virtualized XLSX rows and repeated DOCX headers. Highlighting runs on the main
+thread, using browser text ranges without changing layout. A browser without
+CSS Custom Highlight support rejects a nonempty highlighted search with
+`unsupported-feature`; data-only search remains available.
+Highlighting code loads on the first highlighted search, on the main thread;
+the Worker search protocol and resolved models are unchanged. Calling with
+`{ highlight: false }` from the start skips the highlighting chunk.
+`goToSearchMatch(match)` on DOCX controls scrolls to the first displayed
+header/footer copy or nearest body heading. An undisplayed header/footer
+rejects with `not-found`; flow mode shows only the final default pair.
+Search includes saved field text; highlighted page fields use displayed values.
+
+The app owns the search input and results list. The package handles highlighting
+and navigation. For example, with the preview API:
+
+```ts check
+import { preview } from "aared/preview";
+
+const viewer = await preview({
+  source: file,
+  target: container,
+  pagination: { mode: "layout" },
+});
+
+if (viewer.format === "docx") {
+  // Get results and highlight every occurrence, including repeated headers.
+  const matches = await viewer.search("nile");
+
+  // When the user clicks a result:
+  if (matches[0]) {
+    await viewer.docx.goToSearchMatch(matches[0]);
+  }
+
+  // When the user clears the search:
+  await viewer.search("");
+}
+
+// When the viewer is no longer needed:
+viewer.destroy();
+```
 
 ## Shared core (`aared/core`)
 
@@ -1106,19 +1264,23 @@ import type {
   Collection,
   DocumentFormat,
   DocumentInfo,
+  FontResolver,
   GridlineMode,
   LoadProgress,
   MediaCollection,
   MediaOptions,
+  MediaResolver,
   OpenOptions,
   ReadOptions,
+  RenderWarning,
   Source,
   UnitRef,
   ViewerTheme,
   WorkerInit,
   ZoomValue,
+  // and every model type (SlideModel, SheetRangeModel, DocumentSection, ...): see Resolved models
 } from "aared/core";
-import { AaredError, isAaredError, isAbort, messageFor } from "aared/core";
+import { AaredError, fontAlias, isAaredError, isAbort, messageFor } from "aared/core";
 ```
 
 ### Sources and options
@@ -1126,7 +1288,7 @@ import { AaredError, isAaredError, isAbort, messageFor } from "aared/core";
 ```ts
 type DocumentFormat = "pptx" | "xlsx" | "docx";
 
-type Source = File | Blob | ArrayBuffer | string;
+type Source = File | Blob | ArrayBuffer | ArrayBufferView | string;  // a view (Uint8Array, Node Buffer) is read over its own range
 
 type WorkerInit = string | URL | (() => Worker);
 
@@ -1145,7 +1307,7 @@ interface MediaOptions {
   signal?: AbortSignal;
 }
 
-type FontResolver = (requestedFamily: string) => Promise<FontFace> | undefined;
+type FontResolver = (requestedFamily: string) => Promise<FontFace | undefined> | undefined;
 type MediaResolver = (mediaId: string) => Promise<ArrayBuffer>;
 
 /** The name a `FontResolver` must register a delivered substitute under (see below). */
@@ -1165,72 +1327,46 @@ interface CellRef {
 }
 ```
 
-`fontResolver` is main-thread-only: `open()` receives it, but it is never
-posted to the Worker. After the Worker produces a model that names required
-families, the main-thread session invokes the resolver. Without one — the
-default, and the recommended setup — nothing downloads: a family the reader
-lacks paints in the browser's own fonts, which on a phone load faster and
-read better than any substitute, at the cost of some lines breaking a word
-differently from Office. A resolver that throws or rejects never fails a
-read or a render: that family paints in the browser's fallback, the render
-handle's `warnings` names it (`font-unavailable`), and the next read asks the
-resolver again.
+**`fontResolver`** is optional, and leaving it out is the recommended setup:
+nothing downloads, and a family the reader lacks paints in the browser's own
+fonts (some lines then break a word differently from Office). A resolver is
+called on the main thread for each family a read names; one that throws or
+rejects never fails a read or a render: the family falls back, the render's
+`warnings` names it (`font-unavailable`), and the next read asks again.
 
-The repo's `aared-fonts` package is such a resolver, frozen and not
-published: its `defaultResolver` maps Office families to open substitutes
-(metric clones for Calibri, Cambria, Arial, Times New Roman and Courier New;
-calibrated look-alikes for Aptos, Aptos Display and Aptos Narrow; calibrated
-Naskh faces for Arabic), registers them for the browser to fetch as text
-needs them, and resolves `undefined` for a family it doesn't know. On a real
-phone it made the first slide about 7 s slower, and its Arabic harder to read
-than the phone's own (DECISION_LOG §53). Pass it only when matching Office's
-line breaks matters more than both:
+A resolver registers its `FontFace` under `fontAlias(requestedFamily)`,
+never the requested name itself (that would shadow a reader who has the real
+font) and never the substitute's own name (the renderer would not select
+it). The repo's frozen, unpublished `aared-fonts` is such a resolver, for an
+app that needs Office's line breaks exactly.
 
-```ts
-import { open } from "aared/pptx";
-import { defaultResolver } from "aared-fonts"; // from the repo; not on npm
-
-const deck = await open(file, { fontResolver: defaultResolver });
-```
-
-A custom resolver must register its delivered `FontFace` under
-`fontAlias(requestedFamily)`, never the bare requested name and never the
-substitute's own name: the renderer's CSS always lists the requested family,
-then its alias, then a generic fallback, so registering under anything else
-either shadows a reader who genuinely has the requested font installed, or
-is never selected at all.
-
-```ts
-import { fontAlias } from "aared/core";
+```ts check
+import { fontAlias, type FontResolver } from "aared/core";
 
 const resolver: FontResolver = async (requestedFamily) => {
   if (requestedFamily !== "Calibri") return undefined;
   const face = new FontFace(fontAlias(requestedFamily), "url(/fonts/carlito.woff2)");
-  document.fonts.add(face);
-  return face.load();
+  document.fonts.add(face);  // the browser fetches it when text first needs it
+  return face;
 };
 ```
 
 ### Worker override
 
-By default, `open()` spawns a Worker using a relative URL pointing to the
-bundled `worker.mjs` file, which is self-contained — deploy it wherever the
-rest of `dist/core/` lands and it needs nothing else. No consumer-side
-worker config is needed.
-
-The default path works with Vite, webpack 5 (no loader) and Next.js 16
-(Turbopack or webpack): production builds, dev servers, Next.js server
-rendering, and deployments under a sub-path (webpack `publicPath`, Next.js
-`basePath`). aared can be imported at the top of a Next.js client component.
+By default `open()` starts the Worker from the self-contained `worker.mjs`
+beside the package's other files: no configuration. That works with Vite,
+webpack 5 and Next.js, in production builds, dev servers and under a
+sub-path, and every entry can be imported where a server prerenders.
 
 **Scripts on a CDN.** A browser never starts a Worker from a script on
-another origin, CORS or not, so with webpack `publicPath` or Next.js
-`assetPrefix` on another host the default path fails: `open()` rejects with
+another origin, so with your assets on another host `open()` rejects with
 `worker-error`, naming the cause. Start the Worker from a same-origin Blob
-that imports aared's self-contained worker file from the CDN (the CDN must
-send `Access-Control-Allow-Origin`, as for any module script):
+that imports the worker file from the CDN (which must send
+`Access-Control-Allow-Origin`, as for any module script):
 
-```ts
+```ts check
+import { open } from "aared/pptx";
+
 // The bundler emits the worker file with the other assets (on the CDN).
 const workerUrl = new URL("aared/worker", import.meta.url);
 const worker = () => new Worker(
@@ -1240,63 +1376,54 @@ const worker = () => new Worker(
 const deck = await open(file, { worker });
 ```
 
-Checked with webpack 5 and Next.js 16 (Turbopack and webpack). The default
-Worker chunk is still emitted beside it and never loaded.
-
-The default path also breaks for
-single-file bundles (`vite-plugin-singlefile`), strict CSP
-environments, SSR/Node, and bundler-specific Worker constructors.
-
-Override worker construction with the `worker` option. Single-file bundles
-inline the same self-contained worker (no sibling chunks to fetch):
+Set the `worker` option for a single-file bundle (`vite-plugin-singlefile`),
+a strict CSP, or a bundler's own Worker constructor. A single-file bundle
+inlines the same self-contained worker:
 
 ```ts
-// Blob URL from the inlined single-file worker (single-file bundles)
+// Single-file bundles: a Blob URL from the inlined worker source
 import workerSource from "aared/worker?raw";
+
 const workerUrl = URL.createObjectURL(new Blob([workerSource], { type: "application/javascript" }));
 const deck = await open(file, { worker: workerUrl });
-
-// Vite ?worker import (factory)
-import MyWorker from "./worker?worker";
-const deck = await open(file, { worker: () => new MyWorker() });
 ```
 
-`WorkerInit` accepts a `string` or `URL` (treated as the worker script
-address) or a `() => Worker` factory (for Vite `?worker`, webpack
-`worker-loader`, etc.). The same option is available on `preview()`,
-`detect()`, and `<aared-viewer>` (as a JS property, not an attribute).
+Or a factory, here with Vite's `?worker` import of your own worker entry
+(`./worker.ts` holds one line, `import "aared/worker";`):
 
-**Worker lifetime.** `close()` ends the session: pending reads reject with
-`closed` and the Worker drops the document. The Worker itself is kept for
-the next `open()` with the same `worker` setting (the default, or the same
-URL), so opening file after file — and `preview()` / `<aared-viewer>`
-detecting a format and then opening it — doesn't boot a new Worker each
-time. It stops about 15 seconds after the last document closes, and a Worker
-that had a read cancelled or cut off by `close()` is stopped at once. Two
-documents open at the same time each get their own Worker. A `() => Worker`
-factory's Workers are yours: each serves one document and is terminated on
-`close()`.
+```ts
+import AaredWorker from "./worker?worker";
+
+const deck = await open(file, { worker: () => new AaredWorker() });
+```
+
+`WorkerInit` is a script URL (`string` or `URL`) or a `() => Worker` factory;
+`preview()`, `detect()` and `<aared-viewer>` (a property) take it too.
+
+**Worker lifetime.** `close()` ends the session; pending reads reject with
+`closed`. The Worker is kept for the next `open()` with the same `worker`
+setting and stops about 15 seconds after the last document closes; two
+documents open at once each get their own. A factory's Workers are yours:
+one per document, terminated on `close()`.
 
 ### Styling and CSP
 
-Renderers keep their default look — grid cells, paragraph and page boxes —
-as rules in one constructed stylesheet, adopted on the root the render lives
-in (the document, or the shadow root that contains the target, as inside
-`<aared-viewer>`) and removed when the last render there is destroyed.
-Inline style on rendered elements carries only what the file authors. No
-`<style>` text or style attribute is written, so rendering needs no
-`style-src 'unsafe-inline'`. The `aared-*` class names are internal, not
-API; the styling hooks stay `data-aared-*` attributes, `::part()` on
-`<aared-viewer>`, and the `--aared-*` tokens. Your own CSS overrides a
-renderer default only with `!important` or a selector with at least two IDs
-and a class. Render into an element that is attached (to the document or a
-shadow root) before layout; DOM serialised out of the page (`outerHTML`)
-doesn't carry the defaults.
+Renderer defaults (grid cells, paragraph and page boxes) are rules in one
+constructed stylesheet on the root the render lives in, the document or a
+shadow root; inline style carries only what the file authors, set through
+the CSSOM. Nothing writes a `<style>` element or a style attribute,
+`<aared-viewer>`'s chrome included, so a `style-src` without
+`'unsafe-inline'` works (checked under `style-src 'self'` with every
+format). The `aared-*` class names are internal; the styling hooks are the
+`data-aared-*` attributes, `::part()` and the `--aared-*` tokens. Your CSS
+beats a renderer default only with `!important` or a selector with two IDs
+and a class. Render into an attached element; DOM serialised out of the page
+(`outerHTML`) doesn't carry the defaults.
 
 ### Collections
 
 The shared grammar behind `deck.slides`, `workbook.sheets`,
-`document.sections`, and `document.headings`:
+`doc.sections`, and `doc.headings`:
 
 ```ts
 interface Collection<TItem, TKey> {
@@ -1305,16 +1432,13 @@ interface Collection<TItem, TKey> {
 }
 ```
 
-`list()`/`get()` are synchronous over data resolved at `open()` time.
-`get()` throws a `not-found` `AaredError` for unknown keys. Sheets and
-headings also accept a title (`workbook.sheets.get("Revenue")`,
-`document.headings.get("Introduction")`): exact match first, then
-case-insensitive — never a substring.
+`list()`/`get()` are synchronous over what `open()` resolved; `get()` throws
+`not-found` for an unknown key. Sheets and headings also take a title
+(`workbook.sheets.get("Revenue")`), matched as in rule 4 above.
 
 ### Media
 
-Images and embedded media are not inlined into resolved models.
-`MediaCollection` is the collection-shaped access every document exposes:
+Models refer to pictures by `mediaId`; `MediaCollection` fetches the bytes:
 
 ```ts
 interface MediaCollection {
@@ -1324,50 +1448,49 @@ interface MediaCollection {
 const bytes = await deck.media.get(mediaId); // → ArrayBuffer, transferred from the worker
 ```
 
-When rendering from a handle, picture media resolves through the owning
-session automatically; pass an explicit `mediaResolver` only to override
-that boundary (or when rendering a bare model detached from any document).
-
-`media.get()` matters when you build your own UI from `read()` models and
-need the bytes behind a model's `mediaId` (for example, to show a picture
-in your own element). It is not part of `preview()`; use a format
-entrypoint. Rejects with a `closed` `AaredError` after `close()`.
+A render from a handle loads its pictures through the document's session;
+pass a `mediaResolver` only for a bare model. `media.get()` is for your own
+UI built from `read()` models; it rejects with `closed` after `close()`.
 
 ### Search grammar
 
-Every format document has an async `search(query, options?)` for building
-your own search UI — a search box and a result list that jumps to a location
-(`goTo(match.slide.index)`, `goToCell(match.address)`,
-`goToHeading(match.heading.index)`).
-The built-in viewers (`<aared-viewer>`, `preview()`, the hooks) do **not**
-ship a search UI or highlight matches, and `preview()` does not expose
-`search()`; use a format entrypoint.
+A PPTX or DOCX document, and each XLSX sheet (`sheet.search()`), has an async
+`search(query, options?)` for your own search box: each match is a location to
+jump to (`goTo(match.slide.index)`, `goToCell(match.address)`,
+`goToHeading(match.heading.index)`). These low-level searches return data only.
+Viewer searches highlight matching painted text by default; pass
+`{ highlight: false }` for results only, or search an empty string to clear.
+A workbook is searched one sheet at a time, as Excel's Find is.
+Switching sheets keeps the highlight query active; an application that displays
+results should run `viewer.search(query)` again on `indexchange` to get the new
+sheet's matches. The built-in viewers have no search
+UI; `viewer.search()` on `preview()`, the hooks and the element runs the same
+search on the viewer's own document, and on the sheet on screen for a workbook.
 
-- Case-insensitive substring match; an empty query returns `[]`.
-- Text only, never formulas. Each match's `text` is truncated to 120
-  characters.
-- Results are locations (a slide `UnitRef`, a sheet `UnitRef` plus cell
-  location, a section and heading), not highlights.
-- After `close()` it rejects with a `closed` `AaredError`.
-- **Cost.** The first PPTX or XLSX search reads each slide or sheet in order
-  from the Worker, so it scales with file size (in a browser, a 300-slide deck
-  takes about 0.6 seconds and a 13-sheet, ~50,000-row workbook about 1.8
-  seconds; see [BENCHMARKS.md](https://github.com/Abdo-Eid/aared/blob/main/docs/BENCHMARKS.md)); pass
-  `signal` to cancel between units. The text it extracts is kept, so every
-  later search on that document is a plain string scan (milliseconds) — you
-  still want to debounce keystrokes. DOCX searches sections that are already
-  in memory and indexes them on first use, so it resolves quickly. Searching never
-  paints, so it doesn't trigger `fontResolver` loads.
-- **Coverage.** PPTX searches shape and table text. XLSX searches formatted
-  cell text on every sheet, hidden sheets included. DOCX searches heading,
-  paragraph, list, table-cell, and footnote/endnote text; headers, footers,
-  and text boxes are **not** searched, so a string that is visible on the
-  page there can return no match.
+- A case-insensitive substring match over text, never formulas; an empty
+  query returns `[]`, and each match's `text` is cut to 120 characters (the
+  text as written, not as compared).
+- Arabic spellings that readers treat as one word match each other: tashkeel
+  and tatweel are ignored, every alef form (`أ إ آ ٱ`) matches `ا`, `ى`
+  matches `ي`, and Arabic-Indic and Persian digits match Western ones, so
+  `الانتاج` finds `الإنتاج` and `٢٤` finds `24`. Ta marbuta against ha, and
+  the hamza on waw or ya, stay different letters. A query of only marks (a lone
+  fatha) matches nothing. Title lookups (`sheets.get("Q1")`) stay case-only.
+- The first PPTX search reads every slide from the Worker, so it grows with
+  the file (timings in
+  [BENCHMARKS.md](https://github.com/Abdo-Eid/aared/blob/main/docs/BENCHMARKS.md));
+  `signal` cancels it between slides. The first search of an XLSX sheet reads
+  that sheet only. Later searches scan the kept text in milliseconds. DOCX is
+  already in memory.
+- PPTX searches shape and table text; XLSX the sheet's formatted cells;
+  DOCX headings, paragraphs, lists, table cells, notes, text boxes, headers
+  and footers.
+- After `close()` it rejects with `closed`.
 
 ### Appearance
 
-One small knob; structural styling lives in CSS custom properties and
-shadow parts, not here:
+The viewer's own look, passed to `render()`, `preview()` and the hooks
+(structural styling is CSS: tokens and `::part()`):
 
 ```ts
 type ViewerTheme = "light" | "dark" | "system";
@@ -1387,26 +1510,22 @@ interface Appearance {
 type ZoomValue = "fit-width" | "fit-page" | number;
 ```
 
-`theme` controls only chrome owned by `aared`: the element's stage and
-controls, the XLSX sheet-tab bar and selection accent, and the
-`data-aared-theme` marker on each render's root. The sheet grid itself —
-row and column headings included — paints light like the page it is, and
-authored content is never recolored. Document content in every
-format always paints source-faithful. `theme` defaults to `"light"`:
-viewers render light regardless of the OS or host page until you opt in
-with `"dark"` or `"system"`. See [Dark mode](#dark-mode).
+`theme` (default `"light"`) styles the viewer's chrome only, never the
+document; see [Dark mode](#dark-mode).
+
+`spreadsheet.sheetTabs` defaults by layer. The embed layers
+(`<aared-viewer>`, `preview()`, the hooks) show a workbook's tabs unless it
+is `false`, since they have no other way to switch sheets. The low-level
+`render()` leaves them off unless it is `true`, for an app that draws its
+own. `setAppearance()` replaces the appearance whole: what it leaves out goes
+back to these defaults.
 
 `spreadsheet.fill` (default `true`) continues the grid past the data with
-empty cells, and row and column headings, until the viewport is full — the
-way Excel's grid never ends at your last row. It is viewer chrome only: the
-extra cells are inert and are not part of the sheet's extent, selection or
-navigation. A sheet that already overflows the viewer gets no fill. Set
-`fill: false` to render only the cells the file contains. The fill is light
-on the page: one cell per data row for its run of fill columns and one cell
-per empty row, with the inner gridlines drawn as backgrounds — so it isn't
-addressable as individual cells. The fill is painted with the sheet, in the
-same frame, so a short sheet never shows without it; a target inside a
-scroll box that has a `max-height` is filled up to that limit.
+empty cells and headings until the viewport is full, the way Excel's grid
+never ends at your last row. The extra cells are inert: not part of the
+extent, selection or navigation, and not addressable one by one. A sheet
+that already fills the viewer gets none; `fill: false` paints only the
+file's cells.
 
 ### Errors
 
@@ -1452,40 +1571,17 @@ and where it comes from:
 | `media-error` | `media.get()` for a part the document does not have | `media.get()` |
 | `not-found` | A whole-number index, title, heading or layout that does not exist | `get()`, `goTo()`, `goToHeading()`, `goToPage()` |
 | `invalid-range` | A malformed A1 range, cell or sheet window | `sheet.read({ range })`, `goToCell()`, `scrollTo()`, `focus()` |
-| `invalid-argument` | A value that is not what the call takes (an index that is not a whole number) | `get()`, `goTo()`, `goToPage()`, the element's `index` |
-| `invalid-state` | A call the viewer is not ready for: the element's `open()` with no source, the hook's `goTo()` before mount | the element, `usePreview()` |
+| `invalid-argument` | A value that is not what the call takes: an index that is not a whole number, a source that is not a file, bytes or a URL | `get()`, `goTo()`, `goToPage()`, the element's `index`; `open()`, `detect()`, `preview()`, the element |
+| `invalid-state` | A call the viewer is not ready for: the element's `open()` with no source | the element |
 | `worker-error` | The Worker failed to start (including a browser refusing a Worker script from another origin), stopped, or a request could not be posted; every later call on that document reports it too | any call that reaches the Worker |
 | `internal` | aared failed on this file: a defect in the viewer, not in the file. `cause` is the original error with its stack: include it in a bug report | any call that reaches the Worker |
 | `closed` | Called after `close()` or `destroy()` | everything on a closed document or destroyed handle |
 | `aborted` | Cancelled by your signal, or superseded by a newer call | anything that takes a `signal`; a replaced `open()` or `goTo()` |
 
-**Messages.** `message` starts with the entrypoint you called
-(`aared/pptx: …`, `aared/preview: …`), says what failed, and says what to do
-when you can do something (an `invalid-document` from a damaged file
-suggests re-saving it in Office; a refused Worker names the `worker`
-option). The one exception is cancellation, which always reads
-`aared/core: request was cancelled`. Messages are English and meant for
-developers and logs; their wording may change, `code` does not.
-`messageFor()` gives one short, generic English sentence per code for a UI
-that wants it; it leaves out the detail `message` carries and is not
-localized, so a host that shows errors in another language maps `code` to
-its own strings.
+```ts check
+import { isAaredError } from "aared/core";
+import { open } from "aared/xlsx";
 
-**`cause`.** Set when there is an underlying error: the browser's event for a
-Worker that died or was refused, the platform error behind a `network-error`,
-and for `internal`, the Worker's original error rebuilt with its name and
-stack.
-
-**Embed layers.** The format entrypoints reject. `preview()`'s handle and
-`<aared-viewer>` also fire `error` (`detail: { message, cause }`, where
-`cause` is the same `AaredError` instance the call rejects with) for failures
-the caller may not be awaiting: a failed open (element), a failed `goTo()`,
-or a failed move inside the unit (`viewer.xlsx`, `viewer.docx`). Listen to
-the event or catch the promise: each failure arrives on both, so handling
-both handles it twice. `usePreview()` turns them into state: `error` for the
-mount, `navigationError` for any later navigation.
-
-```ts
 try {
   const workbook = await open(file);
 } catch (error) {
@@ -1495,56 +1591,92 @@ try {
 }
 ```
 
-`isAbort()` is the canonical abort check — returns `true` for any error
-representing cancellation: `DOMException` `AbortError`, typed
-`AaredError("aborted")`, or a plain `Error` named `"AbortError"`. Use it
-instead of `error instanceof DOMException && error.name === "AbortError"`,
-which misses typed aborts on the main thread.
+**Messages** start with the entrypoint you called (`aared/pptx: …`), say what
+failed, and say what to do when you can (a damaged file suggests re-saving
+it in Office). They are English and for developers and logs; the wording may
+change, `code` does not. `messageFor()` gives one short generic sentence per
+code for a UI; a UI in another language maps `code` itself. **`cause`** is the
+underlying error when there is one (for `internal`, the original error with
+its stack: include it in a bug report).
 
-Cancellation surfaces as an `AaredError` with `code: "aborted"` and
-`name: "AbortError"`, so existing `AbortSignal` handling keeps working while
-gaining a typed code. Every other `AaredError` is named `"AaredError"`: branch
-on `code` (or `isAbort()`), not on `name`. A dead worker is deliberately *not*
-an abort: boot failure and mid-session worker death report
-`worker-error`, so abort checks never swallow a broken worker into a silent
-loading state. Nor is a closed document: a call after `close()` rejects
-with `closed`, which `isAbort()` does not match — a call on a closed
-document is a bug to surface, not a cancellation to ignore.
+**Embed layers.** `preview()`'s handle and `<aared-viewer>` reject *and* fire
+`error` (`detail: { message, cause }`, the same instance) for a failure the
+caller may not be awaiting, so handle one or the other, not both.
+`usePreview()` turns them into state: `error`, `navigationError`.
 
-An unknown value inside an otherwise readable file (an alignment PowerPoint
-never writes, an on/off spelling it does not use) does not fail the read:
-it falls back to the default, the way Office shows it.
+**Aborts.** `isAbort()` matches every cancellation (`aborted`, and a
+`DOMException` or `Error` named `"AbortError"`); cancellation keeps the name
+`"AbortError"` so existing handling works, and every other `AaredError` is
+named `"AaredError"`, so branch on `code`. A dead Worker (`worker-error`)
+and a call after `close()` (`closed`) are deliberately not aborts: they are
+failures to surface, not cancellations to ignore.
+
+An unknown value in an otherwise readable file (an alignment PowerPoint
+never writes) falls back to the default, as Office shows it.
 
 ### Cancellation
 
-```ts
+```ts check
+import { isAbort } from "aared/core";
+import { open } from "aared/xlsx";
+
+const sheet = (await open(file)).sheets.get(0);
 const controller = new AbortController();
-open(url, { signal: controller.signal });
-slide.read({ signal: controller.signal });
-sheet.read({ range: "A1:Z500", signal: controller.signal });
-workbook.search("revenue", { signal: controller.signal });
-deck.media.get(mediaId, { signal: controller.signal });
-controller.abort(); // worker stops computing a model nobody will see
+const reading = sheet.read({ range: "A1:Z500", signal: controller.signal });
+controller.abort(); // the Worker stops computing a model nobody will see
+try {
+  await reading;
+} catch (error) {
+  if (!isAbort(error)) throw error; // cancelled: nothing to show, nothing to report
+}
 ```
 
-`open()`, `read()`, `search()` and `media.get()` reject with an `aborted` error when
-their signal aborts. For URL sources, `open()` passes the signal to
-`fetch`; for `File`, `Blob`, and `ArrayBuffer` sources it checks before
-and after byte normalization. ArrayBuffer input is copied before transfer,
-so caller-owned bytes remain usable. Worker parsing stops at the next safe
-checkpoint; a started native decompression stream and synchronous XML
-parse cannot be preempted mid-operation.
+`open(source, { signal })`, `read({ signal })`, `search(query, { signal })`
+and `media.get(id, { signal })` reject with `aborted` when the signal aborts;
+a URL's fetch is cancelled too. The Worker stops at its next safe point (a
+decompression or XML parse already running finishes first). In-memory
+bytes are copied once before they go to the Worker, so yours stay usable. A
+newer navigation or render cancels the stale read it replaces.
 
-Range loading integrates with cancellation: when navigation supersedes a
-pending range (or a render supersedes a pending read), the stale request
-is aborted and the newest wins.
+`render({ signal })` cancels a render until it resolves. Before it paints
+(reading the unit, or a document waiting for its fonts) it paints nothing;
+after (a slide or sheet waiting for its fonts to report warnings) it takes
+what it painted back out, and only that. Either way it rejects with
+`aborted` and never hands back a handle, the way an aborted `fetch()` never
+resolves. Once it has resolved the signal is ignored; `destroy()` is its
+teardown. `preview()`, the hooks and the element do this for you. With low-level
+PPTX `open()` + `render()`, paging is one render per slide into the same target,
+each cancelling the one before, so the handle you keep is always the newest
+call's:
+
+```ts check
+import { isAbort } from "aared/core";
+import { open, render, type PptxRenderHandle } from "aared/pptx";
+
+const deck = await open(file);
+let latest: AbortController | undefined;
+let shown: PptxRenderHandle | undefined;
+
+async function show(index: number): Promise<void> {
+  latest?.abort(); // a slower render still on its way never hands back a handle
+  const mine = (latest = new AbortController());
+  try {
+    shown = await render({
+      slide: deck.slides.get(index),
+      target: container,
+      signal: mine.signal,
+      ...(shown === undefined ? {} : { zoom: shown.zoom }), // keep the reader's zoom
+    });
+  } catch (error) {
+    if (!isAbort(error)) throw error; // a newer show() took over
+  }
+}
+```
 
 ### `DocumentInfo`
 
-Resolved once, right after `open()` — cheap, doesn't wait on every unit.
-`open()` indexes only the document-level manifest; `read()` is the point
-that inflates and resolves content. This is intentional: opening slide 1
-must not parse slides 2–200 first.
+Known right after `open()`, which reads only the document's manifest:
+opening slide 1 never parses slides 2 to 200.
 
 ```ts
 interface DocumentInfo {
@@ -1557,58 +1689,27 @@ interface DocumentInfo {
 }
 ```
 
-Every per-unit array is exactly `count` long, so `titles[i]` and `sizes[i]`
-describe the unit `goTo(i)` shows.
+`count` is the number of units `goTo()` takes (`0` to `count - 1`): slides,
+sheets, or `1` for a document in either DOCX mode. "Unit" is the API's
+neutral word; show people "slides", "sheets" or "document". Every per-unit
+array is `count` long, so `titles[i]` and `sizes[i]` describe unit `i`:
 
 | Format | `titles` | `sizes` |
 |---|---|---|
-| PPTX | `"Slide N"` — `open()` reads no slide part; `slide.read()` has the real title text | One per slide (also on each `slide.info.size`). Use it to reserve a thumbnail's aspect ratio before anything renders |
-| XLSX | the sheet (tab) names | Omitted: a sheet has no page, and its extent lives in the worksheet part, which `open()` does not parse. Read `extent`, `columnWidths` and row heights after `sheet.read()` |
-| DOCX | one entry: the title from the file's properties, else `"Document"` | Omitted: a document has no single size. Per-section page setup is on `document.sections.list()`; laid-out pages on the render handle's `pages`. The heading outline is `document.headings` |
+| PPTX | `"Slide N"` (the real title text is in `slide.read()`) | One per slide, for reserving a thumbnail's aspect ratio before anything renders |
+| XLSX | the sheet tab names | Omitted: a sheet has no page; read `extent` and column widths after `sheet.read()` |
+| DOCX | the title from the file's properties, else `"Document"` | Omitted: page setup is per section (`doc.sections.list()`); laid-out pages are on the render handle's `pages` |
 
-`theme` is the **file's own** Office theme — its colour scheme and major/minor
-fonts, as authored — not the viewer's light/dark `appearance.theme`.
-
-`count` is the number of navigable **units**, and what a unit is depends on
-the format:
-
-| Format | A unit is | `count` |
-|---|---|---|
-| PPTX | a slide | the number of slides |
-| XLSX | a sheet (a workbook tab) | the number of sheets — `titles` holds their names; show a tab bar with `appearance: { spreadsheet: { sheetTabs: true } }`, or switch with `goToSheet()` |
-| DOCX | the whole document | always `1`, in flow and layout mode alike — pages are a render result, reached with `goToPage()` (see [Navigation](#navigation)) |
-
-It is the total behind the `<aared-viewer>` pager (`1 / 7`) and what
-`goTo(index)` accepts (`0` to `count - 1`). "Unit" is the API's neutral word
-so one field works for every format; if you show it to people, say "slides",
-"sheets" or "document" instead, as the [playground](/playground/) status line does.
-
-### Fetch progress
-
-```ts
-interface LoadProgress {
-  loaded: number;
-  total?: number;
-}
-```
-
-Surfaced as the element's `progress` events while it reads the file's
-bytes, before parsing starts: each streamed chunk for a URL (with `total`
-when the server sends `Content-Length`), or one event before and one after
-for a `file`. Parsing itself reports no progress — the Worker protocol has
-no progress channel — so the last `progress` is followed by `load` (or
-`error`) once the file is parsed and painted.
+`theme` is the **file's own** Office theme (colour scheme, major and minor
+fonts), not the viewer's `appearance.theme`.
 
 ## Resolved models
 
-`read()` resolves to format-specific models — a slide isn't a spreadsheet
-isn't a document section — but every model arrives **fully resolved** for
-the features the format parser supports. Resolved text runs carry
-browser-ready style values, and supported table styles carry CSS colors.
-Nothing in a resolved model requires a second lookup into shared or theme
-XML — that resolution happens once, in the worker (see
-[the architecture notes](https://github.com/Abdo-Eid/aared/blob/main/docs/ARCHITECTURE.md#performance-model)), before you ever see
-it.
+`read()` returns a format's own model, **fully resolved** in the Worker: text
+runs carry browser-ready styles and table styles CSS colours, so nothing
+needs a second lookup into theme or style XML. Models are read-only; shared
+objects (a slide's `layout`, a sheet's shared cell styles) are the same
+instance in every place that uses them.
 
 > **Stability is undecided.** These model types are exported, but whether
 > they are a stable public contract (versus experimental, or internal) is an
@@ -1616,9 +1717,23 @@ it.
 > [roadmap](https://github.com/Abdo-Eid/aared/blob/main/docs/ROADMAP.md). Until it is settled, expect their shape
 > to change.
 
-All PPTX slide coordinates are inches; `LocalViewBoxModel` and chart
-primitives are local unitless SVG coordinates. Chart graphics contain
-typed drawing primitives only — no raw SVG or HTML markup is accepted.
+All PPTX slide coordinates are inches; `LocalViewBoxModel` is local unitless
+SVG coordinates (a shape's geometry).
+
+A chart (`ChartModel.spec` in a slide, `SheetChartModel.spec` in a sheet,
+`DocxChartNode.spec` in a Word document) is a `ChartSpecModel`: what the chart plots and how it looks, every Office
+default already applied. That covers its groups and series with their cached
+values, the axes, legend and title, text looks in points (with the
+complex-script face Arabic is set in), colours as CSS strings, and fills that
+are not a plain colour as the same `ShapeFillModel` shapes use. Office 2016
+charts (waterfall, histogram, treemap and the rest) read into the same model.
+It is plain data (no markup, no `Map`), so it survives `JSON.stringify`. The
+chart is laid out on the page, at its frame's size, when it is painted, as
+Office lays it out, and named for screen readers by `ChartModel.alt` or
+`SheetChartModel.alt` (the author's alt text), else its title. A chart the
+preview does not draw has no `spec`; the frame shows a placeholder and
+`unsupportedReason` says why: a surface or map chart, more than 100,000
+points in a series (250,000 in all), or no cached values.
 
 - PPTX: `SlideModel`, `SlideLayoutModel`, `SizeModel`, `BoundsModel`,
   `LocalViewBoxModel`, `SlideElementModel`, `ShapeModel`,
@@ -1628,13 +1743,14 @@ typed drawing primitives only — no raw SVG or HTML markup is accepted.
   `PictureFillModel`, `PictureTileModel`, `UnsupportedShapeFillModel`, `StrokeModel`,
   `TransformModel`,
   `TableModel`, `TableRowModel`, `TableCellModel`, `PictureModel`,
-  `ChartModel`, `ChartGraphicModel`, `ChartGraphicPrimitive`, `GroupModel`,
+  `ChartModel`, `ChartSpecModel`, `GroupModel`,
   `TextBodyModel`, `TextBodyVerticalAlign`, `TextDirection`, `TextAlign`,
   `TextAutofitMode`, `TextParagraphModel`, `TextRunModel`, `TextWrappingMode`,
   and `InsetsModel` (box insets in inches; also a Word cell's padding).
 - XLSX: `SheetModel`, `SheetRangeModel`, `RowModel`, `CellModel`,
   `CellRange`, `XlsxCellType`, `XlsxCellStyleModel`, `SheetDrawingModel`,
-  `SheetPictureModel`, `SheetChartModel`, `SheetUnsupportedModel`.
+  `SheetPictureModel`, `SheetChartModel` (charts share `ChartSpecModel` with
+  PPTX), `SheetUnsupportedModel`.
   `CellModel` is the canonical readonly cell: cached `value`, `formatted`
   display string, `type`, optional `formula` source (never evaluated),
   `hyperlink`, authored `style`, and resolved `conditional` overlay.
@@ -1646,93 +1762,58 @@ typed drawing primitives only — no raw SVG or HTML markup is accepted.
   picture or chart pointing at a missing part). Damaged items are counted per
   kind ("2 cells could not be read and were skipped; the file may be
   damaged"); everything readable around them still shows.
-- DOCX: `DocumentSection`, `SectionProperties`, `SectionPageGeometry`,
-  `SectionPageMargins`, `SectionBreakType`, `FlowNode`,
+- DOCX: `DocumentSection`, `SectionProperties`, `HeaderFooterParts`,
+  `SectionPageGeometry`, `SectionPageMargins`, `SectionBreakType`, `FlowNode`,
   `DocxParagraphNode`, `DocxHeadingNode`, `DocxTableNode`,
-  `DocxTableRowNode`, `DocxTableCellNode`, `DocxImageNode`, `DocxListNode`,
+  `DocxTableRowNode`, `DocxTableCellNode`, `DocxImageNode`, `DocxChartNode`
+  (a chart, placed exactly as a picture is), `DocxTextBoxNode`,
+  `DocxDrawingNode` (the anchored picture, chart, or text box a paragraph's
+  `floats` may hold), `DocxListNode`,
   `DocxListItemNode`, `DocxFootnoteNode`, `DocxUnsupportedNode`,
   `DocxPageBreakNode`, `DocxParagraphLayout`, `DocxParagraphBorder`,
   `DocxParagraphBorders`, `DocxTabStop`, `DocxInlineImage`, `DocxTableEdge`,
   `DocxTableBorders`. Paragraph alignment is `TextAlign` and cell padding is
   `InsetsModel`, both listed above with the PPTX text model.
-  A picture anchored in a paragraph (`wp:anchor`) is not a flow node: the
-  paragraph or heading carries it in `floats`, each a `DocxImageNode` whose
-  `anchor` (`DocxImageAnchor`, with a `DocxAnchorPosition` per axis) holds
-  what Word saved: the wrap type (`square`, `tight`, `through`,
-  `topAndBottom`, or `none` for text running over it), `behind`, which side
-  text may use, the position (an alignment or an offset from a named edge),
-  the four text distances in inches, and for tight and through wrapping the
-  polygon as fractions of the picture. An inline picture has no `anchor`.
+  `SectionProperties.docGrid` carries the section's line-grid type and pitch;
+  paragraph line spacing and `beforeLines`/`afterLines` follow that grid in the
+  renderer. `DocxTextBoxNode` contains ordinary flow content plus its fixed
+  extent, insets, optional fill/outline and vertical overflow behavior.
+  A picture, chart or text box anchored in a paragraph (`wp:anchor`) is not a flow
+  node: the paragraph or heading carries it in `floats`, each a
+  `DocxDrawingNode` whose `anchor` (`DocxImageAnchor`, a `DocxAnchorPosition` per axis) holds what
+  Word saved: the wrap, the side text may use, the position, the text
+  distances in inches, and for tight and through wrapping the polygon.
 
-The current PPTX parser emits text shapes and tables, including supported
-text run styles with direct, inherited, or theme-default browser families;
-run underline (style + color), strikethrough, caps, character spacing,
-baseline shift, highlight, `ea`/`sym` typeface slots, `noFill`/`grpFill`
-markers, and `hlinkClick` hyperlinks; run color falling back through
-shape/layout/master `fontRef` and table-style text to PowerPoint
-"Automatic" background contrast (white on dark, black otherwise — never
-CSS inheritance from embedding chrome); paragraph
-direction/alignment/bullets/spacing; table direction, cell fills, style
-borders, common preset geometry, solid and linear-gradient fills, solid
-strokes, transforms, text-body layout, and paragraph indents. Linear gradients
-resolve their stops, colors, angle, scaling, and transform-orientation
-semantics; path gradients remain explicitly unpainted as
-`kind: "unsupported"`, never silently approximated as linear.
-Unknown/custom geometry is a visible marked fallback instead of silently
-disappearing — an empty dashed outline (the picture/chart convention),
-shown in development builds only. Shipped builds render no box at all for
-fallback geometry, so diagnostics never leak into production; text still
-paints either way. Shapes with no authored geometry at all (text-only
-placeholders) are invisible containers in both, never marked.
-A geometry may also carry `fillOnly`/`strokeOnly` subpath
-layers (DrawingML paths marked `stroke="false"` / `fill="none"` — a can's
-body and rim): the fill paints beneath `path` and the outline strokes above
-it. Presets beyond the built-in set and `custGeom` freeforms resolve on the
-main thread against the full preset table, which ships in `aared/pptx`
-itself (never in `aared/xlsx`, `aared/docx` or the worker); a shape the
-table cannot resolve keeps the marked fallback. Grouped shapes (`p:grpSp`) parse to `GroupModel` and render
-nested in document order, with the authored child space (`chOff`/`chExt`)
-mapped onto the group's placed bounds. `TableModel.direction` controls visual table layout only —
-never logical XML cell order — and each cell paragraph retains its own
-optional direction.
-
-For relative DrawingML line spacing, `TextParagraphModel.lineSpacing`
-preserves the authored multiplier. The DOM renderer uses a minimum `1.1`
-browser line box so a single Arabic line cannot crop its glyph ink; it
-exposes the authored value as `data-aared-line-spacing` on the rendered
-paragraph for diagnostics. Paragraph spacing is either points
-(`spaceBeforePt`/`spaceAfterPt`, from `a:spcPts`) or lines
-(`spaceBeforeLines`/`spaceAfterLines`, from `a:spcPct`, 1 = 100%). As in
-PowerPoint, a line of spacing is 1.2 × the paragraph's largest run size,
-whatever its line spacing. The renderer drops space before a text body's
-first paragraph and after its last, and adds one paragraph's space after to
-the next one's space before.
+What each PPTX field paints (fills, geometry, text styling, groups, line
+spacing) is in ARCHITECTURE's format rules, not here.
 
 ## Dark mode
 
-`theme` styles viewer chrome only — the element's stage and controls, the
-XLSX sheet-tab bar and selection accent. Document content in every format
-always paints source-faithful, like a PPTX slide: white surfaces (the sheet
-grid and its headings included), authored fills, colors, and images
-verbatim.
-
-The rule to remember:
-
 > **Theme changes `aared`, never the document.**
 
-- `theme` (default `"light"`; opt in to `"dark"` or `"system"` to follow
-  your site or the OS) never recolors authored content. A dark viewer shows
-  light sheets and pages on a dark stage. No global inversion or CSS
-  filters, ever.
-- Automatic text follows what it sits on: whichever ink reads better on an
-  authored fill or shading, so a cell or paragraph the author filled stays
-  readable; unfilled text is Excel black / Word black on white. The models
-  preserve provenance: absent fill/color/shading means automatic. PPTX
-  resolves its own automatic text the same way at parse time (background
-  contrast, fixed at open — it never follows later theme toggles).
+`theme` (default `"light"` on every layer; `"dark"` or `"system"` to follow
+your site or the OS) styles the viewer's chrome: the element's stage and controls, the XLSX
+tab bar and selection accent, and the `data-aared-theme` marker on each
+render's root. Documents always paint as authored: a dark viewer shows light
+sheets and pages on a dark stage, with no inversion or filters. Text with no
+authored colour takes whichever ink reads better on its fill, as Office's
+"Automatic" does.
 
-CSS variables carry theming at the element layer; explicit authored styles
-always win over them:
+One rule holds on every viewer layer (`<aared-viewer>`, `preview()` and the
+hooks):
+
+- **Unset is `light`**, whatever the OS says.
+- **`light` and `dark` are fixed.** The OS never changes them.
+- **`system` follows the OS**, now and on every flip, in place: the slide,
+  sheet or page, the zoom and the Worker session stay. The viewer listens
+  only while `system` is its theme; `viewer.setAppearance({ theme: "dark" })`
+  (or the element's `theme` attribute) takes it over and the listener goes,
+  and `destroy()` drops it too.
+
+The low-level `render()` resolves `system` once, when it paints; an app that
+owns the handle calls `handle.setAppearance()` again when the OS flips.
+
+The element takes three CSS variables; a value you set wins in both themes:
 
 ```css
 aared-viewer {
@@ -1742,28 +1823,9 @@ aared-viewer {
 }
 ```
 
-The element's shadow DOM uses these three as consumer-facing inputs, and
-a value you set wins in both themes (unset, each theme uses its own
-default). Format
-renderers set additional tokens internally (e.g. `--aared-surface`,
-`--aared-gridline`, `--aared-selection`, `--aared-ink`) via inline
-`style.setProperty` — these are renderer-owned design tokens, not consumer
-overridable variables. The element exposes the following `::part()` selectors
-for structural styling (`button` and `label` are the controls bar's buttons
-and its page/zoom readouts):
-
-```css
-aared-viewer::part(stage) { background: #1a1a1a; }
-aared-viewer::part(page) { outline: 1px solid #ccc; }
-aared-viewer::part(controls) { font-family: system-ui; }
-aared-viewer::part(toolbar) { /* alias for controls */ }
-aared-viewer::part(button) { border-radius: 999px; }
-aared-viewer::part(label) { color: #666; }
-```
-
-Sheet tabs and row and column headings are part of the XLSX render, which
-the element paints inside its shadow root — so page CSS can't reach them.
-Style them through a headless `render()` into your own container instead.
+The renderers' own tokens (`--aared-surface`, `--aared-gridline`,
+`--aared-selection`, `--aared-ink`) are internal, not inputs. For the
+element's parts, see [Styling](#styling).
 
 ## Fidelity is part of the contract
 
@@ -1776,8 +1838,9 @@ paginate; layout mode aims for structural, not pixel-identical, pagination.
 ## Browser support
 
 Baseline 2023 — Chrome/Edge 110+, Firefox 115+, Safari 16.4+. The floor is
-set by `DecompressionStream`, `OffscreenCanvas`, and `FontFace` usable from a
-Worker, all of which land at Safari 16.4. No polyfills are shipped for
-browsers below this floor. Package imports never touch browser globals at
-import time (SSR-safe) unless you import the element registration
-entrypoint.
+set by the `deflate-raw` `DecompressionStream` (parsing runs in a module
+Worker) and constructed stylesheets, both of which land at Safari 16.4 (Firefox
+114 for module Workers). No polyfills are shipped for
+browsers below this floor. Importing any entry, `aared/element` included,
+touches no browser global (SSR-safe); the element registers itself only
+where the page has a custom-element registry.

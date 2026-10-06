@@ -29,7 +29,7 @@ jobs:
       # The workspace package the site imports (aared) ships only a `dist/`
       # `exports` map — no source fallback — so the library packages must
       # build before the site does.
-      - run: bun --filter '*' build
+      - run: bun run build
 
       - run: bun run docs:build
 

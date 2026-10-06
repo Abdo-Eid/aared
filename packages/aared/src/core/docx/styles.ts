@@ -92,13 +92,13 @@ export function parseStyles(root: XmlElement | undefined, signal?: AbortSignal):
  * Style ancestry base-first (so callers apply direct formatting last).
  * Cycle-safe: a repeated `basedOn` target ends the chain instead of looping.
  */
-export function paragraphAncestry(styles: StyleData, styleId: string | undefined): DocxStyle[] {
+function ancestry(styles: ReadonlyMap<string, DocxStyle>, styleId: string | undefined): DocxStyle[] {
   const chain: DocxStyle[] = [];
   const seen = new Set<string>();
   let current = styleId;
   while (current !== undefined && !seen.has(current)) {
     seen.add(current);
-    const style = styles.paragraph.get(current);
+    const style = styles.get(current);
     if (style === undefined) break;
     chain.unshift(style);
     current = style.basedOn;
@@ -106,18 +106,12 @@ export function paragraphAncestry(styles: StyleData, styleId: string | undefined
   return chain;
 }
 
+export function paragraphAncestry(styles: StyleData, styleId: string | undefined): DocxStyle[] {
+  return ancestry(styles.paragraph, styleId);
+}
+
 export function characterAncestry(styles: StyleData, styleId: string | undefined): DocxStyle[] {
-  const chain: DocxStyle[] = [];
-  const seen = new Set<string>();
-  let current = styleId;
-  while (current !== undefined && !seen.has(current)) {
-    seen.add(current);
-    const style = styles.character.get(current);
-    if (style === undefined) break;
-    chain.unshift(style);
-    current = style.basedOn;
-  }
-  return chain;
+  return ancestry(styles.character, styleId);
 }
 
 const HEADING_STYLE_ID = /^Heading([1-9])$/;

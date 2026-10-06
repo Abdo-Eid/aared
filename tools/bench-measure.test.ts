@@ -1,18 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import {
+  BENCH_FORMATS,
   FIXTURES,
   LARGE_FIXTURES,
   METHOD,
   RENDERERS_BY_FORMAT,
+  aaredPairs,
   buildCells,
-  formatBytes,
+  cellKey,
+  describeMeasured,
   formatOfFixture,
   kbRange,
+  mergeMeasured,
   rendererPackage,
   sizeTotals,
   stat,
   summarizeSize,
   type BenchFormat,
+  type Cell,
   type SizeFileEntry,
   type SizeRow,
 } from "./bench-measure";
@@ -68,9 +73,11 @@ describe("bench-measure contract", () => {
     expect(r.samples).toEqual([2, 1, 3]);
   });
 
-  test("formatBytes uses KiB above 1024", () => {
-    expect(formatBytes(512)).toBe("512 B");
-    expect(formatBytes(2048)).toBe("2.0 KiB");
+  test("the harness lists the renderers the bench registry opens, per format", async () => {
+    const { BASELINES } = await import("../bench/src/adapters");
+    for (const format of BENCH_FORMATS) {
+      expect(RENDERERS_BY_FORMAT[format].slice(1).sort(), format).toEqual(Object.keys(BASELINES[format]).sort());
+    }
   });
 });
 
@@ -90,6 +97,43 @@ const row = (renderer: string, fixture: string, files: SizeFileEntry[]): SizeRow
   files,
   status: "measured",
   error: null,
+});
+
+describe("measuring aared only, keeping the competitors", () => {
+  const cell = (fixture: string, renderer: string, date?: string, browser = "HeadlessChrome/154.0.0.0"): Cell => ({
+    ...buildCells().find((c) => c.fixture === fixture && c.renderer === renderer)!,
+    status: "measured",
+    ...(date === undefined ? {} : { measured_on: { date, browser, os: "Windows_NT 10.0.26300" } }),
+  });
+
+  test("a plain run measures every aared cell and nothing else", () => {
+    const pairs = aaredPairs();
+    expect(pairs).toHaveLength(FIXTURES.length + LARGE_FIXTURES.length);
+    expect(pairs.every((pair) => pair.endsWith(":aared"))).toBe(true);
+  });
+
+  test("re-measured cells replace their old ones in place, in the canonical order, and the rest stay", () => {
+    const base = [cell("pptx-coverage.pptx", "mdurbar"), cell("pptx-coverage.pptx", "aared"), cell("docx-coverage.docx", "omni")];
+    const fresh = [cell("pptx-coverage.pptx", "aared", "2026-10-01T18:00:00Z"), cell("xlsx-coverage.xlsx", "aared", "2026-10-01T18:00:00Z")];
+    const merged = mergeMeasured(base, fresh);
+    expect(merged.map(cellKey)).toEqual([
+      "pptx-coverage.pptx:aared",
+      "pptx-coverage.pptx:mdurbar",
+      "xlsx-coverage.xlsx:aared",
+      "docx-coverage.docx:omni",
+    ]);
+    expect(merged[0]!.measured_on?.date).toBe("2026-10-01T18:00:00Z");
+  });
+
+  test("a merged result says which renderers were measured when, newest first", () => {
+    const fallback = { date: "2026-09-24T23:58:05Z", browser: "HeadlessChrome/153.0.0.0" };
+    const others = ["pptxviewjs", "silurus", "aiden0z", "mdurbar"].map((renderer) => cell("pptx-coverage.pptx", renderer));
+    expect(describeMeasured([cell("pptx-coverage.pptx", "aared", "2026-10-01T18:00:00Z"), ...others], fallback)).toBe(
+      "aared measured 2026-10-01 on HeadlessChrome/154.0.0.0; the other renderers measured 2026-09-24 on HeadlessChrome/153.0.0.0",
+    );
+    // Measured together: nothing to add to the header.
+    expect(describeMeasured(others, fallback)).toBe("");
+  });
 });
 
 describe("download size summary", () => {

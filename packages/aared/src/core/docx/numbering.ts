@@ -47,6 +47,7 @@ function readLevel(level: XmlElement): { ilvl: number; parsed: NumberingLevel } 
   const hanging = ind === undefined ? undefined : attr(ind, "hanging");
   const leftDx = left === undefined ? Number.NaN : Number(left);
   const hangingDx = hanging === undefined ? Number.NaN : Number(hanging);
+  const startValue = start === undefined ? 1 : Number(attr(start, "val") ?? "1");
   const rPr = firstChild(level, "rPr");
   const suff = firstChild(level, "suff");
   const suffValue = suff === undefined ? undefined : attr(suff, "val");
@@ -57,7 +58,8 @@ function readLevel(level: XmlElement): { ilvl: number; parsed: NumberingLevel } 
     parsed: {
       numFmt: ownString(numFmt === undefined ? "bullet" : attr(numFmt, "val") ?? "bullet"),
       lvlText: ownString(lvlText === undefined ? "" : attr(lvlText, "val") ?? textContent(lvlText)),
-      start: start === undefined ? 1 : Number(attr(start, "val") ?? "1"),
+      // A start that is not a number counts from 1, as an absent one does.
+      start: Number.isFinite(startValue) ? startValue : 1,
       ...(Number.isFinite(leftDx) ? { indentLeft: twipsToInches(leftDx) } : {}),
       ...(Number.isFinite(hangingDx) ? { indentHanging: twipsToInches(hangingDx) } : {}),
       ...(rPr === undefined ? {} : { rPr: ownTree(rPr) }),

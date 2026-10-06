@@ -5,10 +5,8 @@ import type { XlsxWorkbook, XlsxWorkbookIndex } from "./xlsx/index.js";
 import type { DocxIndex } from "./docx/document.js";
 import type { DocumentInfo } from "./index.js";
 import type { SheetModel, SheetRangeModel, SlideLayoutModel, SlideModel, UnitModel } from "./model.js";
-import type { SerializedError, UnitRequest, WorkerRequest, WorkerResponse, WorkerResult } from "./rpc.js";
-import { AaredError, damagedDocument, isAbort, throwIfAborted } from "./errors.js";
-import { ZipError } from "./zip.js";
-import { XmlError } from "./xml.js";
+import type { SerializedError, SheetText, UnitRange, WorkerRequest, WorkerResponse, WorkerResult } from "./rpc.js";
+import { AaredError, isAbort, throwIfAborted } from "./errors.js";
 import { collectStrings } from "./collect.js";
 import { isInsideGrid } from "./xlsx/limits.js";
 import { PPTX_SLIDE_CACHE, UnitCache, XLSX_SHEET_CACHE } from "./unit-cache.js";
@@ -18,22 +16,35 @@ interface WorkerScope {
   postMessage(message: WorkerResponse, transfer?: Transferable[]): void;
 }
 
-interface FormatSession {
-  format: OfficeFormat;
+interface SessionBase {
   pkg: OpcPackage;
-  deck?: PptxDeck;
-  /** The most recently read slides, so re-reading one (a re-render, a neighbour) skips the parse; bounded. */
-  pptxSlides?: UnitCache<SlideModel>;
-  xlsxIndex?: XlsxWorkbookIndex;
-  /** Set only once a read finishes: an aborted read must not leave a rejected result behind. */
-  xlsxWorkbook?: XlsxWorkbook;
-  /** The most recently read sheets, so range reads slice without re-parsing; bounded. */
-  xlsxSheets?: UnitCache<SheetModel>;
-  /** A DOCX session's light index; the body and notes are read, and dropped, per section parse. */
-  docxIndex?: DocxIndex;
   /** Parts the media route may serve: seeded from package media/font dirs, extended with emitted mediaIds. */
   mediaParts: Set<string>;
 }
+
+interface PptxSession extends SessionBase {
+  format: "pptx";
+  deck: PptxDeck;
+  /** The most recently read slides, so re-reading one (a re-render, a neighbour) skips the parse; bounded. */
+  slides?: UnitCache<SlideModel>;
+}
+
+interface XlsxSession extends SessionBase {
+  format: "xlsx";
+  index: XlsxWorkbookIndex;
+  /** Set only once a read finishes: an aborted read must not leave a rejected result behind. */
+  workbook?: XlsxWorkbook;
+  /** The most recently read sheets, so range reads slice without re-parsing; bounded. */
+  sheets?: UnitCache<SheetModel>;
+}
+
+/** A DOCX session's light index; the body and notes are read, and dropped, per section parse. */
+interface DocxSession extends SessionBase {
+  format: "docx";
+  index: DocxIndex;
+}
+
+type FormatSession = PptxSession | XlsxSession | DocxSession;
 
 /**
  * Format parsers load on first use through dynamic `import()`. The published
@@ -61,26 +72,13 @@ function requestKey(sessionId: number, requestId: number): string {
 }
 
 function serializeError(error: unknown): SerializedError {
-  if (error instanceof AaredError) return { name: error.name, message: error.message, code: error.code };
-  if (isAbort(error)) return { name: error.name, message: error.message, code: "aborted" };
-  // ZIP failures are document problems from the consumer's view: a file
-  // that is not, or not cleanly, a ZIP archive is not a previewable
-  // document. Preserve the `ZipError` message text; only the code changes.
-  if (error instanceof ZipError) {
-    return { name: "AaredError", message: error.message, code: "invalid-document" };
-  }
-  // A part that is not well-formed XML is the file's fault, like the explicit
-  // structural checks (`damagedDocument`, thrown where they are made).
-  if (error instanceof XmlError) {
-    const typed = damagedDocument(error.message.replace(/^aared\/core: /, ""));
-    return { name: typed.name, message: typed.message, code: typed.code };
-  }
+  if (error instanceof AaredError) return { message: error.message, code: error.code };
+  if (isAbort(error)) return { message: error.message, code: "aborted" };
   // Anything else is aared failing on this file, not the file being broken:
   // `internal`, never "re-save it in Office". The original error travels as
   // `cause` (name, message, stack) for the bug report.
   const original = error instanceof Error ? error : new Error(String(error));
   return {
-    name: "AaredError",
     message: `aared/core: the viewer failed while reading this file (${original.name}: ${original.message})`,
     code: "internal",
     cause: { name: original.name, message: original.message, ...(original.stack === undefined ? {} : { stack: original.stack }) },
@@ -191,41 +189,41 @@ function postFailure(sessionId: number, requestId: number, error: unknown): void
   scope.postMessage({ type: "response", sessionId, requestId, ok: false, error: serializeError(error) });
 }
 
-async function xlsxWorkbookOf(session: FormatSession, signal: AbortSignal): Promise<XlsxWorkbook> {
-  if (session.xlsxIndex === undefined) throw sessionClosed();
+async function xlsxWorkbookOf(session: XlsxSession, signal: AbortSignal): Promise<XlsxWorkbook> {
   // The worker handles one request at a time, so there is never a concurrent
   // first read to share; caching the finished value (not the promise) keeps a
   // cancelled first read from failing every later sheet read.
-  session.xlsxWorkbook ??= await (await formats.xlsx()).readWorkbook(session.pkg, signal, session.xlsxIndex);
-  return session.xlsxWorkbook;
+  session.workbook ??= await (await formats.xlsx()).readWorkbook(session.pkg, signal, session.index);
+  return session.workbook;
 }
 
-/**
- * A parsed slide: from the session's bounded cache when it is there. A read
- * that won't paint (`retain` false: search) neither refreshes nor fills the
- * cache, so a first search over every slide doesn't evict the one on screen.
- */
-async function pptxSlideOf(session: FormatSession, deck: PptxDeck, index: number, retain: boolean, signal: AbortSignal): Promise<SlideModel> {
-  session.pptxSlides ??= new UnitCache(PPTX_SLIDE_CACHE);
-  const cached = retain ? session.pptxSlides.get(index) : session.pptxSlides.peek(index);
+/** A parsed slide: from the session's bounded cache when it is there. */
+async function pptxSlideOf(session: PptxSession, index: number, signal: AbortSignal): Promise<SlideModel> {
+  session.slides ??= new UnitCache(PPTX_SLIDE_CACHE);
+  const cached = session.slides.get(index);
   if (cached !== undefined) return cached;
-  const slide = await (await formats.pptx()).parsePptxSlide(session.pkg, deck, index, signal);
-  if (retain) session.pptxSlides.set(index, slide);
+  const slide = await (await formats.pptx()).parsePptxSlide(session.pkg, session.deck, index, signal);
+  session.slides.set(index, slide);
   return slide;
 }
 
-async function xlsxSheetOf(session: FormatSession, index: number, retain: boolean, signal: AbortSignal): Promise<SheetModel> {
-  session.xlsxSheets ??= new UnitCache(XLSX_SHEET_CACHE);
-  const cached = retain ? session.xlsxSheets.get(index) : session.xlsxSheets.peek(index);
+/**
+ * A parsed sheet: from the session's bounded cache when it is there. A read
+ * that won't paint (`retain` false: search's text read) neither refreshes nor
+ * fills the cache, so searching a sheet doesn't evict the one on screen.
+ */
+async function xlsxSheetOf(session: XlsxSession, index: number, retain: boolean, signal: AbortSignal): Promise<SheetModel> {
+  session.sheets ??= new UnitCache(XLSX_SHEET_CACHE);
+  const cached = retain ? session.sheets.get(index) : session.sheets.peek(index);
   if (cached !== undefined) return cached;
   const workbook = await xlsxWorkbookOf(session, signal);
   throwIfAborted(signal);
   const sheet = await (await formats.xlsx()).parseXlsxSheet(session.pkg, workbook, index, signal);
-  if (retain) session.xlsxSheets.set(index, sheet);
+  if (retain) session.sheets.set(index, sheet);
   return sheet;
 }
 
-function checkRange(range: NonNullable<UnitRequest["range"]>): void {
+function checkRange(range: UnitRange): void {
   const { start, end } = range;
   if (
     !isInsideGrid(start.row, start.col) || !isInsideGrid(end.row, end.col)
@@ -258,34 +256,28 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
       throwIfAborted(signal);
       const format = formatOf(pkg, signal);
       if (format === undefined) throw new AaredError("unsupported-format", "aared/core: unsupported Office document format");
-      const mediaParts = seedMediaParts(pkg);
+      const base = { pkg, mediaParts: seedMediaParts(pkg) };
+      let session: FormatSession;
+      let info: DocumentInfo;
       if (format === "pptx") {
         const deck = await (await formats.pptx()).indexPptx(pkg, signal);
-        throwIfAborted(signal);
-        sessions.set(request.sessionId, { format, pkg, deck, mediaParts });
-        sessionOpenRequests.set(request.sessionId, request.requestId);
-        installedSession = true;
-        throwIfAborted(signal);
-        postResponse(request.sessionId, request.requestId, infoForPptx(deck));
-        return;
+        session = { ...base, format, deck };
+        info = infoForPptx(deck);
+      } else if (format === "xlsx") {
+        const index = await (await formats.xlsx()).indexXlsx(pkg, signal);
+        session = { ...base, format, index };
+        info = infoForXlsx(index);
+      } else {
+        const index = await (await formats.docx()).indexDocx(pkg, signal);
+        session = { ...base, format, index };
+        info = infoForDocx(index);
       }
-      if (format === "xlsx") {
-        const xlsxIndex = await (await formats.xlsx()).indexXlsx(pkg, signal);
-        throwIfAborted(signal);
-        sessions.set(request.sessionId, { format, pkg, xlsxIndex, mediaParts });
-        sessionOpenRequests.set(request.sessionId, request.requestId);
-        installedSession = true;
-        throwIfAborted(signal);
-        postResponse(request.sessionId, request.requestId, infoForXlsx(xlsxIndex));
-        return;
-      }
-      const docxIndex = await (await formats.docx()).indexDocx(pkg, signal);
       throwIfAborted(signal);
-      sessions.set(request.sessionId, { format, pkg, docxIndex, mediaParts });
+      sessions.set(request.sessionId, session);
       sessionOpenRequests.set(request.sessionId, request.requestId);
       installedSession = true;
       throwIfAborted(signal);
-      postResponse(request.sessionId, request.requestId, infoForDocx(docxIndex));
+      postResponse(request.sessionId, request.requestId, info);
       return;
     }
 
@@ -300,10 +292,9 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
             "aared/core: range reads are an XLSX-only feature; a slide always resolves whole",
           );
         }
-        if (session.deck === undefined) throw sessionClosed();
-        unit = await pptxSlideOf(session, session.deck, request.index, request.retain !== false, signal);
+        unit = await pptxSlideOf(session, request.index, signal);
       } else if (session.format === "xlsx") {
-        const sheet = await xlsxSheetOf(session, request.index, request.retain !== false, signal);
+        const sheet = await xlsxSheetOf(session, request.index, true, signal);
         throwIfAborted(signal);
         let windowed: SheetModel | SheetRangeModel = sheet;
         if (request.range !== undefined) {
@@ -318,7 +309,6 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
             "aared/core: range reads are an XLSX-only feature; a DOCX document always resolves whole",
           );
         }
-        if (session.docxIndex === undefined) throw sessionClosed();
         if (request.index !== 0) {
           throw new AaredError(
             "not-found",
@@ -327,7 +317,7 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
         }
         // Not cached: `aared/docx` reads unit 0 once at open and the page keeps
         // the sections, so the Worker keeps nothing the page already holds.
-        unit = await (await formats.docx()).parseDocxSections(session.pkg, session.docxIndex, signal);
+        unit = await (await formats.docx()).parseDocxSections(session.pkg, session.index, signal);
       }
       throwIfAborted(signal);
       // Cached units (PPTX slides, XLSX sheets) come back as the same object; walk each one only once.
@@ -339,8 +329,24 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
       return;
     }
 
+    if (request.type === "text") {
+      // Only the words cross to the page: a slide's are read without building
+      // its model; a sheet's are taken from the parsed sheet the Worker keeps.
+      let text: string[] | SheetText;
+      if (session.format === "pptx") {
+        text = await (await formats.pptx()).readPptxSlideText(session.pkg, session.deck, request.index, signal);
+      } else if (session.format === "xlsx") {
+        text = (await formats.xlsx()).sheetText(await xlsxSheetOf(session, request.index, false, signal));
+      } else {
+        throw new AaredError("unsupported-feature", "aared/core: a DOCX document has no text read; its page holds the whole document");
+      }
+      throwIfAborted(signal);
+      postResponse(request.sessionId, request.requestId, text);
+      return;
+    }
+
     if (request.type === "layout") {
-      if (session.format !== "pptx" || session.deck === undefined) {
+      if (session.format !== "pptx") {
         throw new AaredError("unsupported-feature", "aared/core: layouts are a PPTX-only feature");
       }
       if (!session.pkg.hasPart(request.layoutId) || !session.pkg.contentTypeOf(request.layoutId)?.endsWith("slideLayout+xml")) {
@@ -377,9 +383,7 @@ async function drain(): Promise<void> {
   draining = true;
   while (queue.length > 0) {
     const request = queue.shift()!;
-    const key = requestKey(request.sessionId, request.requestId);
-    if (cancelled.delete(key)) continue;
-    activeRequest = key;
+    activeRequest = requestKey(request.sessionId, request.requestId);
     activeController = new AbortController();
     try {
       await handle(request, activeController.signal);

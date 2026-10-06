@@ -10,10 +10,10 @@ if ($Width -le 0) {
   throw "aared PowerPoint export: Width must be greater than zero."
 }
 
-$input = [System.IO.Path]::GetFullPath($InputPath)
+$source = [System.IO.Path]::GetFullPath($InputPath)
 $output = [System.IO.Path]::GetFullPath($OutputDir)
-if (-not [System.IO.File]::Exists($input)) {
-  throw "aared PowerPoint export: input presentation does not exist: $input"
+if (-not [System.IO.File]::Exists($source)) {
+  throw "aared PowerPoint export: input presentation does not exist: $source"
 }
 
 [System.IO.Directory]::CreateDirectory($output) | Out-Null
@@ -23,7 +23,7 @@ $presentation = $null
 try {
   $application = New-Object -ComObject PowerPoint.Application
   # Open read-only and without a window. This must never alter the fixture.
-  $presentation = $application.Presentations.Open($input, $false, $true, $false)
+  $presentation = $application.Presentations.Open($source, $false, $true, $false)
   $slideWidth = [double]$presentation.PageSetup.SlideWidth
   $slideHeight = [double]$presentation.PageSetup.SlideHeight
   if ($slideWidth -le 0 -or $slideHeight -le 0) {

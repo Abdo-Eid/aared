@@ -1,10 +1,17 @@
 /**
  * Deterministic benchmark harness.
  *
- * - `--run [fixture:renderer …]`: open / navigation / memory in a real
- *   browser (`tools/bench-browser.ts`) into `tools/bench-results/<stamp>.json`.
- * - `--size`: download size — every file the browser fetched to open each
- *   fixture, from the bench's production build — into
+ * A competitor's numbers change only with its version, so `--run` and
+ * `--size` measure aared alone and merge it into the latest result of that
+ * kind, keeping every other renderer's cells (each cell records when, and on
+ * which browser, it was measured). `--all` measures every renderer into a new
+ * file: the first time, or after a competitor's version changes.
+ *
+ * - `--run [--all] [fixture:renderer …]`: open / navigation / memory in a
+ *   real browser (`tools/bench-browser.ts`) into `tools/bench-results/<stamp>.json`.
+ *   Named pairs measure just those cells, merged the same way.
+ * - `--size [--all]`: download size — every file the browser fetched to open
+ *   each fixture, from the bench's production build — into
  *   `tools/bench-results/size-<stamp>.json`.
  * - `--search`: aared `search()` on the large generated fixtures.
  * - `--calibrate`: check the memory reading against controls of known size.
@@ -40,8 +47,6 @@ export const RENDERERS_BY_FORMAT: Readonly<Record<BenchFormat, readonly string[]
   xlsx: ["aared", "sheetjs", "xlscalc", "spreadsheet-preview", "extend", "omni"],
   docx: ["aared", "docx-preview", "docx-renderer", "apollo", "extend", "omni"],
 };
-
-export const RENDERERS = [...new Set(Object.values(RENDERERS_BY_FORMAT).flat())] as readonly string[];
 
 /**
  * The npm package behind each renderer, as the bench installs it (its version
@@ -151,6 +156,60 @@ export interface Cell {
   elements: number | null;
   status: "pending" | "measured" | "error";
   error: string | null;
+  /** When and where this cell was measured; absent in older files, whose header says. */
+  measured_on?: MeasuredOn;
+}
+
+/** When, on which browser and OS, a cell or size row was measured. */
+export interface MeasuredOn {
+  date: string;
+  browser: string;
+  os: string;
+}
+
+/** A cell's or size row's identity across results: `fixture:renderer`. */
+export const cellKey = (item: { fixture: string; renderer: string }): string => `${item.fixture}:${item.renderer}`;
+
+/** What a plain `--run` measures: every aared cell, as `fixture:renderer` pairs. */
+export function aaredPairs(): string[] {
+  return buildCells().filter((cell) => cell.renderer === "aared").map(cellKey);
+}
+
+/**
+ * Put freshly measured cells (or size rows) into a base result in place of the
+ * ones they re-measure, in the canonical order (fixtures, then each format's
+ * renderers, aared first): re-measuring aared keeps every competitor's numbers.
+ */
+export function mergeMeasured<T extends { fixture: string; renderer: string }>(base: readonly T[], fresh: readonly T[]): T[] {
+  const byKey = new Map(base.map((item) => [cellKey(item), item]));
+  for (const item of fresh) byKey.set(cellKey(item), item);
+  const order = new Map(buildCells().map((cell, index) => [cellKey(cell), index]));
+  const rank = (item: T): number => order.get(cellKey(item)) ?? Number.MAX_SAFE_INTEGER;
+  return [...byKey.values()].sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * Which renderers were measured when, newest first, for a table's header — a
+ * merged result holds aared's latest cells beside competitors measured once.
+ * Empty when everything was measured together. Items without `measured_on`
+ * date from the file's own header (`fallback`).
+ */
+export function describeMeasured(
+  items: ReadonlyArray<{ renderer: string; measured_on?: MeasuredOn }>,
+  fallback: { date: string; browser: string },
+): string {
+  const groups = new Map<string, Set<string>>();
+  for (const item of items) {
+    const label = `${(item.measured_on?.date ?? fallback.date).slice(0, 10)} on ${item.measured_on?.browser ?? fallback.browser}`;
+    let renderers = groups.get(label);
+    if (renderers === undefined) groups.set(label, (renderers = new Set()));
+    renderers.add(item.renderer);
+  }
+  if (groups.size <= 1) return "";
+  return [...groups]
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([label, renderers]) => `${renderers.size > 3 ? "the other renderers" : [...renderers].join(", ")} measured ${label}`)
+    .join("; ");
 }
 
 /** One file a renderer fetched to open a fixture. */
@@ -171,6 +230,8 @@ export interface SizeRow {
   files: SizeFileEntry[];
   status: "measured" | "error";
   error: string | null;
+  /** When and where this row was measured; absent in older files, whose header says. */
+  measured_on?: MeasuredOn;
 }
 
 /** Totals over a set of files, each counted once; `main` / `worker` / `wasm` are gzip bytes. */
@@ -308,10 +369,10 @@ export function buildCells(fixtures: readonly string[] = [...FIXTURES, ...LARGE_
   );
 }
 
-/** Bytes as KiB (1024 bytes), the unit every size table uses. */
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  return `${(bytes / 1024).toFixed(1)} KiB`;
+/** The package a renderer opens `format` with, or undefined when it names none. */
+export function rendererPackage(renderer: string, format: BenchFormat): string | undefined {
+  const entry = RENDERER_PACKAGES[renderer];
+  return typeof entry === "string" ? entry : entry?.[format];
 }
 
 /**
@@ -320,12 +381,6 @@ export function formatBytes(bytes: number): string {
  * workspace (Bun's global auto-install cache would hand back a different,
  * npm-latest version than the one the bench runs).
  */
-/** The package a renderer opens `format` with, or undefined when it names none. */
-export function rendererPackage(renderer: string, format: BenchFormat): string | undefined {
-  const entry = RENDERER_PACKAGES[renderer];
-  return typeof entry === "string" ? entry : entry?.[format];
-}
-
 export async function installedVersion(root: string, renderer: string, format: BenchFormat): Promise<string | null> {
   const { dirname, join, relative, isAbsolute } = await import("node:path");
   const { realpathSync, existsSync, readFileSync } = await import("node:fs");
@@ -374,7 +429,7 @@ export function sizeTableRows(summary: SizeSummary): string {
 
 async function main(): Promise<void> {
   const args = new Set(process.argv.slice(2));
-  const { mkdir, readdir, readFile, writeFile } = await import("node:fs/promises");
+  const { mkdir, readFile, writeFile } = await import("node:fs/promises");
   const { join, dirname } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -399,6 +454,10 @@ async function main(): Promise<void> {
     try {
       const product = await browser.product();
       const log = (line: string): void => console.log(line);
+      // Everything measured now carries its own date and browser, so a merged
+      // result can say which renderers were measured when.
+      const measuredOn: MeasuredOn = { date: new Date().toISOString(), browser: product, os: machine.os };
+      const all = args.has("--all");
       if (args.has("--calibrate")) {
         const ok = await runCalibration(browser, log);
         console.log(ok ? "memory reading calibrated" : "memory reading is WRONG — do not publish");
@@ -410,12 +469,21 @@ async function main(): Promise<void> {
         for (const format of BENCH_FORMATS) {
           for (const renderer of RENDERERS_BY_FORMAT[format]) versions.set(`${renderer}:${format}`, await installedVersion(root, renderer, format));
         }
-        const rows = await runSizePass(browser, (renderer, format) => versions.get(`${renderer}:${format}`) ?? null, log);
-        const path = join(outDir, `size-${stamp()}.json`);
-        const summary = summarizeSize(rows);
-        await writeFile(path, JSON.stringify({ version: 1, kind: "size", timestamp: new Date().toISOString(), machine: { ...machine, browser: product }, method: METHOD.size, rows, summary }, null, 2));
-        const failed = rows.filter((row) => row.status === "error");
-        console.log(`wrote ${path} (${rows.length} rows, ${failed.length} failed)`);
+        const measured = (await runSizePass(
+          browser,
+          (renderer, format) => versions.get(`${renderer}:${format}`) ?? null,
+          log,
+          (renderer) => all || renderer === "aared",
+        )).map((row) => ({ ...row, measured_on: measuredOn }));
+        const header = { version: 1, kind: "size", timestamp: measuredOn.date, machine: { ...machine, browser: product }, method: METHOD.size };
+        // Without `--all`, aared's rows go into the latest size file in place of its old ones.
+        const base = all ? null : await latestResult<SizeFile>(outDir, "size-", 1);
+        const rows = base === null ? measured : mergeMeasured(base.file.rows, measured);
+        if (base !== null) Object.assign(header, { timestamp: base.file.timestamp, machine: base.file.machine });
+        const path = base === null ? join(outDir, `size-${stamp()}.json`) : join(outDir, base.name);
+        await writeFile(path, JSON.stringify({ ...header, rows, summary: summarizeSize(rows) }, null, 2));
+        const failed = measured.filter((row) => row.status === "error");
+        console.log(`wrote ${path} (${measured.length} rows measured${base === null ? "" : `, merged into ${base.name}`}, ${failed.length} failed)`);
         return;
       }
       if (args.has("--search")) {
@@ -425,29 +493,22 @@ async function main(): Promise<void> {
         console.log(`wrote ${path}${skipped.length > 0 ? ` (not generated, skipped: ${skipped.join(", ")} — run tools/bench-search/make-fixtures.py)` : ""}`);
         return;
       }
-      // `--run [fixture:renderer ...]`: every cell, or just the named ones.
-      const only = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
+      // `--run`: aared's cells; named `fixture:renderer` pairs: just those;
+      // both merged into the latest run. `--run --all`: every cell, a new run.
+      const pairs = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
+      const only = all ? [] : pairs.length > 0 ? pairs : aaredPairs();
       const { cells, skipped, remaining } = await runBrowserPass(browser, { only, log });
-      const header = { version: 2, kind: "run", timestamp: new Date().toISOString(), machine: { ...machine, browser: product }, method: METHOD };
-      let path = join(outDir, `${stamp()}.json`);
-      let written: Cell[] = cells;
-      if (args.has("--merge")) {
-        // `--run --merge <cells>`: put these cells into the latest full run in place of
-        // the ones it has (a failed cell re-measured, say), keeping that run's header
-        // and its date, instead of starting a partial file.
-        const latest = (await readdir(outDir)).filter((f) => f.endsWith(".json") && !f.startsWith("size-") && !f.startsWith("search-")).sort().at(-1);
-        if (latest === undefined) throw new Error("--merge needs an existing run file in tools/bench-results/");
-        path = join(outDir, latest);
-        const base = JSON.parse(await readFile(path, "utf8")) as RunFile;
-        const replaced = new Set(cells.map((cell) => `${cell.fixture}:${cell.renderer}`));
-        written = [...base.cells.filter((cell) => !replaced.has(`${cell.fixture}:${cell.renderer}`)), ...cells];
-        Object.assign(header, { timestamp: base.timestamp, machine: base.machine, merged: replaced.size });
-      }
+      const measured = cells.map((cell) => ({ ...cell, measured_on: measuredOn }));
+      const header = { version: 2, kind: "run", timestamp: measuredOn.date, machine: { ...machine, browser: product }, method: METHOD };
+      const base = all ? null : await latestResult<RunFile>(outDir, null, 2);
+      const written = base === null ? measured : mergeMeasured(base.file.cells, measured);
+      if (base !== null) Object.assign(header, { timestamp: base.file.timestamp, machine: base.file.machine });
+      const path = base === null ? join(outDir, `${stamp()}.json`) : join(outDir, base.name);
       await writeFile(path, JSON.stringify({ ...header, cells: written }, null, 2));
-      const failed = written.filter((cell) => cell.status === "error");
-      console.log(`wrote ${path} (${written.length} cells, ${failed.length} failed${skipped.length > 0 ? `; not generated, skipped: ${skipped.join(", ")}` : ""})`);
+      const failed = measured.filter((cell) => cell.status === "error");
+      console.log(`wrote ${path} (${measured.length} cells measured${base === null ? "" : `, merged into ${base.name}`}, ${failed.length} failed${skipped.length > 0 ? `; not generated, skipped: ${skipped.join(", ")}` : ""})`);
       if (remaining.length > 0) {
-        console.log(`stopped early: the browser stopped answering. Measure the rest into this file with a new run:\n  bun tools/bench-measure.ts --run --merge ${remaining.join(" ")}`);
+        console.log(`stopped early: the browser stopped answering. Measure the rest into this file with a new run:\n  bun tools/bench-measure.ts --run ${remaining.join(" ")}`);
         process.exitCode = 1;
       }
       return;
@@ -457,25 +518,9 @@ async function main(): Promise<void> {
   }
 
   if (args.has("--render-md") || args.has("--render-site")) {
-    const files = (await readdir(outDir).catch(() => [] as string[]))
-      .filter((f) => f.endsWith(".json"))
-      .sort();
-    const read = async <T>(name: string | undefined): Promise<T | null> =>
-      name === undefined ? null : (JSON.parse(await readFile(join(outDir, name), "utf8")) as T);
-    // Only results taken with the current method: run files from version 2
-    // (Workers read in their own sessions), size files from version 1
-    // (fetched files, one build). Older files are ignored, never mixed in.
-    const latestOf = async <T extends { version?: number }>(prefix: string | null, minVersion: number): Promise<{ name: string; file: T } | null> => {
-      const candidates = files.filter((f) => (prefix === null ? !f.startsWith("size-") && !f.startsWith("search-") : f.startsWith(prefix)));
-      for (const name of candidates.reverse()) {
-        const file = await read<T>(name);
-        if (file !== null && (file.version ?? 0) >= minVersion) return { name, file };
-      }
-      return null;
-    };
-    const run = await latestOf<RunFile>(null, 2);
-    const size = await latestOf<SizeFile>("size-", 1);
-    const search = await latestOf<SearchFile>("search-", 1);
+    const run = await latestResult<RunFile>(outDir, null, 2);
+    const size = await latestResult<SizeFile>(outDir, "size-", 1);
+    const search = await latestResult<SearchFile>(outDir, "search-", 1);
 
     if (args.has("--render-site")) {
       // The site's "By the numbers" section reads this file at build time;
@@ -486,6 +531,7 @@ async function main(): Promise<void> {
         generated: new Date().toISOString(),
         sources: { run: run?.name ?? null, size: size?.name ?? null, search: search?.name ?? null },
         machine: run?.file.machine ?? null,
+        measured: run === null ? "" : describeMeasured(run.file.cells, { date: run.file.timestamp, browser: String(run.file.machine.browser) }),
         method: { runs: METHOD.runs, warmupDiscarded: METHOD.warmupDiscarded, coldRuns: METHOD.coldRuns, memoryRuns: METHOD.memoryRuns, navigationRuns: METHOD.navigationRuns },
         size: size?.file.summary ?? null,
         run: (run?.file.cells ?? []).filter((cell) => cell.status === "measured"),
@@ -526,8 +572,13 @@ async function main(): Promise<void> {
     const sizeRows = size === null ? `| *no measured sizes yet* | — | — | — | — | — | — | — | — |` : sizeTableRows(size.file.summary);
     const mdPath = join(root, "docs", "BENCHMARKS.md");
     let md = await readFile(mdPath, "utf8");
-    const machineLine = run === null ? "" : `\n> Run \`${run.name}\` on ${describeMachine(run.file.machine)}.\n`;
-    const sizeLine = size === null ? "" : `\n> Size \`${size.name}\` from the bench's production build.\n`;
+    // A merged result says which renderers were measured when (and on which browser).
+    const when = (items: ReadonlyArray<{ renderer: string; measured_on?: MeasuredOn }>, file: { timestamp: string; machine: Record<string, string | number> }): string => {
+      const line = describeMeasured(items, { date: file.timestamp, browser: String(file.machine.browser) });
+      return line === "" ? "" : ` ${line[0]!.toUpperCase()}${line.slice(1)}.`;
+    };
+    const machineLine = run === null ? "" : `\n> Run \`${run.name}\` on ${describeMachine(run.file.machine)}.${when(run.file.cells, run.file)}\n`;
+    const sizeLine = size === null ? "" : `\n> Size \`${size.name}\` from the bench's production build.${when(size.file.rows, size.file)}\n`;
     md = md.replace(
       /<!-- generated:open -->[\s\S]*?<!-- \/generated:open -->/,
       `<!-- generated:open -->${machineLine}\n| Fixture | Renderer | cold open ms (med) | warm open ms (med / p95) | one move ms (med) | all units ms (med) | memory, repeat open MB (page + Workers) | memory, first open MB | memory after a full read MB | left after destroy MB | idle Worker kept MB | elements painted |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n${openRows}\n<!-- /generated:open -->`,
@@ -548,9 +599,10 @@ async function main(): Promise<void> {
   console.log(
     [
       "usage: bun tools/bench-measure.ts <mode>   (every browser mode needs `bun run --cwd bench build`)",
-      "  --run [fixture:renderer …]   open / navigation / memory in a real browser",
-      "  --run --merge fixture:renderer …   the same, into the latest run's cells (redo a failed cell)",
-      "  --size                 download size: the files each renderer fetches to open each fixture",
+      "  --run                  open / navigation / memory for aared, merged into the latest run (competitors kept)",
+      "  --run fixture:renderer …   just those cells, merged the same way (redo a failed cell)",
+      "  --run --all            every renderer, into a new run file (first run, or a competitor's version changed)",
+      "  --size [--all]         download size: the files aared (every renderer with --all) fetches to open each fixture",
       "  --search               aared search() on the large generated fixtures",
       "  --calibrate            check the memory reading against 10 MiB controls on the page and in a Worker",
       "  --render-md            regenerate the tables in docs/BENCHMARKS.md from the latest results",
@@ -569,8 +621,34 @@ interface RunFile {
 interface SizeFile {
   version?: number;
   timestamp: string;
+  machine: Record<string, string | number>;
   rows: SizeRow[];
   summary: SizeSummary;
+}
+
+/**
+ * The newest result of one kind (`prefix` `size-` or `search-`; `null` for
+ * runs) taken with the current method: run files from version 2 (Workers read
+ * in their own sessions), size files from version 1 (fetched files, one
+ * build). Older files are ignored, never mixed in.
+ */
+async function latestResult<T extends { version?: number }>(
+  outDir: string,
+  prefix: string | null,
+  minVersion: number,
+): Promise<{ name: string; file: T } | null> {
+  const { readdir, readFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const names = (await readdir(outDir).catch(() => [] as string[]))
+    .filter((name) => name.endsWith(".json"))
+    .filter((name) => (prefix === null ? !name.startsWith("size-") && !name.startsWith("search-") : name.startsWith(prefix)))
+    .sort()
+    .reverse();
+  for (const name of names) {
+    const file = JSON.parse(await readFile(join(outDir, name), "utf8")) as T;
+    if ((file.version ?? 0) >= minVersion) return { name, file };
+  }
+  return null;
 }
 
 interface SearchFile {

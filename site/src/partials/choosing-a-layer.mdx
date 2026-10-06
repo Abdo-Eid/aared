@@ -1,0 +1,24 @@
+{/* Shared by the API page's "Choosing a layer" and the Start page's "Pick an entry": one text, not two copies. */}
+
+`aared` is a viewer, not a converter. The layers differ in how much you
+drive yourself, not in how well a file renders — they all paint through the
+same renderers.
+
+The viewer levels (`<aared-viewer>`, `preview()`, the hooks) show a file,
+move around it and find places in it. Anything you build from the file's
+contents (a thumbnail strip, an export, a picture gallery, several slides at
+once) uses the low-level API: `open()` and `render()`, where you own every
+step.
+
+| You want to… | Use |
+|---|---|
+| Show a file with no UI work | `<aared-viewer>` |
+| Same, in a React app | `aared/react` hooks |
+| A viewer for one known format, with navigation and one-call cleanup | `preview({ source, target })` from `aared/pptx`, `aared/xlsx`, or `aared/docx` |
+| A viewer for an arbitrary file type | `preview({ source, target })` from `aared/preview` |
+| Your own toolbar or tab strip over it | the same viewer: `next()`, `previous()`, `zoomIn()`, `resetZoom()`, `goTo()` |
+| A search box over it | the same viewer: `viewer.search()` |
+| Build from the file's contents: thumbnails, exports, pictures, several units at once | `open()` + `render()` from `aared/pptx`, `aared/xlsx`, or `aared/docx` |
+
+Mixing works: `preview()` for the main view plus `open()` for a thumbnail
+strip, at the price of parsing the file twice.

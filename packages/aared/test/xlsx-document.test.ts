@@ -104,14 +104,17 @@ test("rejects malformed ranges with invalid-range errors", async () => {
   }
 });
 
-test("searches formatted cell text across sheets", async () => {
+test("searches one sheet's formatted cell text, and only that sheet", async () => {
   const workbook = await open(await Bun.file(XLSX_FIXTURE).arrayBuffer());
   try {
-    expect(await workbook.search("")).toEqual([]);
-    const matches = await workbook.search("budget");
+    const summary = workbook.sheets.get("Summary");
+    expect(await summary.search("")).toEqual([]);
+    const matches = await summary.search("budget");
     expect(matches.length).toBeGreaterThan(0);
-    expect(matches.some((match) => match.sheet.title === "Summary")).toBe(true);
+    // "budget" is written on Summary alone; a sheet that does not hold it finds nothing.
+    expect(await workbook.sheets.get("Shot Log").search("budget")).toEqual([]);
     for (const match of matches) {
+      expect(match.sheet).toEqual({ index: 1, title: "Summary" });
       // A match names its sheet as { index, title } and its cell as { address, row, col }.
       expect(workbook.sheets.get(match.sheet.index).info.title).toBe(match.sheet.title);
       expect(match.address).toMatch(/^[A-Z]+[0-9]+$/);

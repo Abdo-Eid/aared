@@ -17,7 +17,7 @@
  */
 
 import { cssClass } from "../class-sheet.js";
-import type { DocxImageNode } from "../core/model.js";
+import type { DocxDrawingNode } from "../core/model.js";
 import { PX_PER_INCH } from "../core/units.js";
 import { planFloat, polygonSpan } from "./float-layout.js";
 import type { AnchorFrame, FloatPlan } from "./float-layout.js";
@@ -37,7 +37,7 @@ const ONLY_BREAK_SPACE = /^[ \t\r\n\f]+$/;
 const SLACK_STEPS_PX = [1, 2, 4];
 
 interface SplitState {
-  image: DocxImageNode;
+  image: DocxDrawingNode;
   frame: AnchorFrame;
   leftIndentPx: number;
   rightIndentPx: number;
@@ -152,13 +152,20 @@ function clearRows(paragraph: HTMLElement): void {
   paragraph.querySelectorAll("[data-aared-split-row], [data-aared-split-rest]").forEach((node) => node.remove());
 }
 
-/** Move the paragraph's run spans into a hidden source, once. A write. */
+/**
+ * Move the paragraph's run spans into a hidden source, once. A write. Only the
+ * run spans move: they are the plain `<span>`s a paragraph paints (a run with a
+ * link, note, picture or tab is never split), so other anchored pictures and
+ * the border extension, which carry their own `data-aared-element`, stay put.
+ */
 function ensureSource(paragraph: HTMLElement, state: SplitState): HTMLElement {
   if (state.source !== undefined) return state.source;
   const source = document.createElement("span");
   source.hidden = true;
   source.dataset.aaredSplitSource = "true";
-  for (const child of Array.from(paragraph.childNodes)) if (child !== state.picture) source.append(child);
+  for (const child of Array.from(paragraph.children)) {
+    if (child instanceof HTMLElement && child.tagName === "SPAN" && child.dataset.aaredElement === undefined) source.append(child);
+  }
   paragraph.append(source);
   state.source = source;
   return source;
@@ -234,6 +241,8 @@ function build(prepared: Prepared & { plan: SplitPlan }, slack: number): Painted
     right: anchor.distance.right * PX_PER_INCH,
   };
   clearRows(paragraph);
+  // `restore()` shows the source when the container was too narrow to split: hide it again.
+  state.source!.hidden = true;
   const pictureLeft = plan.leftPx - state.leftIndentPx;
   const picture = state.picture;
   picture.style.position = "absolute";

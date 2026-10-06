@@ -40,7 +40,7 @@ Measured numbers (method + generated tables): [`docs/BENCHMARKS.md`](docs/BENCHM
 | `docx-preview` | DOCX | ✅ | ✅ |
 | `pptxviewjs` / `pptx-preview` | PPTX | ✅ | ❌ — canvas output, no CSS fix |
 | SheetJS (Community Edition) | XLSX (parse only) | ✅ | N/A — styling silently dropped |
-| Univer / LibreOffice-WASM | Full suite | ✅ | ✅ | but a full office-suite runtime, not an embeddable previewer |
+| Univer / LibreOffice-WASM | Full suite | ✅ | ✅ (but a full office-suite runtime, not an embeddable previewer) |
 
 Nothing else spans all three formats at this weight with RTL that actually
 works. That's the gap this project exists to close — the concrete evidence
@@ -59,16 +59,34 @@ source: see [Develop](#develop).)*
 
 ## Quick start
 
-```html
-<script type="module">
-  import "aared/element";
-</script>
+Import the element once from your app's bundled code (Vite, webpack,
+Next.js; a plain `<script type="module">` cannot resolve `aared/element`):
 
+```ts
+import "aared/element";
+```
+
+```html
 <aared-viewer src="quarterly-report.pptx" controls></aared-viewer>
 ```
 
-Or build a custom UI on the headless entrypoints — one per format, same
-shape:
+When your app accepts only one format, use that entry's complete viewer:
+
+```ts
+import { preview } from "aared/pptx";
+
+const viewer = await preview({ source: file, target: container });
+await viewer.next();
+const matches = await viewer.search("budget");
+viewer.destroy(); // Removes the render and closes the document
+```
+
+`aared/xlsx` and `aared/docx` expose the same object-form `preview()` with
+format-specific handles. Their builds omit sibling renderers; the shared Worker
+still contains all parsers. Use `aared/preview` to detect an arbitrary file type.
+
+Or build from the file's models on the headless entrypoints — one per format,
+same shape. Here the render and document have separate lifetimes:
 
 ```ts
 import { open, render } from "aared/pptx";
@@ -97,7 +115,33 @@ const viewer = await render({ document: doc, target: document.querySelector<HTML
 ```
 
 Full API: the API reference page in the docs site — `bun run docs:dev`,
-open `/api` (source: `site/src/content/docs/api.mdx`).
+open `/api` (source: `site/src/content/docs/api.mdx`). New to it: `/start`
+covers installing, picking an entry, recipes and troubleshooting.
+
+### Search
+
+The shared viewer API works with PPTX, XLSX and DOCX:
+
+```ts
+import { preview } from "aared/preview";
+
+const viewer = await preview({ source: file, target: container });
+const matches = await viewer.search("nile"); // Results and highlights together
+await viewer.search("nile", { highlight: false }); // Results only
+await viewer.search(""); // Clear highlights
+```
+
+Search covers the whole presentation or document, and the current spreadsheet
+sheet. PPTX results count text occurrences, so one slide can have several
+results. Highlights follow navigation and newly painted rows; matching DOCX
+headers and footers highlight on every displayed page. The app supplies the
+input and results list. Headless document and sheet searches return data only.
+For a compact find bar, `viewer.searchNavigation` exposes the active `index`,
+total `count`, and wrapping `next()` / `previous()` methods. The active match
+has a stronger outlined highlight; `searchchange` updates the counter.
+See the [search recipe](site/src/content/docs/start.mdx#add-a-search-box) for
+an input example and the [API reference](site/src/content/docs/api.mdx#methods)
+for result navigation, cancellation and browser support.
 
 ## Fonts
 
@@ -160,7 +204,7 @@ bun run dev            # bench/ visual harness at http://localhost:5173
 bun run typecheck      # tsc --noEmit across all packages
 bun test               # bun:test — unit tests
 bun run test:visual    # WebView DOM-output + capture tests (captures need Office)
-bun run build          # tsdown — real dist output
+bun run build          # tsdown for the two packages — real dist output
 ```
 
 ## License

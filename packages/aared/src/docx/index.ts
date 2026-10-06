@@ -9,9 +9,8 @@
  * sections resolve together and are consumed together by rendering/layout —
  * there is deliberately no `section.read()`. Physical pages belong to the
  * render result only. Flow mode (the default) renders every section as one
- * continuous article with the last section's header/footer, matching the
- * pre-pagination output; layout mode (`pagination: { mode: "layout" }`)
- * paginates into per-page DOM. The returned `DocxRenderHandle` owns zoom,
+ * continuous article with the last section's header/footer; layout mode
+ * (`pagination: { mode: "layout" }`) paginates into per-page DOM. The returned `DocxRenderHandle` owns zoom,
  * heading navigation, and hyperlink activation events.
  *
  * Source-faithful content (like PPTX): pages always paint as authored —
@@ -21,9 +20,12 @@
  */
 
 import type {
+  DocxChartNode,
+  DocxDrawingNode,
   DocxHeadingNode,
   DocxImageNode,
   DocxInlineImage,
+  DocxTextBoxNode,
   DocxListItemNode,
   DocxPageBreakNode,
   DocxParagraphBorder,
@@ -34,6 +36,7 @@ import type {
   DocxUnsupportedNode,
   DocumentSection,
   DocxTableRowNode,
+  SectionProperties,
   FlowNode,
   RenderWarning,
   TextDirection,
@@ -62,15 +65,18 @@ import { cssFontFamily, lineFontSizePt } from "../core/typography.js";
 import type { LayoutPage, MeasuredFlow, SoftBreakPolicy } from "../core/docx/pagination.js";
 import { automaticInk, paintTokens, resolveTheme } from "../appearance.js";
 import { MediaUrls } from "../media-url.js";
-import { RenderHandleBase, fitScale, measureFitRoom, safeScale } from "../render-handle.js";
+import { DEFAULT_ZOOM, RenderHandleBase, fitScale, measureFitRoom, missingIdWarning, onReplaced, safeScale } from "../render-handle.js";
+import type { EventTargetOf, ZoomChangeEvent } from "../render-handle.js";
 import { createTableCell, createTableGrid } from "../table-dom.js";
 import { applyParagraphBox, applyRunBase, exactLinePitch, roundPt } from "../text-style.js";
 import { awaitDocumentFonts, fontFidelityWarnings } from "../font-fidelity.js";
+import { chartLayoutReady, chartsSettled, paintChart } from "../chart-svg.js";
 import { PX_PER_INCH, inchesToCss, ptToPx, twipsToInches } from "../core/units.js";
-import { fillRunText, lazyPagePaint, markTabs, settlePageTabStops, settleTabStops } from "./tabs.js";
+import { fillRunText, layoutTabStops, lazyPagePaint, markTabs, settlePageTabStops, settleTabStops } from "./tabs.js";
 import { adoptClassSheet, cssClass, type ClassSheetScope } from "../class-sheet.js";
 import { findByTitle, foldQuery } from "../core/search.js";
 import { buildDocxSearchIndex, entryMatch } from "./search.js";
+import { docxStories } from "./stories.js";
 import type { DocxSearchEntry } from "./search.js";
 import { headingOutline } from "./outline.js";
 import type { HeadingOutline } from "./outline.js";
@@ -131,7 +137,7 @@ export interface HeadingInfo {
 /** One laid-out page (layout mode). `index` is zero-based — the key `goToPage()` takes. */
 export interface DocxPageInfo {
   index: number;
-  /** In CSS pixels at 96 DPI. */
+  /** In inches, like every size in the API (× 96 for CSS pixels). */
   width: number;
   height: number;
   orientation: "portrait" | "landscape";
@@ -139,8 +145,12 @@ export interface DocxPageInfo {
 
 /** One document result from `document.search()`. */
 export interface DocxSearchMatch {
-  /** What holds the match: a body block, a table-cell block, or a note body. */
-  kind: "heading" | "paragraph" | "list" | "table" | "footnote" | "endnote";
+  /**
+   * What holds the match: a body block, a table-cell block, a note body, or
+   * a chart (its title, an axis title, a series name or a category label), or
+   * a text box's paragraph, list or table content.
+   */
+  kind: "heading" | "paragraph" | "list" | "table" | "footnote" | "endnote" | "chart" | "textBox" | "header" | "footer";
   /**
    * Zero-based section index holding the match. For a note, the section of
    * the paragraph that first references it.
@@ -162,6 +172,10 @@ export interface DocxSearchMatch {
   table?: { index: number; row: number; col: number };
   /** Note matches only: the note's id (`f`/`e`-prefixed) and display label. */
   note?: { id: string; label: string };
+  /** Text-box matches only: the zero-based text-box index in document order. */
+  textBox?: { index: number };
+  /** Header/footer source part and its first indexed variant; inherited copies share the part. */
+  story?: { part: string; variant: "default" | "first" | "even" };
 }
 
 /**
@@ -179,11 +193,27 @@ export class SectionCollection implements Collection<DocumentSection, number> {
 
   get(index: number): DocumentSection {
     return itemAt(
+      "aared/docx",
       this.sections,
       index,
       () => `aared/docx: section index ${String(index)} is outside this ${this.sections.length}-section document`,
     );
   }
+}
+
+/** A heading by index, or by title (exact, then ignoring case — never a substring); `not-found` otherwise. */
+function headingBy(list: readonly HeadingInfo[], key: number | string): HeadingInfo {
+  if (typeof key === "number") {
+    return itemAt(
+      "aared/docx",
+      list,
+      key,
+      () => `aared/docx: heading index ${String(key)} is outside this ${list.length}-heading outline`,
+    );
+  }
+  const found = findByTitle(list, key, (heading) => heading.title);
+  if (found !== undefined) return found;
+  throw new AaredError("not-found", `aared/docx: no heading titled ${JSON.stringify(key)} in this ${list.length}-heading outline`);
 }
 
 /** `document.headings`: the body heading outline in document order. */
@@ -194,19 +224,8 @@ export class HeadingCollection implements Collection<HeadingInfo, number | strin
     return this.outline.list;
   }
 
-  /** By index, or by title (exact, then ignoring case — never a substring). */
   get(key: number | string): HeadingInfo {
-    const list = this.outline.list;
-    if (typeof key === "number") {
-      return itemAt(
-        list,
-        key,
-        () => `aared/docx: heading index ${String(key)} is outside this ${list.length}-heading outline`,
-      );
-    }
-    const found = findByTitle(list, key, (heading) => heading.title);
-    if (found !== undefined) return found;
-    throw new AaredError("not-found", `aared/docx: no heading titled ${JSON.stringify(key)} in this ${list.length}-heading outline`);
+    return headingBy(this.outline.list, key);
   }
 }
 
@@ -238,15 +257,15 @@ export class DocxDocument {
   }
 
   /**
-   * Case-insensitive substring search over cached heading, paragraph,
-   * list-item, table-cell, and footnote/endnote text. The sections resolved
+   * Case-insensitive, Arabic-spelling-insensitive substring search over cached
+   * heading, paragraph, list-item, table-cell, and footnote/endnote text. The sections resolved
    * at `open()` time, so no Worker round-trip is needed — it is async only so
    * every format's `search()` has the same shape. The searchable blocks are
    * indexed once on first use. One match per matching block in document
    * order, notes last; `heading` names the nearest preceding body heading in
    * the same section (null when none precedes the match — including when the
-   * match is itself the first heading). Headers, footers, and text boxes are
-   * not searched. Rejects `closed` after `close()`.
+   * match is itself the first heading). Text boxes are included. Distinct header/footer
+   * parts are searched once, with no body heading. Rejects `closed` after `close()`.
    */
   async search(query: string, options?: ReadOptions): Promise<DocxSearchMatch[]> {
     if (this.closed) throw new AaredError("closed", "aared/docx: document is closed");
@@ -256,7 +275,7 @@ export class DocxDocument {
     this.searchIndex ??= buildDocxSearchIndex(this.sections.list(), this.outline);
     const matches: DocxSearchMatch[] = [];
     for (const entry of this.searchIndex) {
-      if (entry.lower.includes(needle)) matches.push(entryMatch(entry));
+      if (entry.key.includes(needle)) matches.push(entryMatch(entry));
     }
     return matches;
   }
@@ -301,8 +320,34 @@ export async function open(source: Source, options?: OpenOptions): Promise<DocxD
  * borders. The authored line-spacing multiple scales Word's single-line box
  * (about 1.15em), not the font size.
  */
-function applyParagraphLayout(line: HTMLElement, node: DocxParagraphLayout & { direction: TextDirection; runs: readonly TextRunModel[] }): void {
-  applyParagraphBox(line, node, { singleLine: WORD_SINGLE_LINE });
+function applyParagraphLayout(line: HTMLElement, node: DocxParagraphLayout & { direction: TextDirection; runs: readonly TextRunModel[] }, wiring: ImageWiring): void {
+  const grid = wiring.docGrid;
+  let layout = node;
+  if (grid?.type === "lines" && (grid.linePitch ?? 360) > 0) {
+    const pitchPt = (grid.linePitch ?? 360) / 20;
+    const before = node.spaceBeforeLines;
+    const after = node.spaceAfterLines;
+    if ((before !== undefined && before > 0) || (after !== undefined && after > 0)) {
+      layout = { ...node,
+        ...(before !== undefined && before > 0 ? { spaceBeforePt: before * pitchPt } : {}),
+        ...(after !== undefined && after > 0 ? { spaceAfterPt: after * pitchPt } : {}),
+      };
+    }
+    const inTable = wiring.inTable === true && grid.adjustLineHeightInTable !== true;
+    if (!inTable && node.snapToGrid !== false && (node.lineSpacingPt === undefined || node.lineSpacingAtLeast === true)) {
+      const fontPt = lineFontSizePt(node.runs, node.fontSizePt) ?? 11;
+      const naturalPt = Math.max(
+        fontPt,
+        node.lineSpacingPt ?? 0,
+        node.lineSpacing === undefined ? fontPt * WORD_SINGLE_LINE : fontPt * WORD_SINGLE_LINE * node.lineSpacing,
+      );
+      const snappedPt = Math.ceil((naturalPt - 1e-7) / pitchPt) * pitchPt;
+      layout = { ...layout, lineSpacingPt: snappedPt };
+      delete layout.lineSpacing;
+      delete layout.lineSpacingAtLeast;
+    }
+  }
+  applyParagraphBox(line, layout, { singleLine: WORD_SINGLE_LINE });
   if (node.justifyShrink === true) line.classList.add(JUSTIFY_SHRINK);
   // The line box follows the runs on it, not the paragraph default (see `lineFontSizePt`).
   const lineFontPt = lineFontSizePt(node.runs, node.fontSizePt);
@@ -467,13 +512,15 @@ interface ListMarker {
   suffix?: "space" | "nothing";
 }
 
-function appendParagraph(host: HTMLElement, paragraph: DocxParagraphNode, wiring: ImageWiring, marker?: ListMarker): HTMLElement {
-  const line = document.createElement("p");
-  line.setAttribute("data-aared-element", "paragraph");
+/**
+ * Paint what a paragraph and a heading share into their element: the block box,
+ * anchored pictures, the list marker when there is one, then the runs.
+ */
+function paintLine(line: HTMLElement, node: DocxParagraphNode | DocxHeadingNode, wiring: ImageWiring, marker?: ListMarker): void {
   line.setAttribute("class", BLOCK);
-  applyParagraphLayout(line, paragraph);
-  const exactPitch = exactLinePitch(paragraph);
-  if (paragraph.floats !== undefined) appendFloats(line, paragraph.floats, paragraph, wiring);
+  applyParagraphLayout(line, node, wiring);
+  const exactPitch = exactLinePitch(node);
+  if (node.floats !== undefined) appendFloats(line, node.floats, node, wiring);
   if (marker !== undefined) {
     // The marker is the first thing on the line in the paragraph's own
     // direction, so an RTL item carries it on the right and the line packs
@@ -494,10 +541,16 @@ function appendParagraph(host: HTMLElement, paragraph: DocxParagraphNode, wiring
     if (marker.suffix === "space") line.append(document.createTextNode(" "));
   }
   // Runs go straight into the paragraph: no wrapper, one element fewer per paragraph.
-  for (const run of paragraph.runs) appendRunText(line, run, wiring, paragraph.direction, exactPitch);
-  // A paragraph holding only pictures is still one line tall in Word.
-  if (paragraph.runs.length === 0 && paragraph.floats !== undefined) line.append(document.createElement("br"));
-  markTabs(line, paragraph.tabStops);
+  for (const run of node.runs) appendRunText(line, run, wiring, node.direction, exactPitch);
+  // A paragraph holding only pictures, or nothing at all, is still one line tall in Word.
+  if (node.runs.length === 0) line.append(document.createElement("br"));
+  markTabs(line, node.tabStops);
+}
+
+function appendParagraph(host: HTMLElement, paragraph: DocxParagraphNode, wiring: ImageWiring, marker?: ListMarker): HTMLElement {
+  const line = document.createElement("p");
+  line.setAttribute("data-aared-element", "paragraph");
+  paintLine(line, paragraph, wiring, marker);
   host.append(line);
   return line;
 }
@@ -515,12 +568,7 @@ function appendHeading(host: HTMLElement, heading: DocxHeadingNode, wiring: Imag
     element.id = `aared-heading-${index + 1}`;
     element.setAttribute("data-aared-heading-index", String(index));
   }
-  element.setAttribute("class", BLOCK);
-  applyParagraphLayout(element, heading);
-  const exactPitch = exactLinePitch(heading);
-  if (heading.floats !== undefined) appendFloats(element, heading.floats, heading, wiring);
-  for (const run of heading.runs) appendRunText(element, run, wiring, heading.direction, exactPitch);
-  markTabs(element, heading.tabStops);
+  paintLine(element, heading, wiring);
   host.append(element);
 }
 
@@ -623,8 +671,14 @@ function appendTable(host: HTMLElement, table: DocxTableNode, wiring: ImageWirin
         const insetPx = Number.parseFloat(cell.style.paddingLeft) + Number.parseFloat(cell.style.paddingRight);
         wiring.frame = { columnPx: Math.max(0, spannedIn * PX_PER_INCH - insetPx), columnLeftPx: 0 };
       }
-      for (const node of cellModel.nodes) appendFlowNode(cell, node, wiring);
-      wiring.frame = outer;
+      const wasInTable = wiring.inTable;
+      wiring.inTable = true;
+      try {
+        for (const node of cellModel.nodes) appendFlowNode(cell, node, wiring);
+      } finally {
+        wiring.inTable = wasInTable === true;
+        wiring.frame = outer;
+      }
       grid.append(cell);
     }
     for (let index = 0; index < busy.length; index++) if ((busy[index] ?? 0) > 0) busy[index] = (busy[index] ?? 0) - 1;
@@ -669,10 +723,6 @@ function appendList(host: HTMLElement, nodes: DocxListItemNode[], wiring: ImageW
   list.style.listStyle = "none";
   list.style.margin = `${BLOCK_MARGIN_EM}em 0`;
   list.style.padding = "0";
-  if (ordered) {
-    const start = Number.parseInt(nodes[0]?.marker ?? "", 10);
-    if (Number.isInteger(start)) list.setAttribute("start", String(start));
-  }
   for (const item of nodes) appendListItem(list, item, wiring);
   host.append(list);
 }
@@ -688,6 +738,8 @@ interface ImageWiring {
   /** Layout page fields; absent in flow mode (runs keep their static text). */
   pageNumber?: number;
   pageTotal?: number;
+  docGrid?: SectionProperties["docGrid"];
+  inTable?: boolean;
   /** The column and page an anchored picture is placed in; set by whoever paints a container, before painting it. */
   frame?: AnchorFrame | undefined;
   /** Run on destroy: observers and listeners a render started (the split wrap's resize observer). */
@@ -718,11 +770,11 @@ const ANCHOR_BAND = cssClass("float:left;width:100%;box-sizing:border-box");
 const ANCHOR_PICTURE = cssClass("display:block;max-width:none");
 const ANCHOR_OVERLAY = cssClass("position:absolute");
 
-/** The data attributes every anchored picture carries, on whichever element is its outermost. */
-function markAnchored(element: HTMLElement, image: DocxImageNode, placement: string): void {
-  element.dataset.aaredElement = "anchored-image";
-  element.dataset.aaredMediaId = image.mediaId;
-  element.dataset.aaredWrap = image.anchor!.wrap;
+/** The data attributes every anchored picture or chart carries, on whichever element is its outermost. */
+function markAnchored(element: HTMLElement, drawing: DocxDrawingNode, placement: string): void {
+  element.dataset.aaredElement = drawing.type === "chart" ? "anchored-chart" : drawing.type === "image" ? "anchored-image" : "anchored-text-box";
+  if (drawing.type === "image") element.dataset.aaredMediaId = drawing.mediaId;
+  element.dataset.aaredWrap = drawing.anchor!.wrap;
   element.dataset.aaredPlacement = placement;
 }
 
@@ -737,7 +789,7 @@ function markAnchored(element: HTMLElement, image: DocxImageNode, placement: str
  */
 function appendFloats(
   line: HTMLElement,
-  floats: readonly DocxImageNode[],
+  floats: readonly DocxDrawingNode[],
   paragraph: { leftIndent?: number; rightIndent?: number; runs: readonly TextRunModel[] },
   wiring: ImageWiring,
 ): void {
@@ -835,8 +887,16 @@ function appendFloats(
   line.prepend(...placed);
 }
 
-/** The picture of an anchored image: its box while loading, then the media. */
-function anchoredPicture(image: DocxImageNode, width: number, height: number, wiring: ImageWiring): HTMLElement {
+/** The picture of an anchored image (its box while loading, then the media), or the chart drawn in that box. */
+function anchoredPicture(image: DocxDrawingNode, width: number, height: number, wiring: ImageWiring): HTMLElement {
+  if (image.type === "chart") {
+    const frame = chartFrame(image, wiring);
+    frame.classList.add(ANCHOR_PICTURE);
+    frame.style.width = `${width}px`;
+    frame.style.height = `${height}px`;
+    return frame;
+  }
+  if (image.type === "textBox") return textBoxElement(image, wiring, true);
   if (wiring.urls === undefined) {
     const pending = document.createElement("span");
     pending.dataset.aaredImagePending = "true";
@@ -851,6 +911,40 @@ function anchoredPicture(image: DocxImageNode, width: number, height: number, wi
   element.style.width = `${width}px`;
   element.style.height = `${height}px`;
   wireImageMedia(element, image, wiring.urls, wiring);
+  return element;
+}
+
+function textBoxElement(textBox: DocxTextBoxNode, wiring: ImageWiring, anchored = false): HTMLElement {
+  const element = document.createElement("div");
+  element.dataset.aaredElement = "text-box";
+  element.dataset.aaredDirection = textBox.direction;
+  element.style.boxSizing = "border-box";
+  element.style.display = anchored ? "block" : "inline-block";
+  element.style.verticalAlign = "top";
+  element.style.direction = textBox.direction;
+  element.style.width = inchesToCss(textBox.width);
+  element.style.height = inchesToCss(textBox.height);
+  element.style.maxWidth = anchored ? "none" : "100%";
+  element.style.overflow = textBox.verticalOverflow === "clip" ? "hidden" : "visible";
+  element.style.paddingTop = inchesToCss(textBox.insets?.top ?? 0.05);
+  element.style.paddingRight = inchesToCss(textBox.insets?.right ?? 0.1);
+  element.style.paddingBottom = inchesToCss(textBox.insets?.bottom ?? 0.05);
+  element.style.paddingLeft = inchesToCss(textBox.insets?.left ?? 0.1);
+  if (textBox.fill !== undefined) {
+    element.style.backgroundColor = textBox.fill;
+    element.dataset.aaredShade = textBox.fill;
+  }
+  if (textBox.border !== undefined) {
+    element.style.border = `${ptToPx(textBox.border.widthPt)}px ${textBox.border.style} ${textBox.border.color}`;
+  }
+  if (!anchored) element.style.marginBlock = `${BLOCK_MARGIN_EM}em`;
+  const previousFrame = wiring.frame;
+  wiring.frame = { columnPx: textBox.width * PX_PER_INCH, columnLeftPx: 0 };
+  try {
+    for (const node of textBox.content) appendFlowNode(element, node, wiring);
+  } finally {
+    wiring.frame = previousFrame;
+  }
   return element;
 }
 
@@ -961,6 +1055,79 @@ function appendImage(host: HTMLElement, image: DocxImageNode, wiring: ImageWirin
   host.append(figure);
 }
 
+/** A chart's frame: the shared painter lays the chart out at its extent and draws it here (PPTX and XLSX draw the same way). */
+const CHART_FRAME = cssClass("display:block;position:relative;overflow:hidden");
+const CHART_SVG_FILL = cssClass("position:absolute;inset:0;width:100%;height:100%");
+
+function chartFrame(chart: DocxChartNode, wiring: ImageWiring): HTMLElement {
+  const frame = document.createElement("span");
+  frame.dataset.aaredElement = "chart";
+  frame.setAttribute("class", CHART_FRAME);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.dataset.aaredElement = "chart-graphic";
+  svg.setAttribute("class", CHART_SVG_FILL);
+  frame.append(svg);
+  paintChart(svg, chart.spec, {
+    frame: { width: chart.width, height: chart.height },
+    urls: wiring.urls,
+    alt: chart.alt,
+    unavailable: () => {
+      svg.remove();
+      frame.dataset.aaredChartFallback = "load-error";
+      frame.style.border = "1px dashed currentColor";
+      frame.textContent = chart.alt ?? "Chart";
+    },
+  });
+  return frame;
+}
+
+/**
+ * A chart in its own block, like a block picture: its extent, scaled down
+ * whole (never squeezed) in a narrower column, placed by the paragraph's
+ * alignment.
+ */
+function appendChartBlock(host: HTMLElement, chart: DocxChartNode, wiring: ImageWiring): void {
+  const figure = document.createElement("figure");
+  figure.dataset.aaredElement = "chart-block";
+  figure.style.margin = `${BLOCK_MARGIN_EM}em 0`;
+  figure.style.minWidth = "0";
+  figure.style.maxWidth = "100%";
+  const frame = chartFrame(chart, wiring);
+  frame.style.width = inchesToCss(chart.width);
+  frame.style.maxWidth = "100%";
+  frame.style.aspectRatio = `${chart.width} / ${chart.height}`;
+  if (chart.align === "center") {
+    frame.style.marginLeft = "auto";
+    frame.style.marginRight = "auto";
+  } else if (chart.align === "right") {
+    frame.style.marginLeft = "auto";
+  }
+  figure.append(frame);
+  host.append(figure);
+}
+
+/** Whether any part of the document holds a chart, so the render can fetch the chart layout file while it waits for fonts. */
+function documentHasCharts(sections: readonly DocumentSection[]): boolean {
+  const visit = (nodes: readonly FlowNode[]): boolean => nodes.some((node) => {
+    switch (node.type) {
+      case "chart":
+        return true;
+      case "paragraph":
+      case "heading":
+        return node.floats?.some((float) => float.type === "chart") ?? false;
+      case "list":
+        return node.items.some((item) => item.paragraph.floats?.some((float) => float.type === "chart") ?? false);
+      case "table":
+        return node.rows.some((row) => row.cells.some((cell) => visit(cell.nodes)));
+      case "footnote":
+        return visit(node.nodes);
+      default:
+        return false;
+    }
+  });
+  return sections.some((section) => visit(section.root) || visit(section.header ?? []) || visit(section.footer ?? []));
+}
+
 function appendUnsupported(host: HTMLElement, node: DocxUnsupportedNode): void {
   const fallback = document.createElement("div");
   fallback.dataset.aaredElement = "unsupported";
@@ -1069,8 +1236,14 @@ function appendFlowNode(host: HTMLElement, node: FlowNode, wiring: ImageWiring):
     case "table":
       appendTable(host, node, wiring);
       break;
+    case "textBox":
+      host.append(textBoxElement(node, wiring));
+      break;
     case "image":
       appendImage(host, node, wiring);
+      break;
+    case "chart":
+      appendChartBlock(host, node, wiring);
       break;
     case "list":
       appendList(host, node.items, wiring);
@@ -1113,9 +1286,25 @@ export interface DocxRenderInput {
   /** Starting zoom, applied without a `zoomchange`. Default `"fit-width"`. */
   zoom?: ZoomValue;
   mediaResolver?: MediaResolver;
+  /**
+   * Cancel the render until it paints. It waits for the document's fonts
+   * first, so a cancel that lands during that wait paints nothing, rejects
+   * with `aborted` and never hands back a handle. Painting is synchronous, so
+   * a cancel after it is ignored, as is the signal once `render()` has
+   * resolved; `destroy()` is the teardown.
+   */
+  signal?: AbortSignal;
 }
 
-export interface DocxRenderHandle extends EventTarget {
+/** The events a DOCX render handle fires, by name: `addEventListener` types each `event.detail`. */
+export interface DocxRenderEventMap {
+  /** The zoom changed. */
+  zoomchange: ZoomChangeEvent;
+  /** A hyperlink was clicked; nothing navigates (footnote links still jump). `target` is the link's `href`. */
+  linkactivate: CustomEvent<{ target: string }>;
+}
+
+export interface DocxRenderHandle extends EventTargetOf<DocxRenderEventMap> {
   /** Disconnect media loading and release image object URLs. Idempotent. */
   destroy(): void;
   /** `true` once destroyed; every method is then a no-op that fires nothing. */
@@ -1159,6 +1348,8 @@ export interface DocxRenderHandle extends EventTarget {
    * outside `0 <= index < pageCount`.
    */
   goToPage(index: number): Promise<void>;
+  /** Navigate to the first displayed copy of a header/footer, or a body match's heading. */
+  goToSearchMatch(match: DocxSearchMatch): Promise<void>;
 }
 
 /**
@@ -1174,6 +1365,19 @@ function paintAutomaticInk(root: HTMLElement): void {
 }
 
 /** A page-like root's default surface and ink, and the automatic text over the fills beneath it. */
+/**
+ * What a render noticed about the document, apart from layout: drawings the file gave no id (the
+ * file is damaged, but aared never uses a drawing's id, so it is drawn in full), then fonts that
+ * painted with a fallback.
+ */
+function documentWarnings(sections: readonly DocumentSection[]): RenderWarning[] {
+  const noId = missingIdWarning(
+    "docx-missing-id", sections[0]?.missingIds ?? 0, "drawing", "in this document",
+    "Word offers to recover such a file; aared does not use the id, and the document is rendered in full.",
+  );
+  return [...(noId === undefined ? [] : [noId]), ...fontFidelityWarnings(sections)];
+}
+
 function paintSurface(root: HTMLElement): void {
   root.style.background = "white";
   root.style.color = "black";
@@ -1205,14 +1409,14 @@ function paintAppearanceRoot(root: HTMLElement, dark: boolean): void {
 class DocxViewer extends RenderHandleBase<Appearance> implements DocxRenderHandle {
   readonly pageCount: number;
   readonly pages: readonly DocxPageInfo[];
-  /** Where the painted headings and pages live, once `render()` has painted. */
-  #root: HTMLElement | null = null;
 
+  /** `root` is the painted tree the headings and pages live in. */
   constructor(
     zoom: ZoomValue,
     pages: readonly DocxPageInfo[],
     private readonly outline: readonly HeadingInfo[],
     private readonly layout: boolean,
+    private readonly root: HTMLElement,
   ) {
     super(zoom);
     this.pageCount = pages.length;
@@ -1224,15 +1428,25 @@ class DocxViewer extends RenderHandleBase<Appearance> implements DocxRenderHandl
     this.applyAppearance(appearance);
   }
 
+  async goToSearchMatch(match: DocxSearchMatch): Promise<void> {
+    if (this.destroyed) return;
+    if (match.kind === "header" || match.kind === "footer") {
+      const story = [...this.root.querySelectorAll<HTMLElement>("[data-aared-story-part]")]
+        .find((node) => node.dataset.aaredStoryPart === match.story?.part && node.dataset.aaredStoryKind === match.kind);
+      if (story === undefined) throw new AaredError("not-found", "aared/docx: this header or footer is not displayed in the current render");
+      story.scrollIntoView();
+      return;
+    }
+    if (match.heading !== null) return this.goToHeading(match.heading.index);
+    const section = this.root.querySelector<HTMLElement>(`[data-aared-section="${match.section}"]`);
+    if (section !== null) section.scrollIntoView();
+    else this.root.scrollIntoView();
+  }
+
   async goToHeading(target: string | number): Promise<void> {
     if (this.destroyed) return;
-    const heading = typeof target === "number"
-      ? itemAt(this.outline, target, () => `aared/docx: heading index ${String(target)} is outside this ${this.outline.length}-heading outline`)
-      : findByTitle(this.outline, target, (entry) => entry.title);
-    if (heading === undefined) {
-      throw new AaredError("not-found", `aared/docx: no heading titled ${JSON.stringify(target)} in this ${this.outline.length}-heading outline`);
-    }
-    this.#root?.querySelector(`[data-aared-heading-index="${heading.index}"]`)?.scrollIntoView();
+    const heading = headingBy(this.outline, target);
+    this.root.querySelector(`[data-aared-heading-index="${heading.index}"]`)?.scrollIntoView();
   }
 
   async goToPage(index: number): Promise<void> {
@@ -1243,21 +1457,17 @@ class DocxViewer extends RenderHandleBase<Appearance> implements DocxRenderHandl
         'aared/docx: this document is rendered in flow mode, which has no pages; render with pagination: { mode: "layout" }',
       );
     }
-    itemAt(this.pages, index, () => `aared/docx: page index ${String(index)} is outside this ${this.pageCount}-page layout`);
-    this.#root?.querySelectorAll('[data-aared-element="page"]')[index]?.scrollIntoView();
-  }
-
-  /** @internal Wired by the painter beside `attach()`: the painted root navigation searches. */
-  attachRoot(root: HTMLElement): void {
-    this.#root = root;
+    itemAt("aared/docx", this.pages, index, () => `aared/docx: page index ${String(index)} is outside this ${this.pageCount}-page layout`);
+    this.root.querySelectorAll('[data-aared-element="page"]')[index]?.scrollIntoView();
   }
 }
 
 /**
- * Hyperlink runs paint as real `<a>` elements (`appendRunText`). Footnote
- * forward/back links (`#aared-footnote-*`) keep their default in-page jump;
- * every other anchor is view-only preview chrome: never navigate, surface
- * the target to the embedder as `linkactivate` instead.
+ * Hyperlink runs paint as real `<a>` elements (`appendRunText`), in footnotes
+ * too. Footnote forward/back links (`#aared-footnote-*`, the back-link's
+ * `#aared-footnote-ref-*` included) keep their default in-page jump; every
+ * other anchor is view-only preview chrome: never navigate, surface the
+ * target to the embedder as `linkactivate` instead.
  */
 function wireHyperlinks(root: HTMLElement, viewer: DocxViewer): () => void {
   const onClick = (event: Event): void => {
@@ -1266,7 +1476,6 @@ function wireHyperlinks(root: HTMLElement, viewer: DocxViewer): () => void {
     if (!(anchor instanceof HTMLAnchorElement) || !root.contains(anchor)) return;
     const href = anchor.getAttribute("href") ?? "";
     if (href.startsWith("#aared-footnote-")) return;
-    if (anchor.closest('[data-aared-element="footnote"]') !== null) return;
     event.preventDefault();
     viewer.dispatchEvent(new CustomEvent("linkactivate", { detail: { target: href } }));
   };
@@ -1303,19 +1512,17 @@ function destroyWiring(wiring: ImageWiring): () => void {
 /**
  * Paint a document. Accepts the `DocxDocument` (media resolves through its
  * session unless an explicit `mediaResolver` is given) or already-resolved
- * sections. Async for envelope parity with `aared/pptx` and `aared/xlsx` —
- * painting itself is synchronous over the in-memory sections, so `await`
- * resolves immediately.
+ * sections. The sections are in memory already; the render waits only for
+ * the fonts the document uses, then paints synchronously.
  *
  * Flow mode (the default) concatenates every section's root into one
- * article with the last section's header/footer — the pre-pagination
- * output. Layout mode paginates first and paints one
- * `section[data-aared-element="page"]` per laid-out page. The caller owns
- * block virtualization: `DocumentSection.root` entries are independent
- * blocks and may be sliced by a future block window; this renderer paints
- * whatever it is handed.
+ * article with the last section's header/footer. Layout mode paginates first
+ * and paints one `section[data-aared-element="page"]` per laid-out page. This
+ * renderer paints whatever sections it is handed.
  */
 export async function render(input: DocxRenderInput): Promise<DocxRenderHandle> {
+  const { signal } = input;
+  throwIfAborted(signal);
   const source = input.document;
   const owner = source instanceof DocxDocument ? source : undefined;
   const sections = owner !== undefined ? [...owner.sections.list()] : [...(source as readonly DocumentSection[])];
@@ -1325,13 +1532,13 @@ export async function render(input: DocxRenderInput): Promise<DocxRenderHandle> 
       ?? (owner !== undefined ? (mediaId: string) => owner.media.get(mediaId) : undefined),
     pagination: input.pagination,
     appearance: input.appearance,
-    zoom: input.zoom ?? "fit-width",
+    zoom: input.zoom ?? DEFAULT_ZOOM.docx,
     outline: outline.indexOf,
   };
   if (options.pagination?.mode === "layout") {
-    return await renderLayout(sections, input.target, options, outline.list);
+    return await renderLayout(sections, input.target, options, outline.list, signal);
   }
-  return await renderFlow(sections, input.target, options, outline.list);
+  return await renderFlow(sections, input.target, options, outline.list, signal);
 }
 
 async function renderFlow(
@@ -1339,12 +1546,17 @@ async function renderFlow(
   container: HTMLElement,
   options: RenderOptions,
   outline: readonly HeadingInfo[],
+  signal: AbortSignal | undefined,
 ): Promise<DocxRenderHandle> {
-  const wiring = createWiring(options);
   // Flow mode paints no matter what — an unloaded font just reflows once its
   // face arrives, the same as any web page — but the fidelity warnings below
   // read whichever font actually ends up painting, so they wait first too.
-  await awaitDocumentFonts(sections);
+  // A document with charts fetches the chart layout file in the same wait
+  // (DECISION_LOG §71), so its charts draw with the rest of the paint.
+  await Promise.all([awaitDocumentFonts(sections), documentHasCharts(sections) ? chartLayoutReady() : undefined]);
+  // The last moment a cancel can still leave the target untouched: from here the paint is synchronous.
+  throwIfAborted(signal);
+  const wiring = createWiring(options);
   // The shared defaults must be in the container's root before anything is attached or measured.
   const classSheet = adoptClassSheet(container);
   const article = document.createElement("article");
@@ -1359,13 +1571,13 @@ async function renderFlow(
   article.style.isolation = "isolate";
   paintAppearanceRoot(article, isDark(options.appearance));
 
-  // Flow mode keeps the pre-pagination contract: one article, the last
-  // section's header/footer (the final `sectPr` references, as before), every
+  // Flow mode is one article: the last section's header/footer, every
   // section's root concatenated in document order.
   const last = sections[sections.length - 1];
   // Anchored pictures are placed against the section's text column; there is no page.
   if (last !== undefined) wiring.frame = { columnPx: sectionBodyWidthPx(last), columnLeftPx: 0 };
   if (last?.header !== undefined && last.header.length > 0) {
+    wiring.docGrid = last.properties.docGrid;
     const header = document.createElement("header");
     header.dataset.aaredElement = "doc-header";
     header.style.borderBottom = "1px solid currentColor";
@@ -1377,6 +1589,7 @@ async function renderFlow(
   body.dataset.aaredElement = "doc-body";
   body.style.minWidth = "0";
   for (const section of sections) {
+    wiring.docGrid = section.properties.docGrid;
     wiring.frame = { columnPx: sectionBodyWidthPx(section), columnLeftPx: 0 };
     for (const node of section.root) appendFlowNode(body, node, wiring);
   }
@@ -1393,17 +1606,27 @@ async function renderFlow(
   // run/paragraph/table styles always win — they paint as more-specific
   // inline styles on descendants.
   paintSurface(article);
+  for (const kind of ["header", "footer"] as const) {
+    const story = docxStories(sections).find((item) => item.section === sections.length - 1 && item.kind === kind && item.variant === "default");
+    const element = article.querySelector<HTMLElement>(kind);
+    if (story !== undefined && element !== null) {
+      element.dataset.aaredStoryPart = story.part;
+      element.dataset.aaredStoryKind = kind;
+    }
+  }
   container.replaceChildren(article);
   settleTabStops(article, () => !wiring.destroyed);
   // Flow width follows the container, so split paragraphs re-run when it changes.
   wiring.cleanups.push(settleSplitWraps(article, () => !wiring.destroyed, { observeWidth: true }));
 
   // Flow has no pages: the column flows to its container like a web page.
-  const viewer = new DocxViewer(options.zoom, [], outline, false);
-  viewer.setWarnings(fontFidelityWarnings(sections));
+  const viewer = new DocxViewer(options.zoom, [], outline, false, article);
+  viewer.setWarnings(documentWarnings(sections));
   wireViewer(viewer, article, container, wiring, classSheet, (appearance) => {
     paintAppearanceRoot(article, isDark(appearance));
   });
+  // A chart whose fonts were still loading when it was painted draws a moment later (it measures them first).
+  await chartsSettled();
   return viewer;
 }
 
@@ -1421,8 +1644,9 @@ async function renderFlow(
  * A `ResizeObserver` keeps a fit mode current as the host resizes — the same
  * reason `aared/pptx` observes its own container. Hyperlink clicks never
  * navigate (view-only). Destroy tears down the observer, the links, the media
- * URLs and the handle together. Only the appearance update differs between
- * flow and layout, so it is passed in.
+ * URLs and the handle together, and runs by itself once another render
+ * replaces `root` in `container` (`onReplaced`). Only the appearance update
+ * differs between flow and layout, so it is passed in.
  */
 function wireViewer(
   viewer: DocxViewer,
@@ -1433,8 +1657,8 @@ function wireViewer(
   applyAppearance: (appearance: Appearance | undefined) => void,
 ): void {
   const natural = {
-    width: Math.max(0, ...viewer.pages.map((page) => page.width)),
-    height: Math.max(0, ...viewer.pages.map((page) => page.height)),
+    width: Math.max(0, ...viewer.pages.map((page) => page.width * PX_PER_INCH)),
+    height: Math.max(0, ...viewer.pages.map((page) => page.height * PX_PER_INCH)),
   };
   let lastScale = 1;
   const applyZoom = (): number => {
@@ -1470,9 +1694,12 @@ function wireViewer(
   resizeObserver.observe(container);
   const unwireLinks = wireHyperlinks(root, viewer);
   const baseDestroy = destroyWiring(wiring);
+  // A newer render into the same target replaced this one: tear it down, as every format does.
+  const stopWatching = onReplaced(container, root, () => viewer.destroy());
   viewer.attach({
     applyZoom,
     destroy: () => {
+      stopWatching();
       resizeObserver.disconnect();
       unwireLinks();
       baseDestroy();
@@ -1485,7 +1712,6 @@ function wireViewer(
       applyAppearance(appearance);
     },
   });
-  viewer.attachRoot(root);
   viewer.refit();
 }
 
@@ -1516,13 +1742,15 @@ function measureFlow(sections: DocumentSection[], container: HTMLElement): Measu
   probe.style.padding = "0";
   const placed: Array<[FlowNode, Element]> = [];
   for (const section of sections) {
+    wiring.docGrid = section.properties.docGrid;
     wiring.frame = { columnPx: sectionBodyWidthPx(section), columnLeftPx: 0 };
     const body = document.createElement("div");
     body.style.width = `${sectionBodyWidthPx(section)}px`;
     // Blocks sit apart so no margin collapses into its neighbour's reading.
     body.style.display = "flow-root";
     for (const node of section.root) {
-      if (node.type === "pageBreak" || node.type === "footnote" || node.type === "image") continue;
+      // Pictures and charts are as tall as their extent: estimated, not painted here.
+      if (node.type === "pageBreak" || node.type === "footnote" || node.type === "image" || node.type === "chart") continue;
       const holder = document.createElement("div");
       holder.style.display = "flow-root";
       appendFlowNode(holder, node, wiring);
@@ -1533,10 +1761,11 @@ function measureFlow(sections: DocumentSection[], container: HTMLElement): Measu
     probe.append(body);
   }
   container.append(probe);
-  // Split paragraphs are laid out before their heights are read, so pages break on what will paint.
-  // Fonts are already awaited here, and the probe is removed right after: no second pass.
-  settleSplitWraps(probe, () => true, { refont: false });
   try {
+    // Tabs and split paragraphs are laid out before their heights are read, so pages break on what will paint.
+    // Fonts are already awaited here, and the probe is removed right after: no second pass.
+    layoutTabStops(probe);
+    settleSplitWraps(probe, () => true, { refont: false });
     for (const [node, element] of placed) {
       const style = getComputedStyle(element);
       blocks.set(node, {
@@ -1564,19 +1793,24 @@ async function renderLayout(
   container: HTMLElement,
   options: RenderOptions,
   outline: readonly HeadingInfo[],
+  signal: AbortSignal | undefined,
 ): Promise<DocxRenderHandle> {
-  const wiring = createWiring(options);
-  const classSheet = adoptClassSheet(container);
   // Wait for the fonts this document uses to finish loading before the
   // off-screen probe measures anything — a page count decided with the wrong
   // font swaps under it once the real (or calibrated substitute) face
-  // finishes loading (DECISION_LOG §45).
-  await awaitDocumentFonts(sections);
+  // finishes loading (DECISION_LOG §45). Charts' layout file comes in the
+  // same wait, as in flow mode.
+  await Promise.all([awaitDocumentFonts(sections), documentHasCharts(sections) ? chartLayoutReady() : undefined]);
+  // The last moment a cancel can still leave the target untouched: measuring
+  // and painting below are synchronous, and nothing is set up before it.
+  throwIfAborted(signal);
+  const wiring = createWiring(options);
+  // The shared defaults must be in the container's root before the probe measures anything.
+  const classSheet = adoptClassSheet(container);
   const layout = paginate(sections, {
     softBreaks: options.pagination?.softBreaks ?? "prefer",
     measured: measureFlow(sections, container),
   });
-  wiring.pageTotal = layout.pages.length;
 
   const stack = document.createElement("div");
   stack.dataset.aaredElement = "pages";
@@ -1592,10 +1826,25 @@ async function renderLayout(
   // where the browser supports it a page off screen skips style and layout
   // until it is scrolled near: most of a long document's memory is layout.
   const lazy = lazyPagePaint();
-  const sheets = layout.pages.map((page) => renderLayoutPage(page, layout.pages.length, wiring, lazy));
+  const stories = docxStories(sections);
+  const sheets = layout.pages.map((page) => {
+    wiring.docGrid = sections[page.sectionIndex]?.properties.docGrid;
+    const sheet = renderLayoutPage(page, layout.pages.length, wiring, lazy);
+    sheet.dataset.aaredSection = String(page.sectionIndex);
+    for (const kind of ["header", "footer"] as const) {
+      const nodes = kind === "header" ? page.header : page.footer;
+      const story = stories.find((item) => item.section === page.sectionIndex && item.kind === kind && item.nodes === nodes);
+      const element = sheet.querySelector<HTMLElement>(`[data-aared-element="page-${kind}"]`);
+      if (story !== undefined && element !== null) {
+        element.dataset.aaredStoryPart = story.part;
+        element.dataset.aaredStoryKind = kind;
+      }
+    }
+    return sheet;
+  });
   stack.append(...sheets);
   container.replaceChildren(stack);
-  if (lazy) settlePageTabStops(sheets, () => !wiring.destroyed);
+  if (lazy) wiring.cleanups.push(settlePageTabStops(sheets, () => !wiring.destroyed));
   else settleTabStops(stack, () => !wiring.destroyed);
   wiring.cleanups.push(settleSplitWraps(stack, () => !wiring.destroyed));
 
@@ -1603,15 +1852,17 @@ async function renderLayout(
   // layout numbers pages from 1 for PAGE fields and the `data-page` marker).
   const pageInfos: DocxPageInfo[] = layout.pages.map((page, index) => ({
     index,
-    width: page.widthPx,
-    height: page.heightPx,
+    width: page.widthPx / PX_PER_INCH,
+    height: page.heightPx / PX_PER_INCH,
     orientation: page.orientation,
   }));
-  const viewer = new DocxViewer(options.zoom, pageInfos, outline, true);
-  viewer.setWarnings([...layout.warnings, ...fontFidelityWarnings(sections)]);
+  const viewer = new DocxViewer(options.zoom, pageInfos, outline, true, stack);
+  viewer.setWarnings([...layout.warnings, ...documentWarnings(sections)]);
   wireViewer(viewer, stack, container, wiring, classSheet, (appearance) => {
     paintAppearanceRoot(stack, isDark(appearance));
   });
+  // A chart whose fonts were still loading when it was painted draws a moment later (it measures them first).
+  await chartsSettled();
   return viewer;
 }
 
@@ -1621,7 +1872,7 @@ function renderLayoutPage(
   wiring: ImageWiring,
   lazy: boolean,
 ): HTMLElement {
-  wiring.pageNumber = page.index;
+  wiring.pageNumber = page.number;
   wiring.pageTotal = pageTotal;
   const sheet = document.createElement("section");
   sheet.setAttribute("data-aared-element", "page");
@@ -1704,3 +1955,6 @@ function renderLayoutPage(
   paintSurface(sheet);
   return sheet;
 }
+export { preview } from "./viewer.js";
+export type { DocxPreviewInput } from "./viewer.js";
+export type { DocxPreview, PreviewSearchOptions, PreviewEventMap, SearchNavigation, SearchNavigationState } from "../preview/index.js";

@@ -22,7 +22,7 @@ was found. Sizes are given only where published; otherwise "not published".
 
 | Library | Formats | Client-side | Renders via | Paragraph-level RTL | License | Weight |
 |---|---|---|---|---|---|---|
-| **aared** (this) | PPTX, XLSX, DOCX | ✅ | DOM/SVG | ✅ (design goal — see [DECISION_LOG.md §3](DECISION_LOG.md#3-text-is-rendered-by-the-browser-never-rasterized--the-load-bearing-decision)) | Apache-2.0 | Targeting small — per-format lazy load |
+| **aared** (this) | PPTX, XLSX, DOCX | ✅ | DOM/SVG | ✅ (design goal — see [DECISION_LOG.md §3](DECISION_LOG.md#3-text-is-rendered-by-the-browser-never-rasterized--the-load-bearing-decision)) | Apache-2.0 | Per-format lazy load; measured gzip in [BENCHMARKS.md](BENCHMARKS.md) |
 | [`@silurus/ooxml`](https://github.com/yukiyokotani/office-open-xml-viewer) | PPTX, XLSX, DOCX | ✅ | Canvas 2D (Rust→WASM parsers) | Verified fixes (DOCX RTL-number, UAX#9 mixed-text; Arabic-layout test work) | MIT | Published per-format: DOCX ~4.0 MB / 1.2 MB gzip; XLSX ~2.6 / 0.82 MB; PPTX ~2.5 / 0.78 MB |
 | [`@opentf/office-docs-viewer`](https://github.com/Open-Tech-Foundation/office-docs-viewer) | DOCX today; PPTX/XLSX slot in as engine modules | ✅ | Canvas (`ImageBitmap` LRU, DPR-correct) + Worker host | Not verified | Check repo (engine Rust→WASM + TS core/react) | Not published |
 | [`@extend-ai/react-pptx` / `react-docx` / `react-xlsx`](https://github.com/extend-hq) | PPTX (+legacy `.ppt`), DOCX, XLSX — one package each | ✅ (Rust/WASM parsers in Workers) | React components: DOM/SVG for PPTX and DOCX (selectable text); XLSX grid on canvas by default (`experimentalCanvas={false}` for DOM) | Mixed, measured Sep 2026: PPTX sets `direction:rtl` per paragraph; DOCX sets none (Arabic paragraphs compute `ltr`, browser bidi only); XLSX ignores sheet `rightToLeft` (grid not mirrored) | MIT | Measured gzip: PPTX 495 KB, DOCX 620 KB, XLSX 2478 KB (mostly WASM) — see [BENCHMARKS.md](BENCHMARKS.md) |
@@ -38,10 +38,10 @@ was found. Sizes are given only where published; otherwise "not published".
 | [`@xlscalc/xlsx-preview`](https://github.com/Victor-EU/xls-renderer-calc) | XLSX | ✅ (+Worker path) | DOM grid (React `ExcelView` / `renderToHtml`), recomputes formulas | Not verified | MIT | Not published |
 | [SheetJS Community Edition](https://sheetjs.com/) | XLSX (parse only, no renderer) | ✅ | — `sheet_to_html` gives a plain HTML table, not a grid renderer | N/A — parses `sheet.rightToLeft`, but returns empty `cell.s` even with `cellStyles: true` | Apache-2.0 | Small |
 | [ExcelJS](https://github.com/exceljs/exceljs) | XLSX (parse/write, no renderer) | ✅ | — you build the grid | N/A — does parse `styles.xml` correctly, useful as a reference implementation | MIT | Medium |
-| [Univer](https://github.com/dream-num/univer) | PPTX*/XLSX/DOCX-ish (via Docs) | ✅ (XLSX import path can require a conversion backend) | End-to-end bidi work documented ([PR #7011](https://github.com/dream-num/univer/pull/7011)) — re-test against release | Partial, improving | Apache-2.0 | Large — full editable-office-suite runtime |
-| [SpreadJS](https://developer.mescius.com/spreadjs/docs/tutorials/how-to-import-and-export-excel-xlsx-using-javascript) | XLSX/XLSM/XLTX/XLTM/CSV | ✅ (client import/export via IO module) | Verified: worksheet RTL orientation + Arabic/Hebrew cell direction (charts/shapes/comments/slicers limited) | View/edit | Commercial (developer + deployment-hostname) | Not published |
-| [Apryse WebViewer](https://docs.apryse.com/web/guides/office) | DOCX, XLSX, PPTX (+legacy) | ✅ (true client-side WASM; server optional) | Verified: Arabic/Farsi/Hebrew/Urdu localization + RTL layout/view/edit | View/annotate (+paid DOCX/sheet editing) | Commercial | Not public |
-| [Nutrient Web SDK](https://www.nutrient.io/guides/web/viewer/office-documents/) (ex-PSPDFKit) | DOC/DOCX, XLS/XLSX, PPT/PPTX | ✅ (browser Office→PDF via WASM, no Office/server needed) | Not verified | View/annotate; editing applies to converted PDF | Commercial | Not public |
+| [Univer](https://github.com/dream-num/univer) | PPTX*/XLSX/DOCX-ish (via Docs) | ✅ (XLSX import path can require a conversion backend) | Own canvas engine | End-to-end bidi work documented ([PR #7011](https://github.com/dream-num/univer/pull/7011)) — partial, improving; re-test against release | Apache-2.0 | Large — full editable-office-suite runtime |
+| [SpreadJS](https://developer.mescius.com/spreadjs/docs/tutorials/how-to-import-and-export-excel-xlsx-using-javascript) | XLSX/XLSM/XLTX/XLTM/CSV (view/edit) | ✅ (client import/export via IO module) | Own spreadsheet engine | Verified: worksheet RTL orientation + Arabic/Hebrew cell direction (charts/shapes/comments/slicers limited) | Commercial (developer + deployment-hostname) | Not published |
+| [Apryse WebViewer](https://docs.apryse.com/web/guides/office) | DOCX, XLSX, PPTX (+legacy); view/annotate, paid DOCX/sheet editing | ✅ (true client-side WASM; server optional) | Own WASM engine | Verified: Arabic/Farsi/Hebrew/Urdu localization + RTL layout/view/edit | Commercial | Not public |
+| [Nutrient Web SDK](https://www.nutrient.io/guides/web/viewer/office-documents/) (ex-PSPDFKit) | DOC/DOCX, XLS/XLSX, PPT/PPTX (view/annotate; editing applies to the converted PDF) | ✅ (browser Office→PDF via WASM, no Office/server needed) | Converts to PDF, then paints it | Not verified | Commercial | Not public |
 | [LibreOffice-WASM (allotropia)](https://github.com/allotropia/lowasm) / [ZetaJS](https://github.com/allotropia/zetajs) | Everything LibreOffice supports | ✅ | Own renderer, compiled to WASM | ✅ (real LO engine) | MPL-2.0 | Very large (~300 MB) — the fidelity ceiling, not a practical dependency |
 | [`pdf.js`](https://github.com/mozilla/pdf.js) | PDF only | ✅ | DOM + Canvas hybrid, real text layer | N/A (PDF glyphs are pre-positioned) | Apache-2.0 | Medium — the reason PDF is out of aared's scope, see [DECISION_LOG.md §2](DECISION_LOG.md#2-pdf-was-scoped-out-deliberately) |
 
@@ -49,9 +49,9 @@ was found. Sizes are given only where published; otherwise "not published".
 
 Qualitative table above; numbers live in
 [BENCHMARKS.md](BENCHMARKS.md) (generated from `tools/bench-measure.ts`
-JSON — never hand-filled). Until the first full pass runs, treat every
-weight claim ("small", "~300 MB", per-format MB figures) as vendor-stated or
-unpublished, not as aared-measured.
+JSON — never hand-filled). A weight figure here is aared-measured only where
+it cites that file; the others ("Small", "~300 MB", vendor MB figures) are
+vendor-stated or unpublished.
 
 ## Direct three-format local renderers (closest to aared)
 

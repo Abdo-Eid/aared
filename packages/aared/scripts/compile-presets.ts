@@ -3,9 +3,15 @@
  * `src/core/presets.ts`.
  *
  *   bun scripts/compile-presets.ts path/to/presetShapeDefinitions.xml
+ *   bun scripts/compile-presets.ts --check scripts/presetShapeDefinitions.xml
+ *
+ * `--check` regenerates in memory and fails if the committed table differs;
+ * `test/generated-drift.test.ts` runs it, so an encoder change cannot leave
+ * `src/core/presets.ts` stale.
  *
  * The full file ships in ECMA-376 Part 1's OfficeOpenXML-DrawingMLGeometries.zip.
- * `scripts/presetShapeDefinitions.xml` is the full ECMA-376 file in the same layout.
+ * `scripts/presetShapeDefinitions.xml` is a derived copy of it in the same
+ * layout; its header names the one entry (`upArrow`) taken from LibreOffice.
  *
  * Each definition goes through the same `encodeGeometry` the worker applies
  * to a slide's `a:custGeom`, so catalog entries and custom geometry share one
@@ -159,9 +165,10 @@ function discoverAliases(programs: Map<string, string>): Map<string, string> {
   return aliases;
 }
 
-const source = process.argv[2];
+const check = process.argv.includes("--check");
+const source = process.argv.slice(2).find((argument) => argument !== "--check");
 if (source === undefined) {
-  console.error("usage: compile-presets <presetShapeDefinitions.xml>");
+  console.error("usage: compile-presets [--check] <presetShapeDefinitions.xml>");
   process.exit(1);
 }
 const out = join(dirname(fileURLToPath(import.meta.url)), "../src/core/presets.ts");
@@ -200,6 +207,16 @@ export const presetPrograms: Readonly<Record<string, string>> = {
 ${body}
 };
 `;
+if (check) {
+  // `--check` writes nothing: it fails when the committed table is not what the
+  // source XML and the current encoder produce (line endings aside).
+  if (readFileSync(out, "utf8").replace(/\r\n/g, "\n") !== text) {
+    console.error(`${out} is out of date: run \`bun scripts/compile-presets.ts ${source}\` and commit the result`);
+    process.exit(1);
+  }
+  console.log(`${entries.length} presets match ${out}`);
+  process.exit(0);
+}
 writeFileSync(out, text);
 
 console.log(`${entries.length} presets, ${text.length} bytes → ${out}`);

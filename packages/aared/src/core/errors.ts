@@ -68,12 +68,10 @@ export function throwIfAborted(signal?: AbortSignal): void {
  * `list[index]` for a collection's `get()`: an integer inside the list. A
  * whole number outside it is `not-found`, in the caller's own wording (each
  * unit names itself); anything that is not a whole number is the call itself
- * being wrong, `invalid-argument`, in the same scope.
+ * being wrong, `invalid-argument`, in `scope` (`aared/<entrypoint>`).
  */
-export function itemAt<T>(list: readonly T[], index: number, outside: () => string): T {
+export function itemAt<T>(scope: string, list: readonly T[], index: number, outside: () => string): T {
   if (!Number.isInteger(index)) {
-    const wording = outside();
-    const scope = wording.slice(0, wording.indexOf(":"));
     throw new AaredError("invalid-argument", `${scope}: an index must be a whole number; received ${String(index)}`);
   }
   const item = list[index];

@@ -22,11 +22,7 @@ test("a slide's own solid background wins (dark title and closing slides)", asyn
 test("a slide with no background inherits the master's plain background ref", async () => {
   const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
   const deck = await indexPptx(pkg);
-  // History: this deck's master once carried a styled dark background
-  // (`bgRef idx="1002"` on `bg2` → `tint 95000` + `satMod 170000` over dk2,
-  // rendering #3A4961 natively). Re-saving the fixture in PowerPoint (bullet
-  // + WordArt slides) normalized the master to a plain `bgRef` on `bg1`,
-  // which resolves white. Ground truth is the file as it stands.
+  // The master carries a plain `bgRef` on `bg1`, which resolves white.
   for (const index of [0, 1, 2, 3, 4, 5]) {
     const { background } = await parsePptxSlide(pkg, deck, index);
     expect(background).toEqual({ kind: "solid", color: "#FFFFFF" });

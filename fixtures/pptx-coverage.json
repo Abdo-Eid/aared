@@ -12,6 +12,12 @@
     "tiled-background": { "hasText": "خلفية مبلطة" },
     "table-fills": { "hasText": "جدول بتعبئة" },
     "lines": { "hasText": "خطوط وموصلات" },
-    "paragraph-spacing": { "hasText": "تباعد الفقرات" }
+    "paragraph-spacing": { "hasText": "تباعد الفقرات" },
+    "merged-cells": { "hasText": "خلايا مدمجة" },
+    "waterfall": { "hasText": "الشلال: الميزانية" },
+    "second-master-layout-a": { "hasText": "شريحة على التخطيط أ" },
+    "second-master-layout-a-again": { "hasText": "شريحة ثانية على التخطيط أ" },
+    "second-master-layout-b": { "hasText": "شريحة على التخطيط ب" },
+    "second-master-hidden": { "hasText": "شريحة تخفي الرسومات" }
   }
 }

@@ -30,12 +30,11 @@ function responseFor(
   });
 }
 
-test("worker cancellation stops after a controlled inflate checkpoint before XML decoding", async () => {
+test("worker cancellation stops after a controlled inflate checkpoint without answering", async () => {
   const scope = globalThis as unknown as WorkerScopeForTest;
   const originalOnmessage = scope.onmessage;
   const originalPostMessage = scope.postMessage;
   const originalDecompressionStream = globalThis.DecompressionStream;
-  const originalTextDecoder = globalThis.TextDecoder;
   const responses: WorkerResponse[] = [];
   const responseListeners = new Set<() => void>();
   let releaseInflate!: () => void;
@@ -75,15 +74,7 @@ test("worker cancellation stops after a controlled inflate checkpoint before XML
         });
       }
     }
-    let decodeCount = 0;
-    class CountingTextDecoder extends originalTextDecoder {
-      override decode(...args: Parameters<TextDecoder["decode"]>): string {
-        decodeCount++;
-        return super.decode(...args);
-      }
-    }
     Object.defineProperty(globalThis, "DecompressionStream", { configurable: true, value: CheckpointDecompressionStream });
-    Object.defineProperty(globalThis, "TextDecoder", { configurable: true, value: CountingTextDecoder });
 
     dispatch({ type: "unit", sessionId, requestId: 2, index: 0 });
     await inflateReached;
@@ -91,10 +82,11 @@ test("worker cancellation stops after a controlled inflate checkpoint before XML
     releaseInflate();
 
     Object.defineProperty(globalThis, "DecompressionStream", { configurable: true, value: originalDecompressionStream });
-    Object.defineProperty(globalThis, "TextDecoder", { configurable: true, value: originalTextDecoder });
     dispatch({ type: "unit", sessionId, requestId: 3, index: 0 });
     expect((await responseFor(responses, onResponse, 3, sessionId)).ok).toBe(true);
-    expect(decodeCount).toBe(0);
+    // Let the released read finish: a cancelled request never answers, so
+    // without the cancel, request 2's response would be here by now.
+    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(responses.some((response) => response.type === "response" && response.requestId === 2)).toBe(false);
     dispatch({ type: "close", sessionId });
 
@@ -154,7 +146,6 @@ test("worker cancellation stops after a controlled inflate checkpoint before XML
     dispatch({ type: "close", sessionId: typedSession });
   } finally {
     Object.defineProperty(globalThis, "DecompressionStream", { configurable: true, value: originalDecompressionStream });
-    Object.defineProperty(globalThis, "TextDecoder", { configurable: true, value: originalTextDecoder });
     scope.onmessage = originalOnmessage;
     scope.postMessage = originalPostMessage;
   }

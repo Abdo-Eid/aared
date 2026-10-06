@@ -4,8 +4,9 @@ import { OpcPackage } from "../src/core/opc.js";
 import { indexDocx, parseDocxSections } from "../src/core/docx/document.js";
 import { headingLevelForStyle, paragraphAncestry, parseStyles } from "../src/core/docx/styles.js";
 import { isOrderedFormat, markerFor, parseNumbering, startFor } from "../src/core/docx/numbering.js";
-import { parseXml } from "../src/core/xml.js";
+import { attr, firstChild, parseXml } from "../src/core/xml.js";
 import type { DocxParagraphNode, DocumentSection, FlowNode, TextRunModel } from "../src/core/model.js";
+import { withPart } from "./mutate.js";
 
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/docx-coverage.docx`;
 const MANIFEST_PATH = `${import.meta.dir}/../../../fixtures/docx-coverage.json`;
@@ -35,6 +36,8 @@ function blockText(node: FlowNode): string {
   }
   if (node.type === "footnote") return node.nodes.map((child) => (child.type === "paragraph" || child.type === "heading" ? joined(child) : child.type)).join("//");
   if (node.type === "image") return node.mediaId;
+  if (node.type === "chart") return `chart:${node.alt ?? ""}`;
+  if (node.type === "textBox") return `textBox:${node.content.length}`;
   if (node.type === "pageBreak") return node.strength;
   return node.label;
 }
@@ -125,11 +128,23 @@ async function parseSynthetic(documentXml: string, relsXml?: string, extra?: Rec
 const WORD_NS = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"`;
 
 describe("DOCX flow parser", () => {
+  test("preserves section line-grid pitch and paragraph line controls", async () => {
+    const sections = await parseSynthetic(
+      `<?xml version="1.0" encoding="UTF-8"?><w:document ${WORD_NS}><w:body>` +
+        `<w:p><w:pPr><w:snapToGrid w:val="0"/><w:spacing w:beforeLines="150" w:afterLines="50"/></w:pPr><w:r><w:t>grid sample</w:t></w:r></w:p>` +
+        `<w:sectPr><w:docGrid w:type="lines" w:linePitch="480"/></w:sectPr>` +
+        `</w:body></w:document>`,
+    );
+    expect(sections[0]?.properties.docGrid).toMatchObject({ type: "lines", linePitch: 480 });
+    const paragraph = sections[0]?.root.find((node) => node.type === "paragraph");
+    expect(paragraph).toMatchObject({ spaceBeforeLines: 1.5, spaceAfterLines: 0.5, snapToGrid: false });
+  });
+
   test("resolves the gate fixture to structured-cloneable document sections", async () => {
     const sections = await fixture();
-    // Portrait body closed by the embedded `sectPr`, landscape appendix by
-    // the trailing body `sectPr`.
-    expect(sections).toHaveLength(2);
+    // Body, landscape appendix, portrait wrapping examples, landscape charts,
+    // and the final portrait lists/table section each retain their geometry.
+    expect(sections).toHaveLength(5);
     expect(sections[0]?.title).toBe("1. Project Overview");
     expect(sections[1]?.title).toBe("Appendix A — Shot List, Episode 04");
     expect(sections[0]?.properties.page).toMatchObject({ widthTwips: 11906, heightTwips: 16838, orientation: "portrait" });
@@ -141,13 +156,19 @@ describe("DOCX flow parser", () => {
     // Footnotes resolve onto the last section in reference order; separators never arrive.
     const footnotes = root.filter((node) => node.type === "footnote");
     expect(footnotes.map((node) => (node.type === "footnote" ? node.label : "?"))).toEqual(["1", "2"]);
-    // The authored page breaks survive as mandatory break nodes (the brief's
-    // one, plus one opening each of the two picture-wrapping pages); the
-    // `lastRenderedPageBreak` hints Word saved ride along as soft ones (three
-    // in the brief, one more on each wrapping page).
+    const textBoxes = root.flatMap((node) => node.type === "paragraph" || node.type === "heading" ? node.floats ?? [] : [node])
+      .filter((node) => node.type === "textBox");
+    expect(textBoxes).toHaveLength(1);
+    expect(textBoxes[0]).toMatchObject({ type: "textBox", anchor: { wrap: "none" }, fill: "#E8F2E8" });
+    if (textBoxes[0]?.type !== "textBox") throw new Error("expected the fixture text box");
+    const textBoxText = textBoxes[0].content.flatMap((node) => node.type === "paragraph" ? node.runs.map((run) => run.text) : []).join(" ");
+    expect(textBoxText).toContain("صندوق ملاحظات: مراجعة التسليم");
+    expect(textBoxText).toContain("English note: confirm the final delivery.");
+    // Merged sections retain explicit breaks and Word's saved layout hints;
+    // the two empty section-ending page-break markers are structural only.
     const breaks = root.filter((node) => node.type === "pageBreak");
-    expect(breaks).toHaveLength(8);
-    expect(breaks.filter((node) => node.type === "pageBreak" && node.strength === "mandatory")).toHaveLength(3);
+    expect(breaks).toHaveLength(7);
+    expect(breaks.filter((node) => node.type === "pageBreak" && node.strength === "mandatory")).toHaveLength(2);
     expect(breaks.filter((node) => node.type === "pageBreak" && node.strength === "preferred")).toHaveLength(5);
     // The pull quote keeps its gold left border from `w:pBdr`.
     const quote = root.find(
@@ -315,7 +336,7 @@ describe("DOCX flow parser", () => {
     // Each section resolves its own header/footer references. The appendix
     // (last) section keeps the pre-section output: header/footer once, with
     // PAGE/NUMPAGES marked as live fields that keep their cached text.
-    const appendix = sections[sections.length - 1]!;
+    const appendix = sections[1]!;
     // The logo is an inline drawing beside the wordmark, so the wordmark is
     // one paragraph whose first run carries the picture; a Heading 1 styled
     // mark follows it (a heading outside the outline).
@@ -334,8 +355,69 @@ describe("DOCX flow parser", () => {
     expect(fieldRuns.map((run) => run.field).sort()).toEqual(["NUMPAGES", "PAGE"]);
     // The front section keeps its own portrait reference. (Word's even/first
     // headers held only the org label marking and were stripped with it.)
-    expect(sections[0]?.properties.headerRefs).toHaveLength(1);
-    expect(sections[0]?.properties.footerRefs).toHaveLength(1);
+    expect(sections[0]?.properties.headerParts).toBeDefined();
+    expect(sections[0]?.properties.footerParts).toBeDefined();
+  });
+
+  test("the last section's lists print the numbers Word prints, and its table keeps a cell with only an empty paragraph", async () => {
+    // Authored in Word (`tools/probe/docx-lists-headers`): three items, a plain paragraph, two items that continue
+    // the first list, then a list that restarts at 1 (Word writes a start override). The markers are Word's own
+    // (Range.ListFormat.ListString).
+    const sections = await fixture();
+    const last = sections.at(-1)!;
+    const lists = last.root.filter((node) => node.type === "list");
+    expect(lists.flatMap((node) => node.items.map((item) => item.marker))).toEqual(["1.", "2.", "3.", "4.", "5.", "1.", "2."]);
+    expect(lists.flatMap((node) => node.items.map((item) => joined(item.paragraph)))[5]).toBe("قائمة جديدة: أولاً");
+    const table = last.root.find((node) => node.type === "table");
+    if (table?.type !== "table") throw new Error(`expected the table in the last section\n${summaries(sections)}`);
+    const emptyCell = table.rows[1]!.cells[0]!;
+    expect(emptyCell.nodes).toHaveLength(1);
+    expect(emptyCell.nodes[0]).toMatchObject({ type: "paragraph", runs: [] });
+    expect(table.rows[1]!.cells[1]!.nodes.map((node) => (node.type === "paragraph" ? joined(node) : ""))).toEqual(["فارغ"]);
+  });
+
+  test("the last section has its own first-page header and shows the previous section's default one", async () => {
+    // Authored in Word (`tools/probe/docx-lists-headers`): a section after the appendix that turns on a
+    // different first page and writes only that header; its default header and footer are linked to the previous section's.
+    const sections = await fixture();
+    const appendix = sections[1]!;
+    const last = sections.at(-1)!;
+    expect(last.properties.titlePage).toBe(true);
+    expect(last.properties.headerParts?.first).toBeDefined();
+    expect(last.properties.headerParts?.default).toBeUndefined();
+    expect(last.properties.footerParts?.default).toBeUndefined();
+    expect(last.firstHeader?.map(blockText).join("\n")).toBe("رأس الصفحة الأولى · First-page header");
+    expect(last.header).toEqual(appendix.header);
+    expect(last.footer).toEqual(appendix.footer);
+    expect(last.header).not.toEqual(last.firstHeader);
+    // The earlier sections do not turn it on.
+    expect(sections[0]!.properties.titlePage).toBeUndefined();
+    expect(appendix.properties.titlePage).toBeUndefined();
+  });
+
+  test("reads Word's charts with the shared chart reader, inline and anchored, Arabic intact", async () => {
+    const sections = await fixture();
+    const root = allRoot(sections);
+    // Inline: the chart is the block after its text paragraph, at its 5 x 3in extent, centred like an inline picture.
+    const text = await findBlock(sections, "chart-inline");
+    const inline = root[root.indexOf(text) + 1];
+    if (inline?.type !== "chart") throw new Error(`expected an inline chart after its paragraph\n${summaries(sections)}`);
+    expect(inline).toMatchObject({ width: 5, height: 3, align: "center" });
+    expect(inline.anchor).toBeUndefined();
+    const bars = inline.spec.groups[0]!;
+    expect(bars).toMatchObject({ kind: "bar", direction: "col", grouping: "clustered" });
+    expect(bars.series.map((s) => [s.name, s.values])).toEqual([["المسجّلة", [39, 27, 8]], ["المخطّطة", [42, 40, 38]]]);
+    expect(bars.series[0]!.categories).toEqual(["الحلقة الرابعة", "الحلقة الخامسة", "الحلقة السادسة"]);
+    expect(inline.spec.title?.lines).toEqual(["الساعات المسجلة لكل حلقة"]);
+    // Anchored: carried by its paragraph as a float, placed like a picture (square wrap, left column edge).
+    const host = await findBlock(sections, "chart-anchored");
+    if (host.type !== "paragraph") throw new Error("expected the anchored chart's paragraph");
+    const anchored = host.floats?.find((float) => float.type === "chart");
+    if (anchored?.type !== "chart") throw new Error(`expected an anchored chart float\n${summaries(sections)}`);
+    expect(anchored).toMatchObject({ width: 3.5, height: 2.25 });
+    expect(anchored.anchor).toMatchObject({ wrap: "square", behind: false, horizontal: { from: "column", align: "left" } });
+    // Plain data end to end: it crosses the Worker boundary and JSON alike.
+    expect(JSON.parse(JSON.stringify(inline))).toEqual(inline);
   });
 
   test("inherits paragraph and run properties through style chains", async () => {
@@ -348,9 +430,11 @@ describe("DOCX flow parser", () => {
         `</w:styles>`,
     ));
     expect(styles.defaultRPr).toBeDefined();
-    expect(paragraphAncestry(styles, "Child")).toHaveLength(2);
-    expect(paragraphAncestry(styles, "Child")[0]?.rPr).toBeDefined();
-    expect(paragraphAncestry(styles, "Child")[1]?.rPr).toBeDefined();
+    // The chain runs from the root base to the style itself: colour and size on Base, bold on Child.
+    const chain = paragraphAncestry(styles, "Child");
+    expect(chain).toHaveLength(2);
+    expect(attr(firstChild(chain[0]!.rPr!, "color")!, "w:val")).toBe("FF0000");
+    expect(firstChild(chain[1]!.rPr!, "b")).toBeDefined();
     expect(headingLevelForStyle("Heading1", styles)).toBe(1);
     expect(headingLevelForStyle("Child", styles)).toBeUndefined();
     // Duplicate style ids resolve last-wins, as real files repeat them.
@@ -360,7 +444,7 @@ describe("DOCX flow parser", () => {
         `<w:style w:type="paragraph" w:styleId="Heading1"><w:rPr><w:sz w:val="30"/></w:rPr></w:style>` +
         `</w:styles>`,
     ));
-    expect(dupes.paragraph.get("Heading1")?.rPr).toBeDefined();
+    expect(attr(firstChild(dupes.paragraph.get("Heading1")!.rPr!, "sz")!, "w:val")).toBe("30");
     // Cycles terminate instead of looping.
     const cyclic = parseStyles(parseXml(
       `<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
@@ -369,6 +453,57 @@ describe("DOCX flow parser", () => {
         `</w:styles>`,
     ));
     expect(paragraphAncestry(cyclic, "A")).toHaveLength(2);
+  });
+
+  test("an empty paragraph is a node of its own, sized by its paragraph mark, never a heading or a page break", async () => {
+    const sections = await parseSynthetic(
+      `<?xml version="1.0" encoding="UTF-8"?><w:document ${WORD_NS}><w:body>` +
+        `<w:p><w:r><w:t>before</w:t></w:r></w:p>` +
+        `<w:p/>` +
+        `<w:p><w:pPr><w:rPr><w:sz w:val="48"/></w:rPr></w:pPr></w:p>` +
+        `<w:p><w:pPr><w:bidi/><w:rPr><w:rtl/><w:sz w:val="48"/><w:szCs w:val="20"/></w:rPr></w:pPr></w:p>` +
+        `<w:p><w:r><w:br w:type="page"/></w:r></w:p>` +
+        `<w:p><w:r><w:t>after</w:t></w:r></w:p>` +
+        `</w:body></w:document>`,
+    );
+    const nodes = sections[0]!.root;
+    expect(nodes.map((node) => (node.type === "paragraph" ? `p:${node.runs.length}:${node.fontSizePt ?? "-"}:${node.direction}` : node.type))).toEqual([
+      "p:1:-:ltr",
+      "p:0:-:ltr", // an empty paragraph keeps its line
+      "p:0:24:ltr", // a 24pt paragraph mark makes it a 24pt line (Word: one 36.8px line)
+      "p:0:10:rtl", // a right-to-left mark takes the complex-script size
+      "pageBreak", // a page break alone is not also an empty line
+      "p:1:-:ltr",
+    ]);
+  });
+
+  test("bold and italic: Latin runs follow b/i, complex-script runs follow bCs/iCs (Word probe docx-cs-bold)", async () => {
+    // Word 16 drew each case below: a run with only `<w:b/>` is not bold in Arabic,
+    // `<w:bCs/>` alone never bolds Latin, and `w:rtl` makes even Latin letters complex-script.
+    const run = (text: string, rPr: string, rtl = false): string => `<w:r><w:rPr>${rtl ? "<w:rtl/>" : ""}${rPr}</w:rPr><w:t>${text}</w:t></w:r>`;
+    const cases: Array<[string, boolean | undefined, boolean | undefined]> = [
+      // [rPr, latin bold, arabic bold]
+      ["<w:b/>", true, undefined],
+      ["<w:bCs/>", undefined, true],
+      ["<w:b/><w:bCs/>", true, true],
+      ['<w:b/><w:bCs w:val="0"/>', true, false],
+      ['<w:b w:val="0"/><w:bCs/>', false, true],
+    ];
+    const sections = await parseSynthetic(
+      `<?xml version="1.0" encoding="UTF-8"?><w:document ${WORD_NS}><w:body>` +
+        cases.map(([rPr]) => `<w:p>${run("Latin", rPr)}${run("عربي", rPr)}${run("RTL", rPr, true)}</w:p>`).join("") +
+        `<w:p>${run("Latin", "<w:i/>")}${run("عربي", "<w:i/>")}${run("Latin", "<w:iCs/>")}${run("عربي", "<w:iCs/>")}</w:p>` +
+        `</w:body></w:document>`,
+    );
+    const paragraphs = sections[0]!.root.filter((node): node is DocxParagraphNode => node.type === "paragraph");
+    cases.forEach(([rPr, latin, arabic], index) => {
+      const [latinRun, arabicRun, rtlRun] = paragraphs[index]!.runs;
+      expect(latinRun!.bold, `${rPr} latin`).toBe(latin);
+      expect(arabicRun!.bold, `${rPr} arabic`).toBe(arabic);
+      expect(rtlRun!.bold, `${rPr} Latin letters in a w:rtl run`).toBe(arabic);
+    });
+    const italics = paragraphs[cases.length]!.runs.map((r) => r.italic);
+    expect(italics).toEqual([true, undefined, undefined, true]);
   });
 
   test("resolves numbering markers across formats and start overrides", async () => {
@@ -388,6 +523,50 @@ describe("DOCX flow parser", () => {
     expect(markerFor(decimal, levels, 0, [3])).toBe("3.");
     expect(markerFor(letter, levels, 1, [3, 2])).toBe("b)");
     expect(markerFor({ numFmt: "bullet", lvlText: "●", start: 1 }, levels, 0, [1])).toBe("●");
+  });
+
+  test("numbers lists as Word does: per list definition, restarted by a start override, a heading and an empty item count", async () => {
+    // The document the probe `docx-list-counters` gave Word 16; the expected markers are what Word printed
+    // (Range.ListFormat.ListString) for each numbered paragraph, in order.
+    const XML = `<?xml version="1.0" encoding="UTF-8"?>`;
+    const MAIN_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    const RELATIONSHIP = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    const documentOf = (inner: string): string => `${XML}<w:document ${WORD_NS}><w:body>${inner}</w:body></w:document>`;
+    const stylesOf = (inner: string): string => `${XML}<w:styles xmlns:w="${MAIN_NS}">${inner}</w:styles>`;
+    const STYLES_REL = `<Relationship Id="rIdStyles" Type="${RELATIONSHIP}/styles" Target="styles.xml"/>`;
+    const NUMBERING_REL = `<Relationship Id="rIdNumbering" Type="${RELATIONSHIP}/numbering" Target="numbering.xml"/>`;
+    const level = (i: number, format: string, text: string): string => `<w:lvl w:ilvl="${i}"><w:start w:val="1"/><w:numFmt w:val="${format}"/><w:lvlText w:val="${text}"/></w:lvl>`;
+    const abstracts = [0, 1, 2, 3, 4].map((id) => `<w:abstractNum w:abstractNumId="${id}">${level(0, "decimal", "%1.")}${level(1, "lowerLetter", "%2)")}</w:abstractNum>`).join("");
+    const num = (id: number, abstract: number, override = ""): string => `<w:num w:numId="${id}"><w:abstractNumId w:val="${abstract}"/>${override}</w:num>`;
+    const numbering = `${XML}<w:numbering xmlns:w="${MAIN_NS}">${abstracts}` +
+      num(1, 0) + num(2, 0) + num(3, 1) + num(4, 1, `<w:lvlOverride w:ilvl="0"><w:startOverride w:val="1"/></w:lvlOverride>`) +
+      num(5, 2) + num(6, 3) + num(7, 4) + num(8, 4) + num(9, 0) + `</w:numbering>`;
+    const item = (text: string, numId: number, ilvl = 0): string =>
+      `<w:p><w:pPr><w:numPr><w:ilvl w:val="${ilvl}"/><w:numId w:val="${numId}"/></w:numPr></w:pPr>${text === "" ? "" : `<w:r><w:t>${text}</w:t></w:r>`}</w:p>`;
+    const body =
+      item("a", 1) + item("b", 1) + item("c", 2) + item("d", 2) + // same definition: one sequence
+      item("e", 3) + item("f", 3) + item("g", 4) + item("h", 4) + // a start override restarts at its first use
+      item("i", 5) + item("", 5) + item("j", 5) + // an empty numbered paragraph takes a number
+      item("k", 6) + `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>H</w:t></w:r></w:p>` + item("l", 6) + // so does a numbered heading
+      item("m", 7) + item("n", 7) + item("o", 8) + item("p", 7) +
+      item("q", 9) + item("r", 9, 1) + item("s", 9, 1) + item("t", 9) + item("u", 9, 1); // continues abstract 0, deeper levels restart
+    const sections = await parseSynthetic(
+      documentOf(body),
+      STYLES_REL + NUMBERING_REL,
+      {
+        "word/numbering.xml": numbering,
+        "word/styles.xml": stylesOf(`<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:pPr><w:numPr><w:numId w:val="6"/></w:numPr><w:outlineLvl w:val="0"/></w:pPr></w:style>`),
+      },
+    );
+    const markers = allRoot(sections).flatMap((node) => (node.type === "list" ? node.items.map((entry) => entry.marker) : node.type === "heading" ? ["(heading)"] : []));
+    expect(markers).toEqual([
+      "1.", "2.", "3.", "4.",
+      "1.", "2.", "1.", "2.",
+      "1.", "2.", "3.",
+      "1.", "(heading)", "3.",
+      "1.", "2.", "3.", "4.",
+      "5.", "a)", "b)", "6.", "a)",
+    ]);
   });
 
   test("shows tracked changes as final through the real section parser", async () => {
@@ -444,7 +623,7 @@ describe("DOCX flow parser", () => {
   });
 
   test("parses basic floats and adapts charts without a duplicate engine", async () => {
-    const picture = (id: string, descr: string): string =>
+    const picture = (id: string): string =>
       `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
       `<pic:pic><pic:blipFill><a:blip r:embed="${id}"/></pic:blipFill></pic:pic>` +
       `</a:graphicData></a:graphic>`;
@@ -452,13 +631,13 @@ describe("DOCX flow parser", () => {
       `<?xml version="1.0" encoding="UTF-8"?>` +
         `<w:document ${WORD_NS} xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><w:body>` +
         `<w:p><w:r><w:drawing><wp:inline><wp:extent cx="914400" cy="914400"/><wp:docPr id="1" descr="inline art"/>` +
-        `${picture("rIdImage", "inline art")}</wp:inline></w:drawing></w:r></w:p>` +
+        `${picture("rIdImage")}</wp:inline></w:drawing></w:r></w:p>` +
         `<w:p><w:r><w:t xml:space="preserve">before </w:t></w:r>` +
         `<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="91440" distR="182880" behindDoc="0"><wp:extent cx="914400" cy="457200"/><wp:docPr id="2" descr="anchored art"/>` +
         `<wp:positionH relativeFrom="column"><wp:align>right</wp:align></wp:positionH>` +
         `<wp:positionV relativeFrom="paragraph"><wp:posOffset>76200</wp:posOffset></wp:positionV>` +
         `<wp:wrapSquare wrapText="bothSides"/>` +
-        `${picture("rIdImage", "anchored art")}</wp:anchor></w:drawing></w:r>` +
+        `${picture("rIdImage")}</wp:anchor></w:drawing></w:r>` +
         `<w:r><w:t xml:space="preserve"> after</w:t></w:r></w:p>` +
         `<w:p><w:r><w:drawing><wp:inline><wp:extent cx="914400" cy="914400"/><wp:docPr id="3" descr="sales chart"/>` +
         `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">` +
@@ -494,11 +673,12 @@ describe("DOCX flow parser", () => {
       vertical: { from: "paragraph", offset: 76200 / 914400 },
       distance: { top: 0, bottom: 0, left: 0.1, right: 0.2 },
     });
-    // Charts adapt to the shared-contract fallback; DOCX ships no chart engine.
+    // A chart with no resolvable chart part (this document has no relationship for it) becomes the labelled fallback.
     expect(chart).toMatchObject({ source: "chart", label: "sales chart" });
   });
 
-  test("splits sections at embedded breaks and keeps break signals as nodes", async () => {    const sections = await parseSynthetic(
+  test("splits sections at embedded breaks and keeps break signals as nodes", async () => {
+    const sections = await parseSynthetic(
       `<?xml version="1.0" encoding="UTF-8"?>` +
         `<w:document ${WORD_NS}><w:body>` +
         `<w:p><w:r><w:t xml:space="preserve">front</w:t></w:r></w:p>` +
@@ -522,6 +702,23 @@ describe("DOCX flow parser", () => {
     expect(sections[1]?.root[0]).toMatchObject({ strength: "preferred" });
     expect(sections[1]?.root[2]).toMatchObject({ runs: [{ text: "split " }, { text: "line" }] });
     expect(sections[1]?.properties.page.orientation).toBe("landscape");
+  });
+
+  test("does not turn an empty section-ending pageBreakBefore into a blank page", async () => {
+    const sections = await parseSynthetic(
+      `<?xml version="1.0" encoding="UTF-8"?>` +
+        `<w:document ${WORD_NS}><w:body>` +
+        `<w:p><w:r><w:t>before</w:t></w:r></w:p>` +
+        `<w:p><w:pPr><w:pageBreakBefore/><w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/></w:sectPr></w:pPr></w:p>` +
+        `<w:p><w:r><w:t>after</w:t></w:r></w:p>` +
+        `<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr>` +
+        `</w:body></w:document>`,
+    );
+    expect(sections).toHaveLength(2);
+    expect(sections[0]?.root.map((node) => node.type)).toEqual(["paragraph"]);
+    expect(sections[0]?.properties.page.orientation).toBe("landscape");
+    expect(sections[1]?.root.map((node) => node.type)).toEqual(["paragraph"]);
+    expect(sections[1]?.properties.page.orientation).toBe("portrait");
   });
 
   test("resolves paragraph borders per side, skipping nil edges", async () => {
@@ -573,7 +770,7 @@ describe("DOCX flow parser", () => {
     // image. Centered paragraph with an anchored picture: paragraph alignment
     // never positions it, the anchor does.
     expect(images.map((node) => (node.type === "image" ? node.align : []))).toEqual([undefined, "center"]);
-    expect(host.floats![0]!.align).toBeUndefined();
+    expect(host.floats![0]!.type === "image" || host.floats![0]!.type === "chart" ? host.floats![0]!.align : undefined).toBeUndefined();
     expect(host.floats![0]!.anchor?.horizontal.align).toBe("right");
   });
 
@@ -818,6 +1015,132 @@ describe("DOCX Word-fidelity parsing", () => {
     expect(item.marker).toBe("•");
     expect(item.markerRun?.text).toBe("•");
     expect(item.markerRun?.fontFamily).toBeUndefined();
+  });
+
+  const NUMBERED = {
+    "word/numbering.xml": `${XML}<w:numbering xmlns:w="${MAIN_NS}"><w:abstractNum w:abstractNumId="0">` +
+      `<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl>` +
+      `<w:lvl w:ilvl="1"><w:start w:val="4"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%2)"/></w:lvl>` +
+      `</w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>`,
+  };
+  const numbered = (text: string, level = 0): string =>
+    `<w:p><w:pPr><w:numPr><w:ilvl w:val="${level}"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>${text}</w:t></w:r></w:p>`;
+  const markersIn = (nodes: FlowNode[]): string[] =>
+    nodes.flatMap((node) => (node.type === "list" ? node.items.map((item) => `${item.marker} ${joined(item.paragraph)}`) : node.type === "table" ? node.rows.flatMap((row) => row.cells.flatMap((cell) => markersIn(cell.nodes))) : []));
+
+  test("numbers one list across the body and a table cell in document order", async () => {
+    const cell = `<w:tbl><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="4000" w:type="dxa"/></w:tcPr>${numbered("cell")}</w:tc></w:tr></w:tbl>`;
+    const sections = await parseSynthetic(documentOf(numbered("one") + cell + numbered("three")), NUMBERING_REL, NUMBERED);
+    expect(markersIn(allRoot(sections))).toEqual(["1. one", "2. cell", "3. three"]);
+  });
+
+  test("a deeper list level starts over at its own start value after a higher one", async () => {
+    const sections = await parseSynthetic(documentOf(numbered("a") + numbered("b", 1) + numbered("c", 1) + numbered("d") + numbered("e", 1)), NUMBERING_REL, NUMBERED);
+    expect(markersIn(allRoot(sections))).toEqual(["1. a", "4) b", "5) c", "2. d", "4) e"]);
+  });
+
+  test("a content control wrapping a table cell's paragraphs keeps them", async () => {
+    const cell = (inner: string): string => `<w:tbl><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid><w:tr><w:tc>${inner}</w:tc></w:tr></w:tbl>`;
+    const plain = await parseSynthetic(documentOf(cell(`<w:p><w:r><w:t>form field</w:t></w:r></w:p>`)));
+    const wrapped = await parseSynthetic(documentOf(cell(`<w:sdt><w:sdtContent><w:p><w:r><w:t>form field</w:t></w:r></w:p></w:sdtContent></w:sdt>`)));
+    expect(allRoot(wrapped)).toEqual(allRoot(plain));
+    expect(blockText(allRoot(wrapped)[0]!)).toBe("form field");
+  });
+
+  test("a merged-down cell that also spans columns keeps the columns after it in place", async () => {
+    const tc = (properties: string, text: string): string => `<w:tc><w:tcPr>${properties}</w:tcPr><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:tc>`;
+    const grid = `<w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid>`;
+    const rows =
+      `<w:tr>${tc(`<w:gridSpan w:val="2"/><w:vMerge w:val="restart"/>`, "A")}${tc(`<w:vMerge w:val="restart"/>`, "B")}</w:tr>` +
+      `<w:tr>${tc(`<w:gridSpan w:val="2"/><w:vMerge/>`, "")}${tc(`<w:vMerge/>`, "")}</w:tr>`;
+    const [table] = allRoot(await parseSynthetic(documentOf(`<w:tbl>${grid}${rows}</w:tbl>`)));
+    if (table?.type !== "table") throw new Error("expected a table");
+    expect(table.rows[1]!.cells).toHaveLength(0);
+    expect(table.rows[0]!.cells.map((cell) => [cell.columnSpan ?? 1, cell.rowSpan])).toEqual([[2, 2], [1, 2]]);
+  });
+
+  test("text after a page break in the same run lands after the break", async () => {
+    const sections = await parseSynthetic(documentOf(`<w:p><w:r><w:t>before</w:t><w:br w:type="page"/><w:t>after</w:t></w:r></w:p>`));
+    expect(allRoot(sections).map((node) => (node.type === "paragraph" ? joined(node) : node.type === "pageBreak" ? `break:${node.strength}` : node.type))).toEqual(["before", "break:mandatory", "after"]);
+  });
+
+  test("a section with no header reference shows the previous one's, and only a default reference counts", async () => {
+    const relation = (id: string, part: string): string => `<Relationship Id="${id}" Type="${RELATIONSHIP}/header" Target="${part}"/>`;
+    const header = (text: string): string => `${XML}<w:hdr xmlns:w="${MAIN_NS}"><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:hdr>`;
+    const sectPr = (references: string): string => `<w:sectPr>${references}</w:sectPr>`;
+    const sections = await parseSynthetic(
+      documentOf(
+        `<w:p><w:pPr>${sectPr(`<w:headerReference w:type="default" r:id="rIdA"/>`)}</w:pPr><w:r><w:t>one</w:t></w:r></w:p>` +
+          `<w:p><w:pPr>${sectPr(`<w:headerReference w:type="first" r:id="rIdB"/>`)}</w:pPr><w:r><w:t>two</w:t></w:r></w:p>` +
+          `<w:p><w:r><w:t>three</w:t></w:r></w:p>${sectPr("")}`,
+      ),
+      relation("rIdA", "header1.xml") + relation("rIdB", "header2.xml"),
+      { "word/header1.xml": header("Default header"), "word/header2.xml": header("First-page header") },
+    );
+    expect(sections.map((section) => (section.header ?? []).map(blockText).join(""))).toEqual(["Default header", "Default header", "Default header"]);
+  });
+
+  test("a drawing with no wp:docPr/@id reads exactly as one with it: DOCX never uses a drawing's id", async () => {
+    const stripped = await withPart("docx-coverage.docx", "word/document.xml", (xml) => {
+      expect(xml.match(/<wp:docPr id="/g)?.length).toBeGreaterThan(5);
+      return xml.replace(/(<wp:docPr) id="[^"]*"/g, "$1");
+    });
+    const sections = await parseDocxSections(stripped, await indexDocx(stripped));
+    const original = await fixture();
+    // Only the count differs (it sits on the first section and drives the renderer's `docx-missing-id` warning).
+    const { missingIds, ...first } = sections[0]!;
+    expect(missingIds).toBe(12);
+    expect(original[0]!.missingIds).toBeUndefined();
+    expect(JSON.stringify([first, ...sections.slice(1)])).toBe(JSON.stringify(original));
+    expect(JSON.stringify(sections)).toContain('"type":"image"');
+  });
+
+  test("the count of drawings with no id covers headers and footnotes too, and a drawing with its id adds none", async () => {
+    const drawing = (id: string): string =>
+      `<w:r><w:drawing><wp:inline><wp:extent cx="914400" cy="914400"/><wp:docPr ${id} name="Picture"/>` +
+      `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:blipFill><a:blip r:embed="rIdImage"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+    const image = `<Relationship Id="rIdImage" Type="${RELATIONSHIP}/image" Target="media/pixel.png"/>`;
+    const sections = await parseSynthetic(
+      documentOf(`<w:p>${drawing('id="1"')}${drawing("")}<w:r><w:footnoteReference w:id="1"/></w:r></w:p><w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/></w:sectPr>`),
+      image + `<Relationship Id="rIdHeader" Type="${RELATIONSHIP}/header" Target="header1.xml"/><Relationship Id="rIdNotes" Type="${RELATIONSHIP}/footnotes" Target="footnotes.xml"/>`,
+      {
+        "word/media/pixel.png": PIXEL_PNG,
+        "word/header1.xml": `${XML}<w:hdr xmlns:w="${MAIN_NS}" xmlns:r="${RELATIONSHIP}" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:p>${drawing("")}</w:p></w:hdr>`,
+        "word/_rels/header1.xml.rels": `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${image}</Relationships>`,
+        "word/footnotes.xml": `${XML}<w:footnotes xmlns:w="${MAIN_NS}" xmlns:r="${RELATIONSHIP}" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:footnote w:id="1"><w:p>${drawing("")}</w:p></w:footnote></w:footnotes>`,
+        "word/_rels/footnotes.xml.rels": `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${image}</Relationships>`,
+      },
+    );
+    // One body drawing with its id adds none; the body, header and footnote drawings without one are three.
+    expect(sections[0]!.missingIds).toBe(3);
+  });
+
+  test("a hyperlink in a header and one in a footnote resolve through their own part's relationships", async () => {
+    // The same relationship id names a different target in each part: the body's rels must never answer for them.
+    const external = (id: string, target: string): string => `<Relationship Id="${id}" Type="${RELATIONSHIP}/hyperlink" Target="${target}" TargetMode="External"/>`;
+    const rels = (...entries: string[]): string => `${XML}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${entries.join("")}</Relationships>`;
+    const link = (text: string): string => `<w:hyperlink r:id="rId9"><w:r><w:t>${text}</w:t></w:r></w:hyperlink>`;
+    const sections = await parseSynthetic(
+      documentOf(`<w:p>${link("body link")}<w:r><w:footnoteReference w:id="1"/></w:r></w:p><w:sectPr><w:headerReference w:type="default" r:id="rIdHeader"/></w:sectPr>`),
+      external("rId9", "https://example.com/body") +
+        `<Relationship Id="rIdHeader" Type="${RELATIONSHIP}/header" Target="header1.xml"/>` +
+        `<Relationship Id="rIdNotes" Type="${RELATIONSHIP}/footnotes" Target="footnotes.xml"/>`,
+      {
+        "word/header1.xml": `${XML}<w:hdr xmlns:w="${MAIN_NS}" xmlns:r="${RELATIONSHIP}"><w:p>${link("header link")}</w:p></w:hdr>`,
+        "word/_rels/header1.xml.rels": rels(external("rId9", "https://example.com/header")),
+        "word/footnotes.xml": `${XML}<w:footnotes xmlns:w="${MAIN_NS}" xmlns:r="${RELATIONSHIP}"><w:footnote w:id="1"><w:p>${link("note link")}</w:p></w:footnote></w:footnotes>`,
+        "word/_rels/footnotes.xml.rels": rels(external("rId9", "https://example.com/note")),
+      },
+    );
+    const runOf = (nodes: FlowNode[] | undefined): TextRunModel | undefined => {
+      const paragraph = nodes?.find((node): node is DocxParagraphNode => node.type === "paragraph");
+      return paragraph?.runs[0];
+    };
+    expect(runOf(sections[0]!.root)).toMatchObject({ text: "body link", hyperlink: "https://example.com/body" });
+    expect(runOf(sections[0]!.header)).toMatchObject({ text: "header link", hyperlink: "https://example.com/header" });
+    const note = sections[0]!.root.find((node) => node.type === "footnote");
+    if (note?.type !== "footnote") throw new Error("expected the footnote");
+    expect(runOf(note.nodes)).toMatchObject({ text: "note link", hyperlink: "https://example.com/note" });
   });
 
   test("paints a TOC's own links as plain text but keeps the Hyperlink style elsewhere", async () => {

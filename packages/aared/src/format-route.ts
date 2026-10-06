@@ -1,16 +1,13 @@
 /**
- * How `aared/preview` and `<aared-viewer>` reach the format entrypoints: the
- * one place that lazily imports the detected format, plus the defaults and
- * events both facades share. Renderer-side. Each facade still owns its own
- * render call (the element adds sheet tabs and its theme attribute;
- * `preview()` forwards the caller's options), so nothing here paints.
- *
- * The format modules are reached only through dynamic `import()`, so a
- * consumer of one format never loads the other two.
+ * How the embed viewer (`embed-viewer.ts`, behind `aared/preview`,
+ * `<aared-viewer>` and the hooks) reaches the format entrypoints: the one
+ * defaults, route contracts, checks and events it shares. Renderer-side;
+ * nothing here paints or imports a format implementation at runtime.
  */
 
 import { AaredError } from "./core/index.js";
-import type { Appearance, DocumentFormat, OpenOptions, UnitRef, ZoomValue } from "./core/index.js";
+import type { Appearance, DocumentFormat, MediaResolver, OpenOptions, UnitRef, ZoomValue } from "./core/index.js";
+import type { DocxPagination } from "./preview/index.js";
 import type { DocxDocument } from "./docx/index.js";
 import type { PptxDocument } from "./pptx/index.js";
 import type { XlsxDocument } from "./xlsx/index.js";
@@ -18,14 +15,18 @@ import type { XlsxDocument } from "./xlsx/index.js";
 export type AnyDocument = PptxDocument | XlsxDocument | DocxDocument;
 
 /**
- * Each format's starting zoom when the caller names none: a slide opens whole,
- * a sheet at 100% like Excel, a document to the width of its container.
+ * The appearance an embed layer renders with: the caller's, with the embed
+ * defaults under whatever it leaves out. A workbook shows its sheet tabs,
+ * since an embed has no other way to switch sheets; the headless `render()`
+ * default stays off, for an app that draws its own. Applied at every render
+ * and every `setAppearance()`, so a theme switch keeps the tabs.
  */
-export const DEFAULT_ZOOM: Readonly<Record<DocumentFormat, ZoomValue>> = {
-  pptx: "fit-page",
-  xlsx: 1,
-  docx: "fit-width",
-};
+export function embedAppearance(format: DocumentFormat, appearance: Appearance): Appearance;
+export function embedAppearance(format: DocumentFormat, appearance: Appearance | undefined): Appearance | undefined;
+export function embedAppearance(format: DocumentFormat, appearance: Appearance | undefined): Appearance | undefined {
+  if (format !== "xlsx" || appearance?.spreadsheet?.sheetTabs !== undefined) return appearance;
+  return { ...appearance, spreadsheet: { ...appearance?.spreadsheet, sheetTabs: true } };
+}
 
 /** What every format's render handle offers a facade. */
 export interface RenderHandle extends EventTarget {
@@ -37,21 +38,48 @@ export interface RenderHandle extends EventTarget {
   setAppearance(appearance: Appearance): void;
 }
 
-/** Open `bytes` as `format`, loading only that format's entrypoint. */
-export async function openFormat(format: DocumentFormat, bytes: ArrayBuffer, options: OpenOptions | undefined): Promise<AnyDocument> {
-  if (format === "pptx") return (await import("./pptx/index.js")).open(bytes, options);
-  if (format === "xlsx") return (await import("./xlsx/index.js")).open(bytes, options);
-  return (await import("./docx/index.js")).open(bytes, options);
+/** Resolved renderer inputs shared by statically bound format routes. */
+export interface ViewerRenderInput {
+  document: AnyDocument;
+  index: number;
+  target: HTMLElement;
+  signal: AbortSignal;
+  appearance?: Appearance;
+  zoom?: ZoomValue;
+  mediaResolver?: MediaResolver;
+  pagination?: DocxPagination;
+}
+
+/** A format supplies parsing and rendering; the shared viewer owns lifecycle. */
+export interface ViewerRoute {
+  readonly format: DocumentFormat;
+  open(bytes: ArrayBuffer, options: OpenOptions | undefined): Promise<AnyDocument>;
+  render(input: ViewerRenderInput): Promise<RenderHandle>;
 }
 
 /**
  * A facade never shows a document with nothing in it: zero slides, sheets or
- * sections is `invalid-document` in the facade's scope. Shared so the element
- * and `preview()` cannot drift apart.
+ * sections is `invalid-document` in the facade's scope.
  */
 export function assertHasUnits(scope: string, document: AnyDocument): void {
   if (document.info.count === 0) {
     throw new AaredError("invalid-document", `${scope}: this document has no slides, sheets, or sections to show`);
+  }
+}
+
+/**
+ * A facade's unit index (`goTo()`, the starting `index`): a whole number in
+ * `0 <= index < count`. A whole number outside is `not-found`; anything else
+ * is not an index at all, `invalid-argument`. The one index check, so every
+ * layer raises the same code for the same index (two hand-written checks
+ * drifted apart once, §59).
+ */
+export function assertUnitIndex(scope: string, index: number, count: number): void {
+  if (!Number.isInteger(index)) {
+    throw new AaredError("invalid-argument", `${scope}: a unit index must be a whole number; received ${String(index)}`);
+  }
+  if (index < 0 || index >= count) {
+    throw new AaredError("not-found", `${scope}: unit index ${index} is outside this ${count}-unit document`);
   }
 }
 

@@ -44,7 +44,7 @@ test("detect honors an aborted signal", async () => {
 
 test("preview with an asserted wrong type rejects before painting", async () => {
   const error = await rejection(
-    preview(await Bun.file(PPTX_FIXTURE).arrayBuffer(), stubTarget(), { type: "xlsx" }),
+    preview({ source: await Bun.file(PPTX_FIXTURE).arrayBuffer(), target: stubTarget(), type: "xlsx" }),
   );
   expect(error).toBeInstanceOf(AaredError);
   expect(isAaredError(error) && error.code).toBe("unsupported-format");
@@ -52,24 +52,18 @@ test("preview with an asserted wrong type rejects before painting", async () => 
 });
 
 test("preview maps corrupt archives to invalid-document errors", async () => {
-  const error = await rejection(preview(new ArrayBuffer(8), stubTarget()));
+  const error = await rejection(preview({ source: new ArrayBuffer(8), target: stubTarget() }));
   expect(error).toBeInstanceOf(AaredError);
   expect((error as AaredError).code).toBe("invalid-document");
 });
 
 test("preview rejects an out-of-range initial index without painting", async () => {
   const error = await rejection(
-    preview(await Bun.file(PPTX_FIXTURE).arrayBuffer(), stubTarget(), { index: 99 }),
+    preview({ source: await Bun.file(PPTX_FIXTURE).arrayBuffer(), target: stubTarget(), index: 99 }),
   );
   expect(error).toBeInstanceOf(AaredError);
   expect((error as AaredError).code).toBe("not-found");
   expect(error.message).toContain("99");
-});
-
-const CRC_TABLE = new Uint32Array(256).map((_, n) => {
-  let c = n;
-  for (let bit = 0; bit < 8; bit++) c = c & 1 ? 0xedb8_8320 ^ (c >>> 1) : c >>> 1;
-  return c >>> 0;
 });
 
 /** A structurally valid PPTX whose presentation part lists no slides. */
@@ -101,7 +95,7 @@ function emptyDeckBytes(): ArrayBuffer {
 }
 
 test("preview maps a valid but empty deck to an invalid-document error", async () => {
-  const error = await rejection(preview(emptyDeckBytes(), stubTarget()));
+  const error = await rejection(preview({ source: emptyDeckBytes(), target: stubTarget() }));
   expect(error).toBeInstanceOf(AaredError);
   expect((error as AaredError).code).toBe("invalid-document");
   expect(error.message).toContain("no slides");

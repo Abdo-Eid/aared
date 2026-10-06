@@ -20,7 +20,7 @@ interface PowerPointRender {
 }
 
 async function renderPowerPoint(): Promise<PowerPointRender> {
-  const child = Bun.spawn(["bun", "tools/powerpoint-render/index.ts", FIXTURE_PATH, "--width", "1280"], {
+  const child = Bun.spawn(["bun", "tools/office-export.ts", "--format", "pptx", FIXTURE_PATH, "--width", "1280"], {
     cwd: `${import.meta.dir}/../../..`,
     stdout: "pipe",
     stderr: "pipe",

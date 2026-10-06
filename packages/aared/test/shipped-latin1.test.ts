@@ -38,11 +38,7 @@ async function distFiles(): Promise<string[]> {
   return [...new Bun.Glob("**/*.mjs").scanSync(DIST)].map((name) => `${DIST}/${name.replaceAll("\\", "/")}`);
 }
 
-test("the worker artifact is one-byte: no character above U+00FF", async () => {
-  expect(await wideCharacters(`${DIST}/core/worker.mjs`)).toEqual([]);
-});
-
-test("every shipped chunk is one-byte: no character above U+00FF", async () => {
+test("every shipped chunk, the Worker included, is one-byte: no character above U+00FF", async () => {
   const hits: string[] = [];
   for (const path of await distFiles()) hits.push(...(await wideCharacters(path)));
   expect(hits).toEqual([]);

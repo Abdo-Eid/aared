@@ -3,6 +3,8 @@
  * renderers. All geometry is expressed in inches unless documented otherwise.
  */
 
+import type { ChartSpecModel } from "./chart/spec.js";
+
 export interface SizeModel {
   width: number;
   height: number;
@@ -77,9 +79,6 @@ export interface TextRunModel {
   ltrRun?: true;
   latinTypeface?: string;
   complexScriptTypeface?: string;
-  /** East Asian (`a:ea`) and symbol (`a:sym`) typeface slots; families resolve like latin/cs. */
-  eastAsianTypeface?: string;
-  symbolTypeface?: string;
   /** Resolved CSS color, not a scheme token. */
   color?: string;
   /** Resolved Office/theme font family; font files resolve separately. */
@@ -280,7 +279,7 @@ export interface StrokeModel {
   color: string;
   /** Stroke width in inches. */
   width: number;
-  /** Dash family from `a:prstDash`; absent means solid. Read for table cell edges only so far. */
+  /** Dash family from `a:prstDash` on shape, line and table-cell strokes; absent means solid (or a dash style not read). */
   dash?: "dash" | "dot";
 }
 
@@ -402,7 +401,7 @@ export interface PictureFillModel {
 /** A deliberately unpainted source fill that cannot be represented faithfully. */
 export interface UnsupportedShapeFillModel {
   kind: "unsupported";
-  source: "gradient-path" | "gradient-linear" | "image" | "pattern";
+  source: "gradient-path" | "gradient-linear" | "image" | "pattern" | "group";
 }
 
 /**
@@ -503,74 +502,22 @@ export interface PictureModel {
   transform?: TransformModel;
 }
 
-interface ChartGraphicStyleModel {
-  fill?: string;
-  stroke?: { color: string; width: number };
-  opacity?: number;
-}
-
-interface ChartGraphicRectModel extends ChartGraphicStyleModel {
-  kind: "rect";
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface ChartGraphicLineModel extends ChartGraphicStyleModel {
-  kind: "line";
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-}
-
-interface ChartGraphicPathModel extends ChartGraphicStyleModel {
-  kind: "path";
-  /** SVG path commands only, never SVG markup. */
-  path: string;
-}
-
-interface ChartGraphicTextModel extends ChartGraphicStyleModel {
-  kind: "text";
-  x: number;
-  y: number;
-  text: string;
-  fontSize?: number;
-  fontFamily?: string;
-  fontWeight?: "normal" | "bold";
-  textAnchor?: "start" | "middle" | "end";
-}
-
-export type ChartGraphicPrimitive =
-  | ChartGraphicRectModel
-  | ChartGraphicLineModel
-  | ChartGraphicPathModel
-  | ChartGraphicTextModel;
-
-/** Safe chart drawing data; all primitive coordinates are local and unitless. */
-export interface ChartGraphicModel {
-  viewBox: LocalViewBoxModel;
-  primitives: ChartGraphicPrimitive[];
-  /**
-   * The chart area's own fill and outline (`c:chartSpace/c:spPr`), painted
-   * behind the whole frame. Absent when the chart authors neither, so hosts
-   * keep whatever surface is under it.
-   */
-  background?: {
-    fill?: string;
-    /** Outline width in CSS pixels. */
-    stroke?: { color: string; width: number };
-  };
-}
-
 export interface ChartModel {
   kind: "chart";
   id: string;
   name: string;
+  /** The author's alt text (`p:cNvPr/@descr`, else its `title`): the chart's accessible name. */
+  alt?: string;
   bounds?: BoundsModel;
-  /** Typed, markup-free chart drawing data when chart parsing is supported. */
-  graphic?: ChartGraphicModel;
+  /**
+   * The resolved chart: what it plots and how it looks, every Office default
+   * applied. Laid out and painted on the page, to the frame's size. Absent
+   * when the chart plots a type the preview does not draw; the frame then
+   * shows a placeholder saying why (`unsupportedReason`).
+   */
+  spec?: ChartSpecModel;
+  /** Why `spec` is absent, phrased for a reader ("Map charts are not previewed"). */
+  unsupportedReason?: string;
   /** Optional source identifier for diagnostics and source correlation. */
   sourceChartId?: string;
   transform?: TransformModel;
@@ -626,6 +573,13 @@ export interface SlideModel {
   background?: ShapeFillModel;
   /** 1-based position in the deck, shown by `slidenum` fields. */
   number?: number;
+  /**
+   * How many of the slide's elements (nested groups included) state no
+   * `p:cNvPr/@id`. The file is damaged there; each was kept and drawn with an id
+   * of its own (`auto-N`). Absent when none. The renderer turns it into a
+   * `pptx-missing-id` warning.
+   */
+  missingIds?: number;
   /** Set by the Worker when the slide's layout has shared graphics to fetch. */
   layoutId?: string;
   /**
@@ -649,8 +603,8 @@ export interface SlideModel {
  * convention. Rows and cells are sparse: only authored rows appear, and each
  * row carries only its authored cells in ascending column order, so a large
  * mostly-empty used range stays proportional to its content, not its extent.
- * True range-windowed transfer for huge sheets needs a `UnitOptions` range
- * (owned by the worker orchestrator) and is proposed separately.
+ * A range read (`UnitRequest.range`) slices the Worker's cached parsed sheet
+ * into a `SheetRangeModel`; the whole sheet is still parsed once.
  */
 
 /** Zero-based, inclusive cell range in logical (A1) order, never display order. */
@@ -729,7 +683,6 @@ export interface RowModel {
   cells: Array<{ col: number; cell: CellModel }>;
   /** Row height in inches. */
   height?: number;
-  hidden?: boolean;
 }
 
 export interface SheetPictureModel {
@@ -748,12 +701,15 @@ export interface SheetPictureModel {
 export interface SheetChartModel {
   kind: "chart";
   name: string;
+  /** The author's alt text (`xdr:cNvPr/@descr`, else its `title`): the chart's accessible name. */
+  alt?: string;
   /**
-   * Typed, markup-free chart drawing from the narrow spreadsheet chart
-   * adapter. Absent when the source chart type is not covered; the reason is
-   * then in `unsupportedReason` and the bounds still reserve its space.
+   * The resolved chart, read by the same reader as PPTX charts and painted
+   * the same way. Absent when the chart plots a type the preview does not
+   * draw; the reason is then in `unsupportedReason` and the bounds still
+   * reserve its space.
    */
-  graphic?: ChartGraphicModel;
+  spec?: ChartSpecModel;
   /** Absolute bounds in inches from the grid origin. */
   bounds: BoundsModel;
   /** Anchor cells the bounds were derived from. */
@@ -801,8 +757,16 @@ export interface SheetModel {
   hiddenRows: number[];
   /** Default row height in inches. */
   defaultRowHeight: number;
+  /** Width in inches of a column no `<col>` sizes: what the grid continues with past `columnWidths`. */
+  defaultColumnWidth: number;
   drawings: SheetDrawingModel[];
   unsupported: SheetUnsupportedModel[];
+  /**
+   * How many of the sheet's pictures and charts state no `xdr:cNvPr/@id`. The file is
+   * damaged there (Excel offers to repair it); a drawing's id is not used, so each is
+   * kept and drawn. Absent when none. The renderer turns it into an `xlsx-missing-id` warning.
+   */
+  missingIds?: number;
 }
 
 /**
@@ -832,9 +796,7 @@ export type UnitModel = SlideModel | SheetModel | SheetRangeModel | DocumentSect
  *
  * Every block is plain data (structured-cloneable). Geometry is inches,
  * type is points — matching the PPTX model conventions above. `root` order
- * is document order; each entry is an independent virtualization block, so a
- * future block window (`blockStart`/`blockEnd` on `UnitOptions`) can slice
- * `root` without re-parsing.
+ * is document order; each entry is an independent virtualization block.
  */
 
 /** One side of a Word paragraph or table border (`w:pBdr`, `w:tblBorders`); widths are points. */
@@ -883,6 +845,12 @@ export interface DocxParagraphLayout
     | "rightIndent"
     | "firstLineIndent"
   > {
+  /** Authored paragraph spacing in line units, preserved until the section grid is known. */
+  spaceBeforeLines?: number;
+  /** Authored paragraph spacing in line units, preserved until the section grid is known. */
+  spaceAfterLines?: number;
+  /** Resolved `w:snapToGrid`; when absent, Word uses a defined section grid. */
+  snapToGrid?: boolean;
   /**
    * `w:lineRule="atLeast"`: `lineSpacingPt` is a floor a taller run grows its
    * line past. Absent, `lineSpacingPt` is Word's `exact` pitch, which no run
@@ -915,14 +883,14 @@ export interface DocxParagraphNode extends DocxParagraphLayout {
   direction: TextDirection;
   /** Source paragraph style id, for diagnostics only. */
   styleId?: string;
-  /** Pictures anchored in this paragraph (`wp:anchor`), placed relative to it; text wraps or runs over them. */
-  floats?: DocxImageNode[];
+  /** Pictures and charts anchored in this paragraph (`wp:anchor`), placed relative to it; text wraps or runs over them. */
+  floats?: DocxDrawingNode[];
 }
 
 export interface DocxHeadingNode extends DocxParagraphLayout {
   type: "heading";
-  /** Pictures anchored in this heading, as `DocxParagraphNode.floats`. */
-  floats?: DocxImageNode[];
+  /** Pictures and charts anchored in this heading, as `DocxParagraphNode.floats`. */
+  floats?: DocxDrawingNode[];
   /** Word outline level 1–9 (`Heading 1`–`Heading 9` styles or `w:outlineLvl`). */
   level: number;
   /** Joined run text, for heading outlines and document titles. */
@@ -1026,6 +994,49 @@ export interface DocxImageNode {
 }
 
 /**
+ * A chart in the flow (`w:drawing` holding a `c:chart`), placed exactly as a
+ * picture is: inline in its own block, or anchored with text wrapping around
+ * it. The chart reads with the same reader as PPTX and XLSX charts and lays
+ * out at its extent.
+ */
+export interface DocxChartNode {
+  type: "chart";
+  /** The resolved chart, as `ChartModel.spec`. */
+  spec: ChartSpecModel;
+  /** Extent in inches, from `wp:extent`: the frame the chart lays out in. */
+  width: number;
+  height: number;
+  /** `wp:docPr` description or title. */
+  alt?: string;
+  /** As `DocxImageNode.anchor`. */
+  anchor?: DocxImageAnchor;
+  /** As `DocxImageNode.align`. */
+  align?: TextAlign;
+}
+
+/** A Word text box and the ordinary flow content inside it. */
+export interface DocxTextBoxNode {
+  type: "textBox";
+  /** Content uses the same paragraph, table and list model as the document body. */
+  content: FlowNode[];
+  width: number;
+  height: number;
+  direction: TextDirection;
+  insets?: InsetsModel;
+  fill?: string;
+  border?: DocxParagraphBorder;
+  /** `wps:bodyPr/@vertOverflow="clip"`; otherwise Word lets text overflow the frame. */
+  verticalOverflow?: "clip" | "overflow";
+  /** Set for a legacy `w:pict`/VML text box. */
+  legacy?: true;
+  /** As `DocxImageNode.anchor`; absent for an inline box. */
+  anchor?: DocxImageAnchor;
+}
+
+/** What a paragraph carries anchored: a picture, chart, or text box, placed the same way. */
+export type DocxDrawingNode = DocxImageNode | DocxChartNode | DocxTextBoxNode;
+
+/**
  * The placement Word saves on a `wp:anchor`: one wrap type, whether the
  * picture sits behind the text, a horizontal and a vertical position, the
  * distance text keeps from each side, and for tight and through wrapping the
@@ -1096,7 +1107,7 @@ export interface DocxFootnoteNode {
 /** A source drawing with no faithful flow representation; rendered as a marked fallback, never skipped silently. */
 export interface DocxUnsupportedNode {
   type: "unsupported";
-  source: "chart" | "ole" | "textbox" | "ink" | "drawing";
+  source: "chart" | "ole" | "drawing";
   label: string;
 }
 
@@ -1116,6 +1127,8 @@ export type FlowNode =
   | DocxHeadingNode
   | DocxTableNode
   | DocxImageNode
+  | DocxChartNode
+  | DocxTextBoxNode
   | DocxListNode
   | DocxFootnoteNode
   | DocxUnsupportedNode
@@ -1144,28 +1157,61 @@ export interface SectionPageGeometry {
 }
 
 /**
+ * The header or footer parts a section's own references name, by kind (`w:type`
+ * absent means `default`). A kind the section names none of is absent: it
+ * inherits the previous section's, which `DocumentSection` already resolves.
+ */
+export interface HeaderFooterParts {
+  default?: string;
+  first?: string;
+  even?: string;
+}
+
+/**
  * Resolved `w:sectPr` for one document section: its break behavior, physical
- * page geometry, and header/footer part names in preference order (default
- * first). A paragraph-embedded `sectPr` closes the section that precedes it;
- * the trailing body `sectPr` closes the last section.
+ * page geometry, the header/footer parts of its own references, whether its
+ * first page has headers of its own (`w:titlePg`), and where its page numbers
+ * start (`w:pgNumType`). A paragraph-embedded `sectPr` closes the section that
+ * precedes it; the trailing body `sectPr` closes the last section.
  */
 export interface SectionProperties {
   breakType: SectionBreakType;
   page: SectionPageGeometry;
-  headerRefs: string[];
-  footerRefs: string[];
+  /** Section grid. `linePitch` is in twentieths of a point, as authored in `w:linePitch`. */
+  docGrid?: { type: string; linePitch?: number; adjustLineHeightInTable?: true };
+  headerParts?: HeaderFooterParts;
+  footerParts?: HeaderFooterParts;
+  /** `w:titlePg`: the section's first page takes the `first` header and footer. */
+  titlePage?: true;
+  /** `w:evenAndOddHeaders` of the document's settings: even page numbers take the `even` header and footer. */
+  evenAndOddPages?: true;
+  /** `w:pgNumType/@w:start`: the number of the section's first page; absent continues the previous section's. */
+  pageNumberStart?: number;
 }
 
 /**
  * One DOCX section: flow blocks in document order plus the header/footer
- * content resolved from its own `sectPr` references. Plain data
- * (structured-cloneable); geometry is twips, matching the OOXML source.
+ * content resolved from its own `sectPr` references, each kind (`default`, and
+ * the `first`- and `even`-page ones) inheriting from the previous section on
+ * its own. Plain data (structured-cloneable); geometry is twips, matching the
+ * OOXML source. Flow mode paints `header` and `footer`, the default pair.
  */
 export interface DocumentSection {
   properties: SectionProperties;
+  /**
+   * How many drawings in the whole document (body, headers, footers and notes) state no
+   * `wp:docPr/@id`. Set on the first section only; absent when none. The file is damaged
+   * there (Word offers to recover it); a drawing's id is not used, so each is kept and
+   * drawn. The renderer turns it into a `docx-missing-id` warning.
+   */
+  missingIds?: number;
   root: FlowNode[];
   header?: FlowNode[];
   footer?: FlowNode[];
+  firstHeader?: FlowNode[];
+  firstFooter?: FlowNode[];
+  evenHeader?: FlowNode[];
+  evenFooter?: FlowNode[];
   /** First heading text within this section, when present — the section title. */
   title?: string;
 }

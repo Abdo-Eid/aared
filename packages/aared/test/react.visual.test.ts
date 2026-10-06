@@ -10,7 +10,7 @@ interface Probe {
   status: string;
   format: string | null;
   count: number | null;
-  index: number;
+  index: number | null;
   zoom: unknown;
   error: string | null;
   navigationError: string | null;
@@ -54,7 +54,7 @@ async function withHarness(run: (view: {
   ]);
   const server = Bun.serve({
     port: 0,
-    fetch(request) {
+    async fetch(request) {
       const url = new URL(request.url);
       if (url.pathname === "/react-harness.mjs") {
         return new Response(harnessModule, { headers: { "content-type": "text/javascript; charset=utf-8" } });
@@ -64,6 +64,10 @@ async function withHarness(run: (view: {
         return new Response(workerModule, { headers: { "content-type": "text/javascript; charset=utf-8" } });
       }
       if (url.pathname === "/arabic.pptx") return new Response(pptx);
+      if (url.pathname === "/slow.pptx") {
+        await Bun.sleep(300);
+        return new Response(pptx);
+      }
       if (url.pathname === "/arabic.xlsx") return new Response(xlsx);
       if (url.pathname === "/arabic.docx") return new Response(docx);
       return new Response(`<!doctype html><main id="stage"></main><script type="module">
@@ -86,13 +90,13 @@ async function withHarness(run: (view: {
   }
 }
 
-visual("visual react hooks: usePptx mounts, navigates, zooms, and unmounts", async () => {
+visual("visual react hooks: usePptx mounts, navigates and zooms through its viewer, and unmounts", async () => {
   await withHarness(async (view) => {
     await view.evaluate(`mountHook("pptx", "/arabic.pptx")`);
     await waitFor(view, `window.probe?.status === "ready"`);
     const opened = (await view.evaluate(`window.probe`)) as Probe;
     expect(opened.format).toBe("pptx");
-    expect(opened.count).toBe(12);
+    expect(opened.count).toBe(18);
     expect(opened.index).toBe(0);
     expect(opened.error).toBeNull();
     const first = (await view.evaluate(`snapshot()`)) as Snapshot;
@@ -100,17 +104,17 @@ visual("visual react hooks: usePptx mounts, navigates, zooms, and unmounts", asy
     expect(first.children).toBeGreaterThan(0);
     expect(first.text).toContain("تقرير الإنتاج الأسبوعي");
 
-    await view.evaluate(`hookGoTo(1)`);
+    await view.evaluate(`viewerGoTo(1)`);
     await waitFor(view, `window.probe?.index === 1`);
     const second = (await view.evaluate(`snapshot()`)) as Snapshot;
     expect(second.text).toContain("الاسم");
     expect(second.canvasCount).toBe(0);
 
-    await view.evaluate(`hookSetZoom(1.5)`);
+    await view.evaluate(`viewerSetZoom(1.5)`);
     await waitFor(view, `window.probe?.zoom === 1.5`);
 
     // Zoom belongs to the facade: navigation keeps it, in the mirror and the DOM.
-    await view.evaluate(`hookGoTo(2)`);
+    await view.evaluate(`viewerGoTo(2)`);
     await waitFor(view, `window.probe?.index === 2`);
     const kept = (await view.evaluate(`(() => {
       const slide = document.querySelector('[data-aared-element="slide"]');
@@ -127,20 +131,15 @@ visual("visual react hooks: usePptx mounts, navigates, zooms, and unmounts", asy
   });
 });
 
-visual("visual react hooks: a failed goTo() keeps the page and lands in navigationError; goTo() before mount rejects", async () => {
+visual("visual react hooks: a failed viewer.goTo() keeps the page and lands in navigationError", async () => {
   await withHarness(async (view) => {
-    // Before any viewer exists, goTo() says so instead of resolving as if it moved.
     await view.evaluate(`mountHook("pptx", "/arabic.pptx")`);
-    const early = (await view.evaluate(`goToWhileLoading()`)) as { code: unknown; message: string } | "mounted-too-fast";
-    if (early !== "mounted-too-fast") {
-      expect(early.code).toBe("invalid-state");
-      expect(early.message).toContain("aared/react: goTo() was called before the viewer mounted");
-    }
     await waitFor(view, `window.probe?.status === "ready"`);
     expect(((await view.evaluate(`window.probe`)) as Probe).navigationError).toBeNull();
 
-    // A unit that cannot be shown: the promise rejects and the hook says so, but stays ready on slide 1.
-    const failed = (await view.evaluate(`hookGoToFailure(99)`)) as { code: unknown; message: string } | null;
+    // A unit that cannot be shown: the promise rejects, and the hook hears the
+    // viewer's `error` event, so it says so too while staying ready on slide 1.
+    const failed = (await view.evaluate(`viewerGoToFailure(99)`)) as { code: unknown; message: string } | null;
     expect(failed?.code).toBe("not-found");
     await waitFor(view, `window.probe?.navigationError !== null`);
     const after = (await view.evaluate(`snapshot()`)) as Snapshot;
@@ -150,16 +149,112 @@ visual("visual react hooks: a failed goTo() keeps the page and lands in navigati
     expect(after.probe?.navigationError).toContain("99");
     expect(after.text).toContain("تقرير الإنتاج الأسبوعي");
 
-    // The next successful goTo() clears it.
-    await view.evaluate(`hookGoTo(1)`);
+    // The next successful move clears it.
+    await view.evaluate(`viewerGoTo(1)`);
     await waitFor(view, `window.probe?.index === 1 && window.probe?.navigationError === null`);
+    await view.evaluate(`unmountHook()`);
+  });
+});
 
-    // The same failure through the handle the hook hands out (`viewer.goTo`) lands
-    // too: the hook hears the handle's `error` event, not only its own promise.
-    const direct = (await view.evaluate(`viewerGoToFailure(42)`)) as { code: unknown } | null;
-    expect(direct?.code).toBe("not-found");
-    await waitFor(view, `window.probe?.navigationError?.includes("42") === true`);
-    expect(((await view.evaluate(`window.probe`)) as Probe).status).toBe("ready");
+visual("visual react hooks: index and zoom are start values; appearance updates without remounting", async () => {
+  await withHarness(async (view) => {
+    await view.evaluate(`mountHook("start", "/arabic.pptx")`);
+    await waitFor(view, `window.probe?.status === "ready"`);
+    const opened = (await view.evaluate(`({ probe: window.probe, seen: window.seen })`)) as { probe: Probe; seen: { viewers: number } };
+    expect(opened.probe).toMatchObject({ format: "pptx", index: 0, zoom: "fit-page" });
+    expect(opened.seen.viewers).toBe(1);
+    const scale = `(() => {
+      const slide = document.querySelector('[data-aared-element="slide"]');
+      const scene = document.querySelector('[data-aared-element="slide-scene"]');
+      return slide.getBoundingClientRect().width / parseFloat(scene.style.width);
+    })()`;
+    const theme = `document.querySelector('[data-aared-element="slide"]')?.dataset.aaredTheme`;
+    const fitScale = (await view.evaluate(scale)) as number;
+    expect(await view.evaluate(theme)).toBe("light");
+
+    // Index/zoom remain start values; appearance changes on the same viewer.
+    await view.evaluate(`setStartProps({ zoom: 1.5, index: 2, theme: "dark" })`);
+    await Bun.sleep(300);
+    const kept = (await view.evaluate(`({ probe: window.probe, seen: window.seen })`)) as { probe: Probe; seen: { viewers: number } };
+    expect(kept.probe).toMatchObject({ status: "ready", index: 0, zoom: "fit-page" });
+    expect(kept.seen.viewers).toBe(1);
+    expect((await view.evaluate(scale)) as number).toBeCloseTo(fitScale, 2);
+    expect(await view.evaluate(theme)).toBe("dark");
+
+    // The viewer's methods are what change it, and the result mirrors them.
+    await view.evaluate(`viewerSetZoom(1.5)`);
+    await waitFor(view, `window.probe?.zoom === 1.5`);
+    expect((await view.evaluate(scale)) as number).toBeCloseTo(1.5, 2);
+
+    // retry() mounts again, starting from the latest start values.
+    await view.evaluate(`hookRetry()`);
+    await waitFor(view, `window.seen?.viewers === 2 && window.probe?.status === "ready"`);
+    expect(((await view.evaluate(`window.probe`)) as Probe)).toMatchObject({ index: 2, zoom: 1.5 });
+    expect(await view.evaluate(theme)).toBe("dark");
+
+    // An inline media resolver: adding one re-opens once (the media route changes),
+    // then re-renders with a new function each time re-open nothing, and an
+    // unchanged result keeps its identity.
+    await view.evaluate(`setStartProps({ zoom: 1.5, index: 2, theme: "dark", inlineMedia: true })`);
+    await waitFor(view, `window.seen?.viewers === 3 && window.probe?.status === "ready"`);
+    expect(((await view.evaluate(`window.probe`)) as Probe).index).toBe(2);
+    const before = (await view.evaluate(`window.seen`)) as { viewers: number; results: number };
+    await view.evaluate(`setStartProps({ zoom: 1.5, index: 2, theme: "dark", inlineMedia: true })`);
+    await view.evaluate(`setStartProps({ zoom: 1.5, index: 2, theme: "dark", inlineMedia: true })`);
+    await Bun.sleep(300);
+    expect((await view.evaluate(`window.seen`)) as { viewers: number; results: number }).toEqual(before);
+    await view.evaluate(`unmountHook()`);
+  });
+});
+
+visual("visual react hooks: appearance follows values across formats and preserves viewer state", async () => {
+  await withHarness(async (view) => {
+    for (const format of ["pptx", "xlsx", "docx"]) {
+      await view.evaluate(`mountHook("start", "/arabic.${format}", true)`);
+      await waitFor(view, `window.probe?.status === "ready"`);
+      if (format !== "docx") await view.evaluate(`viewerGoTo(1)`);
+      await view.evaluate(`viewerSetZoom(1.25)`);
+      if (format === "xlsx") await view.evaluate(`hookViewer.xlsx.goToCell("B2")`);
+      await view.evaluate(`(() => { window.savedViewer = hookViewer; window.savedSeen = seen.viewers; })()`);
+      const workersBefore = requests.get("/worker.mjs") ?? 0;
+      await view.evaluate(`setStartProps({ appearance: { theme: "dark", spreadsheet: { sheetTabs: false, headers: false } } })`);
+      await waitFor(view, `document.querySelector('[data-aared-theme]')?.dataset.aaredTheme === "dark"`);
+      expect(await view.evaluate(`hookViewer === savedViewer && seen.viewers === savedSeen`)).toBe(true);
+      expect(await view.evaluate(`probe.index`)).toBe(format === "docx" ? 0 : 1);
+      expect(await view.evaluate(`probe.zoom`)).toBe(1.25);
+      if (format === "xlsx") {
+        expect(await view.evaluate(`hookViewer.xlsx.selection?.address`)).toBe("B2");
+        expect(await view.evaluate(`document.querySelector('[data-aared-element="sheet-tabs"]') === null`)).toBe(true);
+        expect(await view.evaluate(`document.querySelector('[data-aared-element="column-headers"]') === null`)).toBe(true);
+      }
+      // Unchanged values, even with different property order, must not undo
+      // a consumer's imperative appearance change on an unrelated render.
+      await view.evaluate(`hookViewer.setAppearance({ theme: "light" })`);
+      await view.evaluate(`setStartProps({ appearance: { spreadsheet: { headers: false, sheetTabs: false }, theme: "dark" } })`);
+      await Bun.sleep(100);
+      expect(await view.evaluate(`document.querySelector('[data-aared-theme]')?.dataset.aaredTheme`)).toBe("light");
+      await view.evaluate(`setStartProps({ appearance: { theme: "dark" } })`);
+      await waitFor(view, `document.querySelector('[data-aared-theme]')?.dataset.aaredTheme === "dark"`);
+      await view.evaluate(`setStartProps({})`);
+      await waitFor(view, `document.querySelector('[data-aared-theme]')?.dataset.aaredTheme === "light"`);
+      if (format === "xlsx") {
+        expect(await view.evaluate(`document.querySelector('[data-aared-element="sheet-tabs"]') !== null`)).toBe(true);
+        expect(await view.evaluate(`document.querySelector('[data-aared-element="column-headers"]') !== null`)).toBe(true);
+      }
+      expect(await view.evaluate(`hookViewer === savedViewer && seen.viewers === savedSeen`)).toBe(true);
+      expect(requests.get("/worker.mjs") ?? 0).toBe(workersBefore);
+      await view.evaluate(`unmountHook()`);
+    }
+  });
+});
+
+visual("visual react hooks: appearance changed while loading applies to the ready viewer", async () => {
+  await withHarness(async (view) => {
+    await view.evaluate(`mountHook("start", "/slow.pptx")`);
+    await waitFor(view, `probe?.status === "loading"`);
+    await view.evaluate(`setStartProps({ theme: "dark" })`);
+    await waitFor(view, `probe?.status === "ready" && document.querySelector('[data-aared-theme]')?.dataset.aaredTheme === "dark"`);
+    expect(await view.evaluate(`seen.viewers`)).toBe(1);
     await view.evaluate(`unmountHook()`);
   });
 });
@@ -195,6 +290,26 @@ visual("visual react hooks: unmounting mid-flight leaves no painted output", asy
     await waitFor(view, `window.probe?.status === "loading" || window.probe?.status === "ready"`);
     const cleared = (await view.evaluate(`unmountHook()`)) as number;
     expect(cleared).toBe(0);
+    await Bun.sleep(1000);
+    const empty = (await view.evaluate(`snapshot()`)) as Snapshot;
+    expect(empty.text).toBe("");
+    expect(empty.children).toBe(0);
+  });
+});
+
+visual("visual react hooks: unmounting the moment it is ready leaves nothing running", async () => {
+  await withHarness(async (view) => {
+    // Unmount in the same tick the result turns ready, so whatever the viewer
+    // or the host started on that render is still in flight when the document
+    // closes. Polling from the test would only land there by chance; a
+    // rejection nobody handles shows up in the page errors `withHarness` checks.
+    for (let round = 0; round < 3; round++) {
+      await view.evaluate(`new Promise((done) => {
+        mountHook("pptx", "/arabic.pptx");
+        const tick = () => window.probe?.status === "ready" ? done(unmountHook()) : setTimeout(tick, 0);
+        tick();
+      })`);
+    }
     await Bun.sleep(1000);
     const empty = (await view.evaluate(`snapshot()`)) as Snapshot;
     expect(empty.text).toBe("");

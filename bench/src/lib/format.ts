@@ -29,7 +29,12 @@ export interface SampleDef {
   path: string;
 }
 
-/** Canonical fixtures, served directly by the bench's Vite public directory. */
+/**
+ * Canonical fixtures, served directly by the bench's Vite public directory,
+ * then the chart corpora from `tools/chart-oracle/` (served by the
+ * `chart-oracle-samples` plugin in `vite.config.ts`): one Office-made chart of
+ * each type aared draws.
+ */
 export const SAMPLES: readonly SampleDef[] = [
   { name: "pptx-coverage.pptx", path: "/pptx-coverage.pptx" },
   { name: "post-production-review.pptx", path: "/post-production-review.pptx" },
@@ -37,4 +42,7 @@ export const SAMPLES: readonly SampleDef[] = [
   { name: "xlsx-coverage.xlsx", path: "/xlsx-coverage.xlsx" },
   { name: "docx-coverage.docx", path: "/docx-coverage.docx" },
   { name: "delivery-report.pdf", path: "/delivery-report.pdf" },
+  { name: "chart-oracle.pptx", path: "/chart-oracle/chart-oracle.pptx" },
+  { name: "types-oracle.xlsx", path: "/chart-oracle/types-oracle.xlsx" },
+  { name: "chartex-oracle.xlsx", path: "/chart-oracle/chartex-oracle.xlsx" },
 ];

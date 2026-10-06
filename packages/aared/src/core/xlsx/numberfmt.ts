@@ -40,14 +40,31 @@ const BUILTIN_FORMATS: Record<number, string> = {
   49: "@",
 };
 
-/** Builtin date/time ids ECMA-376 §18.8.30 honors without a custom record. */
-const BUILTIN_DATE_IDS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 45, 46, 47, 50, 51, 52, 53, 54, 55, 56, 57, 58]);
+// Ids the file may name without defining a code. Excel resolves every one of
+// them from the reader's regional settings, so there is no single right
+// answer (probe `xlsx-builtin-numfmt`, Excel 16: on an AED, dd/mm/yyyy machine
+// 5-8 and 42/44 read "AED", 14, 22 and the dates below read dd/mm/yyyy, and
+// 32-35 read h:mm:ss). aared shows the ECMA-376 (en-US) code for the currency
+// and accounting ids and the short date or time for the East Asian era-date
+// and time ids, which is what Excel itself falls back to outside those locales.
+const REGIONAL_FORMATS: Record<number, string> = {
+  5: '"$"#,##0_);("$"#,##0)',
+  6: '"$"#,##0_);[Red]("$"#,##0)',
+  7: '"$"#,##0.00_);("$"#,##0.00)',
+  8: '"$"#,##0.00_);[Red]("$"#,##0.00)',
+  41: '_(* #,##0_);_(* (#,##0);_(* "-"_);_(@_)',
+  42: '_("$"* #,##0_);_("$"* (#,##0);_("$"* "-"_);_(@_)',
+  43: '_(* #,##0.00_);_(* (#,##0.00);_(* "-"??_);_(@_)',
+  44: '_("$"* #,##0.00_);_("$"* (#,##0.00);_("$"* "-"??_);_(@_)',
+  ...Object.fromEntries([27, 28, 29, 30, 31, 36, 50, 51, 52, 53, 54, 55, 56, 57, 58].map((id) => [id, "mm-dd-yy"])),
+  ...Object.fromEntries([32, 33, 34, 35].map((id) => [id, "h:mm:ss"])),
+};
 
 /** Resolve a numFmtId to its format code, preferring custom records. */
 export function formatCodeForId(id: number, custom: ReadonlyMap<number, string>): string {
   const override = custom.get(id);
   if (override !== undefined) return override;
-  return BUILTIN_FORMATS[id] ?? "General";
+  return BUILTIN_FORMATS[id] ?? REGIONAL_FORMATS[id] ?? "General";
 }
 
 interface Section {
@@ -194,38 +211,36 @@ export function isDateFormatCode(code: string): boolean {
   return /m(?=[/:.\s,\-][hmsd])|(?<=[hmsd][/:.\s,\-])m/i.test(stripped);
 }
 
-export function isDateFormatId(id: number, custom: ReadonlyMap<number, string>): boolean {
-  if (!custom.has(id) && BUILTIN_DATE_IDS.has(id)) return true;
-  const code = formatCodeForId(id, custom);
-  if (code === "General" || code === "@") return false;
-  return isDateFormatCode(code);
-}
-
 const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTHS_LONG = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
 
+const WEEKDAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WEEKDAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 function pad(value: number, width: number): string {
   return String(value).padStart(width, "0");
 }
 
-/** Excel serial (1900 or 1904 system) to UTC calendar parts. */
-export function serialToDate(serial: number, date1904: boolean): { year: number; month: number; day: number; hours: number; minutes: number; seconds: number } {
-  const millis = (serial - (date1904 ? -24107 : 25569)) * 86_400_000;
+/** Excel serial (1900 or 1904 system) to UTC calendar parts; `weekday` is 0 for Sunday. */
+export function serialToDate(serial: number, date1904: boolean): { year: number; month: number; day: number; weekday: number; hours: number; minutes: number; seconds: number } {
+  // Serial 25569 (1900 system) and 24107 (1904 system) are 1970-01-01.
+  const millis = (serial - (date1904 ? 24107 : 25569)) * 86_400_000;
   const date = new Date(Math.round(millis));
   return {
     year: date.getUTCFullYear(),
     month: date.getUTCMonth() + 1,
     day: date.getUTCDate(),
+    weekday: date.getUTCDay(),
     hours: date.getUTCHours(),
     minutes: date.getUTCMinutes(),
     seconds: date.getUTCSeconds(),
   };
 }
 
-/** Format an Excel serial with a date/time code. Month names stay English so output is host-locale independent. */
+/** Format an Excel serial with a date/time code. Month and day names stay English so output is host-locale independent. */
 export function formatSerialDate(serial: number, code: string, date1904: boolean): string {
   // Elapsed counters (`[h]:mm` durations) are totals, not clock fields, so
   // they bypass the calendar token path entirely.
@@ -271,8 +286,8 @@ export function formatSerialDate(serial: number, code: string, date1904: boolean
     const minutes = /h:?$/i.test(prefix) || /:$/.test(prefix);
     return `${prefix}${minutes ? part.minutes : part.month}`;
   });
-  out = out.replace(/dddd+/gi, "");
-  out = out.replace(/ddd/gi, "");
+  out = out.replace(/dddd+/gi, WEEKDAYS_LONG[part.weekday]!);
+  out = out.replace(/ddd/gi, WEEKDAYS_SHORT[part.weekday]!);
   out = out.replace(/dd/gi, pad(part.day, 2));
   out = out.replace(/(^|[^a-zA-Z])d(?![a-zA-Z])/gi, (_, prefix: string) => `${prefix}${part.day}`);
   out = out.replace(/hh/gi, pad(twelveHour ? hour12 : part.hours, 2));
@@ -314,7 +329,7 @@ type SectionPlan =
   | { kind: "percent"; inner: SectionPlan }
   | { kind: "scientific"; decimals: number }
   | { kind: "fraction"; maxDenominator: number; integerPart: boolean; spacer: string }
-  | { kind: "fixed"; decimals: number; grouping: boolean; integerSlots: number; prefix: string; suffix: string };
+  | { kind: "fixed"; decimals: number; decimalSlots: string; grouping: boolean; integerSlots: number; integerZero: boolean; prefix: string; suffix: string };
 
 const sectionPlans = new Map<string, SectionPlan>();
 
@@ -340,10 +355,15 @@ function planSection(masked: string, literals: string[]): SectionPlan {
   return {
     kind: "fixed",
     decimals: dot === -1 ? 0 : (skeleton.slice(dot + 1).match(/[0#?]/g) ?? []).length,
+    // The slots after the point, in order: a trailing `#` or `?` that lands on a zero digit is dropped or blanked.
+    decimalSlots: dot === -1 ? "" : (skeleton.slice(dot + 1).match(/[0#?]/g) ?? []).join(""),
     grouping: skeleton.includes(","),
     // `?` reserves digit slots; browsers render plain digits, so pad to the
     // requested integer width only when the code asks for leading slots.
     integerSlots: (dot === -1 ? skeleton : skeleton.slice(0, dot)).match(/[0?]/g)?.length ?? 0,
+    // Only a `0` slot prints an integer part of zero; `#` and `?` leave it
+    // empty (`#.00` shows .50, `"-"??` shows no digit for zero).
+    integerZero: (dot === -1 ? skeleton : skeleton.slice(0, dot)).includes("0"),
     prefix,
     suffix,
   };
@@ -371,8 +391,17 @@ function applySection(value: number, plan: SectionPlan): string {
     case "fixed": {
       const rounded = Math.abs(value).toFixed(plan.decimals);
       let [integer, fraction = ""] = rounded.split(".");
+      if (integer === "0" && !plan.integerZero) integer = "";
       if (plan.grouping) integer = integer!.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
       if (integer!.length < plan.integerSlots) integer = integer!.padStart(plan.integerSlots, " ");
+      // `0.0#` shows 0.5 for 0.5 and `??.??` pads with spaces, not zeros; the point stays (Excel shows "5." for `0.##`).
+      let end = fraction.length;
+      let pad = "";
+      while (end > 0 && fraction[end - 1] === "0" && plan.decimalSlots[end - 1] !== "0") {
+        if (plan.decimalSlots[end - 1] === "?") pad += " ";
+        end--;
+      }
+      fraction = fraction.slice(0, end) + pad;
       const digits = plan.decimals === 0 ? integer! : `${integer}.${fraction}`;
       return `${value < 0 ? "-" : ""}${plan.prefix}${digits}${plan.suffix}`;
     }

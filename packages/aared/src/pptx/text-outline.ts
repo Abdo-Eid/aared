@@ -26,58 +26,46 @@
  * difference from a centered stroke, not a bug.
  */
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-const DEFS_HOST_ID = "aared-hollow-text-defs";
+import { svgElement } from "../fill-paint.js";
+import { ptToPx } from "../core/units.js";
 
-/** Points to CSS pixels (96 DPI). */
-function ptToPx(pt: number): number {
-  return (pt * 4) / 3;
-}
+/** One filter id per (colour, width) pair; every copy of the filter with that id is identical. */
+const filterIds = new Map<string, string>();
 
-function svgElement<K extends keyof SVGElementTagNameMap>(name: K, attributes: Record<string, string>): SVGElementTagNameMap[K] {
-  const element = document.createElementNS(SVG_NS, name);
-  for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
-  return element;
-}
-
-/** One hidden `<svg><defs>` shared by every hollow-text filter on the page, created lazily. */
-function defsRoot(): SVGDefsElement {
-  const existing = document.getElementById(DEFS_HOST_ID);
-  if (existing instanceof SVGSVGElement) return existing.querySelector("defs")!;
-  const host = svgElement("svg", { id: DEFS_HOST_ID, "aria-hidden": "true" });
+/**
+ * Outline `span`'s merged glyph silhouette in `color`, `widthPt` outside the
+ * glyph edge. The `<filter>` goes inside the span itself: a `url(#id)` reference
+ * resolves in the tree scope of the element it styles, so a filter kept on
+ * `document.body` is not found from inside `<aared-viewer>`'s shadow root and the
+ * run would paint as solid text. Copies with the same id are identical, so it
+ * does not matter which one the browser finds.
+ */
+export function hollowText(span: HTMLElement, widthPt: number, color: string): void {
+  const key = `${widthPt}|${color}`;
+  let id = filterIds.get(key);
+  if (id === undefined) {
+    id = `aared-hollow-${filterIds.size}`;
+    filterIds.set(key, id);
+  }
+  const filter = svgElement("filter", {
+    id,
+    x: "-20%", y: "-20%", width: "140%", height: "140%",
+    "color-interpolation-filters": "sRGB",
+  });
+  filter.append(
+    svgElement("feMorphology", { in: "SourceAlpha", operator: "dilate", radius: Math.max(ptToPx(widthPt), 0.01), result: "dilated" }),
+    svgElement("feComposite", { in: "dilated", in2: "SourceAlpha", operator: "xor", result: "ring" }),
+    svgElement("feFlood", { "flood-color": color, "flood-opacity": "1", result: "color" }),
+    svgElement("feComposite", { in: "color", in2: "ring", operator: "in" }),
+  );
+  const defs = svgElement("defs");
+  defs.append(filter);
+  const host = svgElement("svg", { "aria-hidden": "true" });
   host.style.position = "absolute";
   host.style.width = "0";
   host.style.height = "0";
   host.style.overflow = "hidden";
-  const defs = svgElement("defs", {});
   host.append(defs);
-  document.body.append(host);
-  return defs;
-}
-
-/** One `<filter>` per (colour, width) pair, reused across every run that needs it. */
-const filters = new Map<string, string>();
-
-/** CSS `filter` value that outlines an element's merged glyph silhouette in `color`, `widthPt` outside the glyph edge. */
-export function hollowTextFilter(widthPt: number, color: string): string {
-  const key = `${widthPt}|${color}`;
-  let id = filters.get(key);
-  if (id === undefined) {
-    id = `aared-hollow-${filters.size}`;
-    filters.set(key, id);
-    const radius = String(Math.max(ptToPx(widthPt), 0.01));
-    const filter = svgElement("filter", {
-      id,
-      x: "-20%", y: "-20%", width: "140%", height: "140%",
-      "color-interpolation-filters": "sRGB",
-    });
-    filter.append(
-      svgElement("feMorphology", { in: "SourceAlpha", operator: "dilate", radius, result: "dilated" }),
-      svgElement("feComposite", { in: "dilated", in2: "SourceAlpha", operator: "xor", result: "ring" }),
-      svgElement("feFlood", { "flood-color": color, "flood-opacity": "1", result: "color" }),
-      svgElement("feComposite", { in: "color", in2: "ring", operator: "in" }),
-    );
-    defsRoot().append(filter);
-  }
-  return `url(#${id})`;
+  span.append(host);
+  span.style.filter = `url(#${id})`;
 }

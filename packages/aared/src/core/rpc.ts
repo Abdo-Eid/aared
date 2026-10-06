@@ -2,8 +2,13 @@ import type { DocumentInfo } from "./index.js";
 import type { SlideLayoutModel, UnitModel } from "./model.js";
 import type { AaredErrorCode } from "./errors.js";
 
+/** Narrow numeric window (zero-based, inclusive) for an XLSX `unit` request; other formats reject it. */
+export interface UnitRange {
+  start: { row: number; col: number };
+  end: { row: number; col: number };
+}
+
 export interface SerializedError {
-  name: string;
   message: string;
   /** Always set: the Worker types every failure before posting it; restored on the main thread. */
   code: AaredErrorCode;
@@ -24,17 +29,36 @@ export interface UnitRequest {
   requestId: number;
   index: number;
   /**
-   * XLSX-only numeric window (zero-based, inclusive). The worker slices the
-   * parsed sheet to this window; other formats reject the request with
-   * `unsupported-feature`.
+   * XLSX-only. The worker slices the parsed sheet to this window; other
+   * formats reject the request with `unsupported-feature`.
    */
-  range?: { start: { row: number; col: number }; end: { row: number; col: number } };
-  /**
-   * `false`: a read that won't be painted (search). A cached unit is still
-   * served, but the result neither enters nor refreshes the session's
-   * bounded unit cache.
-   */
-  retain?: false;
+  range?: UnitRange;
+}
+
+/**
+ * Search's read of one unit: its words, never its model. PPTX answers with a
+ * slide's paragraphs (`string[]`) read straight from the slide XML; XLSX with a
+ * sheet's cell text (`SheetText`). Nothing it reads enters the Worker's unit
+ * cache, so a first search over every unit doesn't push out the ones being
+ * viewed. DOCX rejects it: its page already holds the whole document.
+ */
+export interface TextRequest {
+  type: "text";
+  sessionId: number;
+  requestId: number;
+  index: number;
+}
+
+/**
+ * A sheet's searchable text, in parallel arrays (row-major cells, then each
+ * chart's words at its anchor cell). `chart` names the chart a word came from,
+ * `null` for a cell.
+ */
+export interface SheetText {
+  rows: number[];
+  cols: number[];
+  text: string[];
+  chart: Array<string | null>;
 }
 
 /** Format sniffing for `<aared-viewer>`: resolves the format without keeping a session. */
@@ -74,11 +98,12 @@ export interface CloseRequest {
   sessionId: number;
 }
 
-export type WorkerRequest = OpenRequest | UnitRequest | DetectRequest | MediaRequest | LayoutRequest | CancelRequest | CloseRequest;
+export type WorkerRequest = OpenRequest | UnitRequest | TextRequest | DetectRequest | MediaRequest | LayoutRequest | CancelRequest | CloseRequest;
 
 export type WorkerCall =
   | Omit<OpenRequest, "sessionId" | "requestId">
   | Omit<UnitRequest, "sessionId" | "requestId">
+  | Omit<TextRequest, "sessionId" | "requestId">
   | Omit<DetectRequest, "sessionId" | "requestId">
   | Omit<MediaRequest, "sessionId" | "requestId">
   | Omit<LayoutRequest, "sessionId" | "requestId">;
@@ -105,4 +130,4 @@ export interface FailureResponse {
 
 export type WorkerResponse = ReadyResponse | SuccessResponse<WorkerResult> | FailureResponse;
 
-export type WorkerResult = DocumentInfo | UnitModel | SlideLayoutModel | ArrayBuffer | DocumentInfo["format"];
+export type WorkerResult = DocumentInfo | UnitModel | SlideLayoutModel | ArrayBuffer | DocumentInfo["format"] | string[] | SheetText;

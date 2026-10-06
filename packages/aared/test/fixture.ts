@@ -36,8 +36,11 @@ function slideSummary(slide: SlideModel): string {
   return flattenElements(slide.elements).map((element) => `${element.kind}:${element.name}:${elementText(element).slice(0, 80)}`).join(" | ");
 }
 
-export async function coverageManifest(): Promise<CoverageManifest> {
-  return JSON.parse(await Bun.file(MANIFEST_PATH).text()) as CoverageManifest;
+let manifestRead: Promise<CoverageManifest> | undefined;
+
+function coverageManifest(): Promise<CoverageManifest> {
+  manifestRead ??= Bun.file(MANIFEST_PATH).json() as Promise<CoverageManifest>;
+  return manifestRead;
 }
 
 export async function findCoverageSlide(slides: SlideModel[], id: string): Promise<{ index: number; slide: SlideModel }> {

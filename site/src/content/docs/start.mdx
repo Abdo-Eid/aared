@@ -1,0 +1,278 @@
+---
+title: Start
+description: Install aared, pick the entry that fits, copy a recipe, and fix the usual first problems.
+---
+
+import ChoosingALayer from '../../partials/choosing-a-layer.mdx';
+
+Install, pick an entry, copy a recipe. Every option and event is in the
+[API reference](/api/), and the [playground](/playground/) runs each entry
+live with your own file.
+
+## Install
+
+> **Not on npm yet.** The first release (`0.1.0`) publishes as
+> `@aared/viewer`, and the imports below become `@aared/viewer/...`; until
+> then they read `aared/...`. The `@aared/viewer` on npm today is an empty
+> placeholder that holds the name. Build it from source and install the
+> packed file into your app:
+
+```bash
+git clone https://github.com/Abdo-Eid/aared && cd aared
+bun install && bun run --cwd packages/aared build
+cd packages/aared && npm pack      # writes aared-0.0.0.tgz
+npm install <path>/aared-0.0.0.tgz # in your app
+```
+
+Import the element once from your app's code, which your bundler (Vite,
+webpack, Next.js) builds; a plain `<script type="module">` cannot resolve
+`aared/element` without one:
+
+```ts check
+// main.ts
+import "aared/element";
+```
+
+Then point the element at a file and give it a height (see
+[Sizing](#sizing)):
+
+```html
+<aared-viewer src="quarterly-report.pptx" controls style="height: 600px"></aared-viewer>
+```
+
+It detects the format, opens the file, and draws it with built-in paging,
+zoom and a full-screen toggle. The element fetches `src` itself, so the file
+must be on your page's origin or served with CORS headers.
+
+## Pick an entry
+
+<ChoosingALayer />
+
+The playground's tabs are the same entries: **HTML** is `<aared-viewer>`,
+**React** the hooks, **JS · auto-detect** is auto-detect preview, and **JS · low-level** is
+`open()` + `render()`. Format-local `preview()` is single-format preview.
+
+## Recipes
+
+### Show one known format
+
+Import the viewer from the format your app accepts. It has navigation, search,
+zoom and one cleanup call, while the other renderers stay out of your build:
+
+```ts check
+import { preview } from "aared/pptx";
+
+const viewer = await preview({ source: file, target: container });
+await viewer.next();
+const matches = await viewer.search("budget");
+viewer.destroy(); // Removes rendering and closes the owned document
+```
+
+Change the import to `aared/xlsx` or `aared/docx` for those formats. The same
+object-form input returns their precisely typed controls. For an arbitrary file
+type, use `aared/preview`; for model reads or several units sharing one parsed
+document, use `open()` + `render()`. See [Single-format preview](/api/#single-format-preview)
+for sheet and page navigation examples.
+
+### Open a file the user picks
+
+```ts check
+import "aared/element";
+
+const viewer = document.querySelector("aared-viewer")!;
+const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+input.addEventListener("change", () => {
+  // A newer pick replaces one still opening; clearing the input empties the viewer.
+  viewer.file = input.files?.[0] ?? null;
+});
+```
+
+### Fetch a file that needs a login
+
+The element's `src` sends no headers of yours. Fetch the file yourself and
+hand over the bytes (a `Blob`, `ArrayBuffer` or `Uint8Array`):
+
+```ts check
+import "aared/element";
+
+const response = await fetch("/files/q3-report.xlsx", {
+  headers: { Authorization: `Bearer ${sessionStorage.getItem("token") ?? ""}` },
+});
+if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+document.querySelector("aared-viewer")!.file = await response.blob();
+```
+
+### Add a search box
+
+`viewer.search()` searches the document the viewer already has open (a
+workbook's sheet on screen, as Excel's Find does). It highlights matching text
+by default, including repeated DOCX headers. An empty search clears highlights;
+pass `{ highlight: false }` for results only. The app supplies the input and
+results list; a native search input can provide its own clear button:
+
+```html
+<label for="search">Search document</label>
+<input id="search" type="search" placeholder="Search document">
+```
+
+This example jumps to the first match when the input fires `change`. For a
+results list, display the matches and navigate when a result is selected:
+
+```ts check
+import { preview } from "aared/preview";
+
+const viewer = await preview({ source: file, target: container });
+const box = document.querySelector<HTMLInputElement>("#search")!;
+box.addEventListener("change", async () => {
+  if (viewer.format === "pptx") {
+    const [hit] = await viewer.search(box.value);
+    if (hit) await viewer.goTo(hit.slide.index);
+  } else if (viewer.format === "xlsx") {
+    const [hit] = await viewer.search(box.value);
+    if (hit) await viewer.xlsx.goToCell(hit.address);
+  } else {
+    const [hit] = await viewer.search(box.value);
+    if (hit) await viewer.docx.goToSearchMatch(hit);
+  }
+});
+```
+
+For live results, listen to `input` and pass an `AbortSignal` to cancel the
+previous search as the user types ([Cancellation](/api/#cancellation)). Clearing
+the native input produces an `input` event; search its empty value to clear
+highlights. On XLSX, rerun the query after `indexchange` to refresh results for
+the new sheet. Highlights already follow the active query through navigation.
+
+Search visibility is also application UI. The bench's search button beside
+Download starts closed, focuses the input when opened, and searches an empty
+string when closed. It uses the same API shown here, with one panel for all
+three formats.
+
+For the bench's compact find bar, display `viewer.searchNavigation.index + 1`
+and `.count`, and wire arrow buttons to `.next()` and `.previous()`. An inactive
+index is `null`; hide the counter or show “No results” when the count is zero.
+Listen to `searchchange` to update the counter. The active match gets a stronger
+outline and is revealed when stepping; all other matches stay softly highlighted.
+The API reference has a [complete navigation example](/api/#methods).
+
+### Follow your React theme
+
+Pass the current appearance to the hook; it applies changes without reopening
+the file or moving the reader. Inline objects are compared by field values:
+
+```tsx check
+import { usePreview } from "aared/react";
+
+function Preview({ file, theme }: { file: File; theme: "light" | "dark" }) {
+  const { ref } = usePreview({ source: file, appearance: { theme } });
+  return <div ref={ref} style={{ height: 600 }} />;
+}
+```
+
+The same behavior applies to `usePptx()`, `useXlsx()` and `useDocx()`, including
+spreadsheet appearance settings. `index` and `zoom` remain start values; use
+the viewer's navigation and zoom methods to change them after mounting.
+
+### Build your own toolbar
+
+The viewer's toolbar methods are what `<aared-viewer controls>` uses
+itself; `zoomIn(0.1)` adds 10 points, and `resetZoom()` goes back to the
+zoom the format opens at:
+
+```ts check
+import { preview } from "aared/preview";
+
+const viewer = await preview({ source: file, target: container });
+const position = document.querySelector("#position")!;
+const update = (): void => {
+  position.textContent = `${viewer.index + 1} / ${viewer.info.count}`;
+};
+viewer.addEventListener("indexchange", update);
+update();
+
+const on = (selector: string, run: () => void): void => {
+  document.querySelector(selector)!.addEventListener("click", run);
+};
+// A failed move is also reported through the viewer's `error` event.
+on("#previous", () => void viewer.previous().catch(() => {}));
+on("#next", () => void viewer.next().catch(() => {}));
+on("#zoom-out", () => viewer.zoomOut(0.1));
+on("#zoom-in", () => viewer.zoomIn(0.1));
+on("#fit", () => viewer.resetZoom());
+```
+
+With `open()` and `render()` instead, paging is one render per slide into
+the same box, each cancelling the one before: the pattern is under
+[Cancellation](/api/#cancellation).
+
+### Show errors to people
+
+Every failure is an `AaredError` with a `code`; `messageFor()` turns it into
+one plain sentence:
+
+```ts check
+import { messageFor } from "aared/core";
+import "aared/element";
+
+const viewer = document.querySelector("aared-viewer")!;
+const status = document.querySelector("#status")!;
+viewer.addEventListener("load", () => {
+  status.textContent = "";
+});
+viewer.addEventListener("error", (event) => {
+  status.textContent = messageFor(event.detail.cause);
+  console.error(event.detail.cause.code, event.detail.cause);
+});
+```
+
+The codes and when each happens are in [Errors](/api/#errors).
+
+## Sizing
+
+A slide sizes itself: it takes the container's width at the slide's aspect
+ratio, and `fit-page` also fits a container's height when it has one. Sheets
+and documents need the height from you: give the host a height, or put it in
+a scrolling box with a `max-height`. Without one, a sheet's frozen rows, row
+numbers and column letters stay in view only while the grid scrolls itself;
+with no bounded box the page scrolls instead and they scroll away, and a
+document is as tall as its pages. `<aared-viewer>` is a flex column, so give
+it a height the same way (`style="height: 600px"`).
+
+## Frameworks
+
+### Vite and webpack
+
+Nothing to configure: the bundler emits the Worker script beside your other
+assets, in dev servers and production builds alike. If your assets are
+served from a CDN on another origin, see
+[Worker override](/api/#worker-override).
+
+### Next.js
+
+Every entry can be imported where the server prerenders; nothing touches the
+browser until it runs. Open and paint only in the browser, from a client
+component:
+
+```tsx check
+"use client";
+import { usePreview } from "aared/react";
+
+export function Preview({ file }: { file: File }) {
+  const { ref, status } = usePreview({ source: file });
+  return <div ref={ref} style={{ height: 600 }} aria-busy={status === "loading"} />;
+}
+```
+
+## Troubleshooting
+
+| What you see | Why | What to do |
+|---|---|---|
+| A blank viewer, or one a few pixels tall | Sheets and documents take their height from you | Give the host a height ([Sizing](#sizing)) |
+| `error` with `network-error` | `src` is on another origin without CORS headers, or the URL is wrong | Serve it with CORS, or fetch it yourself and set `file` ([recipe](#fetch-a-file-that-needs-a-login)) |
+| `error` with `worker-error` | The browser didn't start the Worker: your scripts are on a CDN (another origin), or a CSP blocks it | Start it from a same-origin Blob: [Worker override](/api/#worker-override) |
+| `error` with `encrypted-document` | The file is password-protected | aared can't open it; ask for an unprotected copy |
+| `error` with `unsupported-format` | The file isn't a PowerPoint, Excel or Word file, or `type` names a different format | Check the file, or drop `type` and let aared detect it |
+| `document` or `HTMLElement is not defined` on the server | Something opens or paints aared during server rendering | Keep the import, but open and paint in the browser ([Next.js](#nextjs)) |
+
+A strict CSP needs no `'unsafe-inline'` for aared's styles: nothing writes
+inline style text ([Styling and CSP](/api/#styling-and-csp)).

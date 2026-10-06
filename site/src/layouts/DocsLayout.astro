@@ -4,11 +4,13 @@ import "../styles/demos.css";
 import SiteHeader from "../components/SiteHeader.astro";
 import ThemeInit from "../components/ThemeInit.astro";
 import DocsSidebar from "../components/DocsSidebar.astro";
+import CopyButtons from "../components/CopyButtons.astro";
 
 interface Props {
   title: string;
-  description?: string;
-  current: "/" | "/playground/" | "/api/";
+  description?: string | undefined;
+  /** The page's path (`/start/`, `/playground/`, `/api/`), for the header's active link. */
+  current: string;
   headings?: { depth: number; slug: string; text: string }[];
 }
 
@@ -22,7 +24,7 @@ const hasNav = headings.some((h) => h.depth === 2);
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title} — aared</title>
     {description && <meta name="description" content={description} />}
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/aared-mark.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <ThemeInit />
@@ -32,56 +34,19 @@ const hasNav = headings.some((h) => h.depth === 2);
     <div class="docs-shell">
       <div class:list={["docs-card", { "has-nav": hasNav }]}>
         {hasNav && <DocsSidebar headings={headings} />}
-        <main class="docs-content">
+        <main class="docs-content" data-copyable>
           <h1>{title}</h1>
           <slot />
         </main>
       </div>
     </div>
+    <CopyButtons />
   </body>
 </html>
-
-<script>
-  const copyIcon =
-    '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 012-2h9"/></svg>';
-  for (const pre of document.querySelectorAll<HTMLElement>(".docs-content pre")) {
-    const wrap = document.createElement("div");
-    wrap.className = "code-wrap";
-    pre.replaceWith(wrap);
-    wrap.append(pre);
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "code-copy";
-    button.setAttribute("aria-label", "Copy code");
-    button.innerHTML = copyIcon;
-    button.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(pre.textContent ?? "");
-        button.dataset.copied = "";
-        setTimeout(() => delete button.dataset.copied, 1500);
-      } catch {
-        /* clipboard blocked — nothing to do */
-      }
-    });
-    wrap.append(button);
-  }
-</script>
 
 <style is:global>
   :root {
     --docs-radius: 16px;
-    /* Code surfaces are --lt-code / --lt-code-edge (tokens.css); only the
-       copy button's inks are docs-specific. */
-    --docs-copy-ink: var(--lt-ink-soft);
-    --docs-copy-fill: color-mix(in srgb, var(--lt-ink) 6%, transparent);
-    --docs-copy-fill-hover: color-mix(in srgb, var(--lt-ink) 12%, transparent);
-    --docs-copied-ink: #1a7f37;
-  }
-  :root[data-theme='dark'] {
-    --docs-copy-ink: #d8d2cc;
-    --docs-copy-fill: rgba(255, 255, 255, 0.07);
-    --docs-copy-fill-hover: rgba(255, 255, 255, 0.16);
-    --docs-copied-ink: #8fd19e;
   }
 
   /* Docs pages use the full window width; the header follows so the
@@ -162,9 +127,8 @@ const hasNav = headings.some((h) => h.depth === 2);
     color: var(--lt-accent);
   }
 
-  /* Code blocks: rounded cards in the theme's code surface, copy button on hover/focus */
+  /* Code blocks: rounded cards in the theme's code surface; the copy button is CopyButtons' */
   .docs-content .code-wrap {
-    position: relative;
     margin: 1.25rem 0;
   }
   .docs-content pre:where(:not(.demo-stage *)) {
@@ -199,41 +163,6 @@ const hasNav = headings.some((h) => h.depth === 2);
   /* github-dark comments (#6a737d) are ~3:1 on the dark code background */
   :root[data-theme='dark'] .docs-content pre span[style*="--shiki-dark:#6A737D" i] {
     color: #a3adb7 !important;
-  }
-  .docs-content .code-wrap > pre {
-    margin: 0;
-  }
-  .docs-content .code-copy {
-    position: absolute;
-    top: 0.6rem;
-    right: 0.6rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    border-radius: 999px;
-    border: 1px solid var(--lt-code-edge);
-    background: var(--docs-copy-fill);
-    color: var(--docs-copy-ink);
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.12s, background 0.12s;
-  }
-  .docs-content .code-wrap:hover .code-copy,
-  .docs-content .code-copy:focus-visible {
-    opacity: 1;
-  }
-  .docs-content .code-copy:hover {
-    background: var(--docs-copy-fill-hover);
-  }
-  .docs-content .code-copy[data-copied] {
-    opacity: 1;
-    color: var(--docs-copied-ink);
-  }
-  .docs-content .code-copy:focus-visible {
-    outline: 2px solid var(--lt-accent-glow);
-    outline-offset: 2px;
   }
 
   /* Callouts: an accent outline on the page colour, never a fill — filled
@@ -416,8 +345,7 @@ const hasNav = headings.some((h) => h.depth === 2);
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .docs-nav summary::after,
-    .docs-content .code-copy {
+    .docs-nav summary::after {
       transition: none;
     }
   }

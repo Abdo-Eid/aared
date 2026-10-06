@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ADAPTERS, BASELINES, DEFAULT_BASELINE, isAbort } from "../adapters";
+import { BASELINES, isAbort } from "../adapters";
 import type { OpenedDoc } from "../adapters";
 import type { BenchTheme } from "../adapters";
 import type { DocMeta, Renderer } from "../lib/doc";
@@ -23,13 +23,12 @@ export function ViewerCard({ doc, renderer, theme, onClose }: ViewerCardProps) {
   if (renderer === "aared") {
     return <AaredViewerCard doc={doc} theme={theme} onClose={onClose} />;
   }
-  return <BaselineViewerCard doc={doc} renderer={renderer} theme={theme} onClose={onClose} />;
+  return <BaselineViewerCard doc={doc} renderer={renderer} onClose={onClose} />;
 }
 
-function BaselineViewerCard({ doc, renderer, theme, onClose }: {
+function BaselineViewerCard({ doc, renderer, onClose }: {
   doc: DocMeta;
   renderer: Renderer;
-  theme: BenchTheme;
   onClose: () => void;
 }) {
   const [status, setStatus] = useState<Status>({ state: "loading" });
@@ -37,7 +36,7 @@ function BaselineViewerCard({ doc, renderer, theme, onClose }: {
   const reportError = useCallback((message: string, ms: number) => {
     setStatus({ state: "error", message, ms });
   }, []);
-  const controller = useViewerFrame({ doc, theme, frameId: `${doc.key}:${renderer}`, renderer, status, hostRef, reportError });
+  const controller = useViewerFrame({ doc, frameId: `${doc.key}:${renderer}`, renderer, status, hostRef, reportError });
 
   useEffect(() => {
     const host = hostRef.current;
@@ -47,11 +46,11 @@ function BaselineViewerCard({ doc, renderer, theme, onClose }: {
     let handle: OpenedDoc | null = null;
     setStatus({ state: "loading" });
 
-    const baselines = BASELINES[doc.format];
-    const adapter =
-      (renderer === "baseline"
-        ? baselines[DEFAULT_BASELINE[doc.format]]
-        : baselines[renderer]) ?? ADAPTERS[doc.format];
+    const adapter = BASELINES[doc.format][renderer];
+    if (adapter === undefined) {
+      setStatus({ state: "error", message: `No ${renderer} renderer for ${doc.format} files.`, ms: 0 });
+      return;
+    }
     adapter(doc.bytes, host, ctrl.signal).then(
       (opened) => {
         if (ctrl.signal.aborted) {

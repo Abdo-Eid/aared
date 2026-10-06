@@ -1,0 +1,92 @@
+---
+/**
+ * A copy button on every code block inside a `[data-copyable]` region: the
+ * docs pages' content, and the home page's install card and code panel. It
+ * shows at rest, since a touch screen has no hover, and strengthens on hover
+ * and focus. Include it once per page.
+ */
+---
+
+<script>
+  const copyIcon =
+    '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 012-2h9"/></svg>';
+  for (const pre of document.querySelectorAll<HTMLElement>("[data-copyable] pre")) {
+    const wrap = document.createElement("div");
+    wrap.className = "code-wrap";
+    pre.replaceWith(wrap);
+    wrap.append(pre);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "code-copy";
+    button.setAttribute("aria-label", "Copy code");
+    button.innerHTML = copyIcon;
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(pre.textContent ?? "");
+        button.dataset.copied = "";
+        setTimeout(() => delete button.dataset.copied, 1500);
+      } catch {
+        /* clipboard blocked — nothing to do */
+      }
+    });
+    wrap.append(button);
+  }
+</script>
+
+<style is:global>
+  :root {
+    --copy-ink: var(--lt-ink-soft);
+    --copy-fill: color-mix(in srgb, var(--lt-ink) 6%, transparent);
+    --copy-fill-hover: color-mix(in srgb, var(--lt-ink) 12%, transparent);
+    --copied-ink: #1a7f37;
+  }
+  :root[data-theme='dark'] {
+    --copy-ink: #d8d2cc;
+    --copy-fill: rgba(255, 255, 255, 0.07);
+    --copy-fill-hover: rgba(255, 255, 255, 0.16);
+    --copied-ink: #8fd19e;
+  }
+  .code-wrap {
+    position: relative;
+  }
+  .code-wrap > pre {
+    margin: 0;
+  }
+  .code-copy {
+    position: absolute;
+    top: 0.6rem;
+    right: 0.6rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 999px;
+    border: 1px solid var(--lt-code-edge);
+    background: var(--copy-fill);
+    color: var(--copy-ink);
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.12s, background 0.12s;
+  }
+  .code-wrap:hover .code-copy,
+  .code-copy:focus-visible,
+  .code-copy[data-copied] {
+    opacity: 1;
+  }
+  .code-copy:hover {
+    background: var(--copy-fill-hover);
+  }
+  .code-copy[data-copied] {
+    color: var(--copied-ink);
+  }
+  .code-copy:focus-visible {
+    outline: 2px solid var(--lt-accent-glow);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .code-copy {
+      transition: none;
+    }
+  }
+</style>

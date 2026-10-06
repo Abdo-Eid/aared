@@ -28,9 +28,11 @@ async function serveZoomHarness(): ReturnType<typeof serveDocx> {
           // The fixture mixes portrait and landscape pages; fit scale is
           // computed against the widest one, matching what the renderer
           // does, so measure that specific page rather than the first.
-          const pageWidth = handle.pages.length > 0 ? Math.max(...handle.pages.map((p) => p.width)) : null;
-          const pageHeight = handle.pages.length > 0 ? Math.max(...handle.pages.map((p) => p.height)) : null;
-          const widest = handle.pages.find((p) => p.width === pageWidth);
+          // Page sizes are inches; the painted box is CSS pixels (96 per inch).
+          const widestInches = handle.pages.length > 0 ? Math.max(...handle.pages.map((p) => p.width)) : null;
+          const pageWidth = widestInches === null ? null : widestInches * 96;
+          const pageHeight = handle.pages.length > 0 ? Math.max(...handle.pages.map((p) => p.height)) * 96 : null;
+          const widest = handle.pages.find((p) => p.width === widestInches);
           // Public page indexes are zero-based; the painted page's data-page
           // marker carries the 1-based page number.
           const page = widest !== undefined

@@ -26,9 +26,8 @@ export function App() {
   }, [dark]);
 
   useEffect(() => {
-    const url = uploadUrlRef.current;
     return () => {
-      if (url) URL.revokeObjectURL(url);
+      if (uploadUrlRef.current) URL.revokeObjectURL(uploadUrlRef.current);
     };
   }, []);
 
@@ -93,19 +92,20 @@ export function App() {
   );
 
   const closeDoc = useCallback(() => {
+    if (uploadUrlRef.current) URL.revokeObjectURL(uploadUrlRef.current);
+    uploadUrlRef.current = null;
     setDoc(null);
   }, []);
 
   const baselineOptions = doc !== null ? Object.keys(BASELINES[doc.format]) : [];
-  const baselineDefault =
-    doc !== null ? DEFAULT_BASELINE[doc.format] : "baseline";
-  // Single-mode value: "aared" or an explicit baseline id ("baseline" legacy
-  // maps to the per-format default). Compare mode steers its left card with
-  // the same control — left is "the other one" when aared is selected.
+  // Single-mode value: "aared" or a baseline id of this document's format (an id
+  // picked for another format, such as "sheetjs" after opening a deck, falls back
+  // to aared). Compare mode steers its left card with the same control: left is
+  // "the other one" when aared is selected.
   const effectiveSingle: Renderer =
-    singleRenderer === "baseline" ? (baselineDefault as Renderer) : singleRenderer;
+    singleRenderer === "aared" || baselineOptions.includes(singleRenderer) ? singleRenderer : "aared";
   const compareLeft: Renderer =
-    effectiveSingle === "aared" ? (baselineDefault as Renderer) : effectiveSingle;
+    effectiveSingle === "aared" && doc !== null ? DEFAULT_BASELINE[doc.format]! : effectiveSingle;
 
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground">
@@ -157,7 +157,7 @@ export function App() {
                 aria-label={mode === "single" ? "Single renderer" : "Baseline renderer to compare against"}
                 className="focus-ring cursor-pointer rounded-md bg-transparent px-1 py-1 font-semibold"
                 value={mode === "single" ? effectiveSingle : compareLeft}
-                onChange={(e) => setSingleRenderer(e.target.value as Renderer)}
+                onChange={(e) => setSingleRenderer(e.target.value)}
               >
                 {mode === "single" ? (
                   <option value="aared">aared</option>
@@ -215,7 +215,7 @@ export function App() {
             <ViewerCard
               key={doc.key}
               doc={doc}
-              renderer={doc.format === "pdf" ? "baseline" : singleRenderer}
+              renderer={doc.format === "pdf" ? "pdf" : effectiveSingle}
               theme={dark ? "dark" : "light"}
               onClose={closeDoc}
             />
@@ -224,7 +224,7 @@ export function App() {
               <ViewerCard
                 key={`${doc.key}:${compareLeft}`}
                 doc={doc}
-                renderer={doc.format === "pdf" ? "baseline" : compareLeft}
+                renderer={doc.format === "pdf" ? "pdf" : compareLeft}
                 theme={dark ? "dark" : "light"}
                 onClose={closeDoc}
               />

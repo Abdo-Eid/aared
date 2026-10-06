@@ -16,75 +16,67 @@ interface Snippet {
 
 // One snippet per (code variant x file format). Real API usage taken from
 // the API reference — nothing invented.
-const elementSnippet = (file: string): Snippet => ({
+// A plain module script cannot resolve a bare "aared/element": the import
+// lives in the app code a bundler builds.
+// Slides size themselves; a sheet or a document needs a height (the API page's Sizing).
+const elementSnippet = (file: string, height = false): Snippet => ({
   lang: "html",
-  code: `<script type="module">
-  import "aared/element";
-</script>
-
+  code: `<!-- once, in your bundled app code: import "aared/element"; -->
 <aared-viewer
-  src="./${file}">
+  src="./${file}"${height ? `\n  style="height: 480px"` : ""}>
 </aared-viewer>`,
 });
 
-// Per format, what the hook needs beyond the source: XLSX shows its sheet
-// tabs. Options live outside the component so they stay referentially
-// stable across renders.
-const reactSnippet = (hook: string, component: string, setup: { imports?: string; options?: string; props?: string } = {}): Snippet => ({
+// Per format, what the hook needs beyond the source: a sheet or a document
+// needs a height. A workbook shows its sheet tabs by default in every embed.
+const reactSnippet = (hook: string, component: string, setup: { props?: string; style?: string } = {}): Snippet => ({
   lang: "tsx",
   code: `import { ${hook} } from "aared/react";
-${setup.imports ?? ""}${setup.options !== undefined ? `\n${setup.options}\n` : ""}
+
 function ${component}({ file }: { file: string | File }) {
   const { ref } = ${hook}({ source: file${setup.props ?? ""} });
-  return <div ref={ref} />;
+  return <div ref={ref}${setup.style ?? ""} />;
 }`,
 });
 
 const snippets: Record<string, Record<string, Snippet>> = {
   element: {
     pptx: elementSnippet("post-production-review.pptx"),
-    xlsx: elementSnippet("post-production-tracker.xlsx"),
-    docx: elementSnippet("docx-coverage.docx"),
+    xlsx: elementSnippet("post-production-tracker.xlsx", true),
+    docx: elementSnippet("docx-coverage.docx", true),
   },
   react: {
     pptx: reactSnippet("usePptx", "Slide"),
-    xlsx: reactSnippet("useXlsx", "Sheet", {
-      options: "const appearance = { spreadsheet: { sheetTabs: true } };",
-      props: ", appearance",
-    }),
-    docx: reactSnippet("useDocx", "Doc"),
+    xlsx: reactSnippet("useXlsx", "Sheet", { style: " style={{ height: 480 }}" }),
+    docx: reactSnippet("useDocx", "Doc", { style: ' style={{ height: 480, overflow: "auto" }}' }),
   },
   js: {
     pptx: {
       lang: "js",
-      code: `import { open, render } from "aared/pptx";
+      code: `import { preview } from "aared/pptx";
 
-const deck = await open(file);
-const slide = deck.slides.get(0);
+const viewer = await preview({ source: file, target: el });
 
-const viewer = await render({ slide, target: el });`,
+// When you're done
+viewer.destroy();`,
     },
     xlsx: {
       lang: "js",
-      code: `import { open, render } from "aared/xlsx";
+      code: `import { preview } from "aared/xlsx";
 
-const workbook = await open(file);
-const sheet = workbook.sheets.get(0);
+const viewer = await preview({ source: file, target: el, zoom: 0.7 });
 
-const viewer = await render({
-  sheet,
-  target: el,
-  zoom: 0.7,
-  appearance: { spreadsheet: { sheetTabs: true } },
-});`,
+// When you're done
+viewer.destroy();`,
     },
     docx: {
       lang: "js",
-      code: `import { open, render } from "aared/docx";
+      code: `import { preview } from "aared/docx";
 
-const document = await open(file);
+const viewer = await preview({ source: file, target: el, zoom: 0.65 });
 
-const viewer = await render({ document, target: el, zoom: 0.65 });`,
+// When you're done
+viewer.destroy();`,
     },
   },
 };

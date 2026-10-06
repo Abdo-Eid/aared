@@ -35,25 +35,24 @@ async function productionBrief(): Promise<DocumentSection[]> {
 }
 
 describe("DOCX layout pagination", () => {
-  test("bidi-coverage fixture paginates to four structural pages and two picture-wrapping pages", async () => {
+  test("merged coverage fixture retains section boundaries and physical page geometry", async () => {
     const layout = paginate(await productionBrief());
     expect(layout.warnings).toEqual([]);
-    // The brief's own four pages, then the seven wrapping cases appended to the
-    // landscape appendix section on two pages (four, then three).
-    expect(layout.pages).toHaveLength(6);
-    expect(layout.pages.map((page) => page.orientation)).toEqual(["portrait", "portrait", "portrait", "landscape", "landscape", "landscape"]);
+    // The seven wrapping examples share portrait page 5; the empty section
+    // markers do not create pages of their own.
+    expect(layout.pages).toHaveLength(7);
+    expect(layout.pages.map((page) => page.orientation)).toEqual(["portrait", "portrait", "portrait", "landscape", "portrait", "landscape", "portrait"]);
     expect(layout.pages.map((page) => page.startReason)).toEqual([
       "document",
       "explicit-page-break",
-      // Word's rendered-page-break hint at the top of page 3 (a preferred
-      // break before its paragraph, honored past the page's half).
       "explicit-page-break",
       "section-next-page",
-      "explicit-page-break",
-      "explicit-page-break",
+      "section-next-page",
+      "section-next-page",
+      "section-next-page",
     ]);
-    expect(layout.pages.map((page) => page.index)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(layout.pages.map((page) => page.sectionIndex)).toEqual([0, 0, 0, 1, 1, 1]);
+    expect(layout.pages.map((page) => page.index)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(layout.pages.map((page) => page.sectionIndex)).toEqual([0, 0, 0, 1, 2, 3, 4]);
     // Real section geometry drives every page, not a fixed body padding.
     expect(layout.pages[0]?.widthPx).toBeCloseTo(793.73, 0);
     expect(layout.pages[0]?.heightPx).toBeCloseTo(1122.53, 0);
@@ -66,7 +65,16 @@ describe("DOCX layout pagination", () => {
     expect(margins?.left).toBeCloseTo(75.6, 1);
   });
 
-  test("bidi-coverage fixture content maps to the Word reference structure", async () => {
+  test("the merged final section page takes its own first-page header", async () => {
+    const layout = paginate(await productionBrief());
+    const headerText = (page: { header?: FlowNode[] }): string => (page.header ?? []).map((node) => (node.type === "paragraph" || node.type === "heading" ? joined(node) : "")).join("\n");
+    const finalPage = layout.pages[6]!;
+    expect(headerText(finalPage)).toBe("رأس الصفحة الأولى · First-page header");
+    // Printed numbers run on from the earlier sections: no restart is authored.
+    expect(finalPage.number).toBe(7);
+  });
+
+  test("merged coverage fixture content remains in its authored sections", async () => {
     const layout = paginate(await productionBrief());
     const [first, second, third, fourth] = layout.pages.map(pageText);
     expect(first).toContain("Contents");
@@ -79,10 +87,25 @@ describe("DOCX layout pagination", () => {
     expect(third).not.toContain("Appendix A");
     // ...and the landscape section holds the appendix.
     expect(fourth).toContain("Appendix A — Shot List, Episode 04");
+    const wrappingPage = pageText(layout.pages[4]!);
+    for (const label of [
+      "التفاف مربع عند الطرف الأيسر",
+      "التفاف مربع عند الطرف الأيمن",
+      "أعلى وأسفل الصورة",
+      "صورة خلف النص",
+      "التفاف محكم حول الصورة",
+      "التفاف مربع في الوسط",
+      "التفاف عبر الصورة",
+    ]) expect(wrappingPage).toContain(label);
     // Footnotes follow their references: f1 in the page-2 spec table, f2 in
     // the page-3 schedule.
     expect(layout.pages[1]?.footnotes.map((note) => note.id)).toEqual(["f1"]);
     expect(layout.pages[2]?.footnotes.map((note) => note.id)).toEqual(["f2"]);
+    // Page 6 holds both charts: the inline one as its own block, the anchored
+    // one on its paragraph.
+    const chartPage = layout.pages[5]!;
+    expect(chartPage.body.filter((node) => node.type === "chart")).toHaveLength(1);
+    expect(chartPage.body.some((node) => node.type === "paragraph" && node.floats?.some((float) => float.type === "chart"))).toBe(true);
   });
 
   test("explicit breaks split unconditionally, soft hints follow policy", async () => {
@@ -94,7 +117,6 @@ describe("DOCX layout pagination", () => {
           widthTwips: 12240, heightTwips: 15840, orientation: "portrait",
           margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720, gutter: 0 },
         },
-        headerRefs: [], footerRefs: [],
       },
       root: [
         para("one"),
@@ -122,9 +144,9 @@ describe("DOCX layout pagination", () => {
       margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720, gutter: 0 },
     });
     const sections: DocumentSection[] = [
-      { properties: { breakType: "nextPage", page: geometry(12240, 15840, "portrait"), headerRefs: [], footerRefs: [] }, root: [para("front")] },
-      { properties: { breakType: "continuous", page: geometry(12240, 15840, "portrait"), headerRefs: [], footerRefs: [] }, root: [para("same page")] },
-      { properties: { breakType: "nextPage", page: geometry(16838, 11906, "landscape"), headerRefs: [], footerRefs: [] }, root: [para("appendix")] },
+      { properties: { breakType: "nextPage", page: geometry(12240, 15840, "portrait") }, root: [para("front")] },
+      { properties: { breakType: "continuous", page: geometry(12240, 15840, "portrait") }, root: [para("same page")] },
+      { properties: { breakType: "nextPage", page: geometry(16838, 11906, "landscape") }, root: [para("appendix")] },
     ];
     const layout = paginate(sections);
     expect(layout.pages).toHaveLength(2);
@@ -141,9 +163,9 @@ describe("DOCX layout pagination", () => {
       margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720, gutter: 0 },
     };
     const sections: DocumentSection[] = [
-      { properties: { breakType: "nextPage", page: geometry, headerRefs: [], footerRefs: [] }, root: [para("one")] },
-      { properties: { breakType: "nextPage", page: geometry, headerRefs: [], footerRefs: [] }, root: [para("two")] },
-      { properties: { breakType: "evenPage", page: geometry, headerRefs: [], footerRefs: [] }, root: [para("three")] },
+      { properties: { breakType: "nextPage", page: geometry }, root: [para("one")] },
+      { properties: { breakType: "nextPage", page: geometry }, root: [para("two")] },
+      { properties: { breakType: "evenPage", page: geometry }, root: [para("three")] },
     ];
     const layout = paginate(sections);
     // Pages 1-2 are content; the even section would open on odd page 3, so a
@@ -162,7 +184,6 @@ describe("DOCX layout pagination", () => {
           widthTwips: 12240, heightTwips: 15840, orientation: "portrait",
           margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720, gutter: 0 },
         },
-        headerRefs: [], footerRefs: [],
       },
       root: [{ type: "image", mediaId: "word/media/huge.png", contentType: "image/png", width: 7, height: 20 }],
     }];
@@ -189,7 +210,6 @@ describe("DOCX layout pagination", () => {
           widthTwips: 12240, heightTwips: 15840, orientation: "portrait",
           margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720, gutter: 0 },
         },
-        headerRefs: [], footerRefs: [],
       },
       root: [
         { type: "paragraph", direction: "ltr", runs: [{ text: "lead" }] },
@@ -229,7 +249,6 @@ describe("DOCX layout pagination", () => {
           widthTwips: 12240, heightTwips: 15840, orientation: "portrait",
           margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720, gutter: 0 },
         },
-        headerRefs: [], footerRefs: [],
       },
       root: [
         { type: "paragraph", direction: "ltr", runs: [{ text: "lead" }] },
@@ -266,7 +285,6 @@ describe("DOCX layout pagination", () => {
           widthTwips, heightTwips, orientation: "portrait",
           margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720, gutter: 0 },
         },
-        headerRefs: [], footerRefs: [],
       },
       // Enough short paragraphs to push well past half the 9in body before the table.
       root: [
@@ -305,7 +323,6 @@ describe("DOCX layout pagination", () => {
           widthTwips: 12240, heightTwips: 15840, orientation: "portrait",
           margins: { top: 720, right: 1440, bottom: 720, left: 1440, header: 360, footer: 360, gutter: 0 },
         },
-        headerRefs: [], footerRefs: [],
       },
       root: [{ type: "paragraph", runs: [{ text: "body" }], direction: "ltr" }],
       ...(header === undefined ? {} : { header }),

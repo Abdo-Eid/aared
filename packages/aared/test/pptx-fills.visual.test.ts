@@ -4,6 +4,7 @@ import { OpcPackage } from "../src/core/opc.js";
 import type { ShapeModel, SlideModel } from "../src/core/model.js";
 import { findCoverageSlide } from "./fixture.js";
 import { browserModule } from "./harness.js";
+import { withPart } from "./mutate.js";
 
 const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
@@ -324,6 +325,101 @@ visual("visual DOM output: PptxRenderHandle.warnings names fonts that painted wi
     const missing = missingWarnings.find((w) => w.code === "font-unavailable");
     expect(missing).toBeDefined();
     expect(missing!.message).toContain(NONEXISTENT_FAMILY);
+  } finally {
+    server.stop();
+  }
+}, 30000);
+
+/**
+ * Slide 13 of the coverage deck (merged table cells, appended through PowerPoint): the merged cells paint
+ * as grid cells spanning two columns and two rows, and the cells they cover add no boxes of their own.
+ */
+visual("visual DOM output: merged table cells span the grid cells they cover", async () => {
+  const source = await OpcPackage.open(await Bun.file(FIXTURE_PATH).arrayBuffer());
+  const deck = await indexPptx(source);
+  const slides = await Promise.all(deck.slideParts.map((_, index) => parsePptxSlide(source, deck, index)));
+  const { slide } = await findCoverageSlide(slides, "merged-cells");
+  const renderer = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const page = `<!doctype html><style>html,body{margin:0}#host{width:1000px;height:600px}</style><main id="host"></main><script type="module">
+        import { render } from "/pptx.mjs";
+        window.renderSlide = async (model) => {
+          window.handle = await render({ slide: model, target: document.querySelector("#host") });
+          const grid = [...document.querySelectorAll('[data-aared-element="table"]')].at(0);
+          const cells = [...(grid?.children ?? [])].filter((cell) => cell.dataset.aaredElement !== "table-cell-edges" && cell.style.gridColumn !== "");
+          return cells.map((cell) => ({ text: (cell.textContent ?? "").trim(), column: cell.style.gridColumn, row: cell.style.gridRow, width: Math.round(cell.getBoundingClientRect().width), height: Math.round(cell.getBoundingClientRect().height) }));
+        };
+      </script>`;
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      if (new URL(request.url).pathname === "/pptx.mjs") return new Response(renderer, { headers: { "content-type": "text/javascript; charset=utf-8" } });
+      return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
+    },
+  });
+  try {
+    await using view = new Bun.WebView({ width: 1000, height: 700 });
+    await view.navigate(server.url.href);
+    type Box = { text: string; column: string; row: string; width: number; height: number };
+    const cells = (await view.evaluate(`renderSlide(${JSON.stringify(slide)})`)) as Box[];
+    // 4 + 4 + 3 + 4 cells in the rows: the covered ones are not painted (14 grid cells for a 4 x 4 table).
+    expect(cells).toHaveLength(14);
+    const wide = cells.find((cell) => cell.text === "العنوان المدمج")!;
+    const tall = cells.find((cell) => cell.text === "جارٍ")!;
+    const plain = cells.find((cell) => cell.text === "الحالة")!;
+    expect(wide.column).toContain("span 2");
+    expect(tall.row).toContain("span 2");
+    // The merged cell is as wide as two columns, the tall one as high as two rows.
+    expect(wide.width).toBeGreaterThan(plain.width * 1.8);
+    expect(tall.height).toBeGreaterThan(plain.height * 1.8);
+  } finally {
+    server.stop();
+  }
+}, 30000);
+
+/**
+ * A slide whose file gave some elements no id renders in full, and its handle
+ * says so once per slide (`pptx-missing-id`); a clean slide has no such warning.
+ */
+visual("visual DOM output: PptxRenderHandle.warnings reports elements the file gave no id, once per slide", async () => {
+  const renderer = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const page = `<!doctype html><style>html,body{margin:0}#host{width:800px;height:600px}</style><main id="host"></main><script type="module">
+        import { render } from "/pptx.mjs";
+        window.renderSlide = async (model) => {
+          window.handle?.destroy();
+          window.handle = await render({ slide: model, target: document.querySelector("#host") });
+          return { warnings: window.handle.warnings, shapes: document.querySelectorAll("[data-aared-shape-id]").length };
+        };
+      </script>`;
+  const source = await OpcPackage.open(await Bun.file(FIXTURE_PATH).arrayBuffer());
+  const deck = await indexPptx(source);
+  const slides = await Promise.all(deck.slideParts.map((_, index) => parsePptxSlide(source, deck, index)));
+  const { index, slide: clean } = await findCoverageSlide(slides, "shapes");
+  // Two elements on the slide with their ids stripped: a group (id 4) and a shape (id 29, inside another group).
+  const pkg = await withPart("pptx-coverage.pptx", deck.slideParts[index]!, (xml) =>
+    xml.replace('<p:cNvPr id="4" name="Group 3"', '<p:cNvPr name="Group 3"').replace('<p:cNvPr id="29" name="Rectangle 28"', '<p:cNvPr name="Rectangle 28"'));
+  const damaged = await parsePptxSlide(pkg, await indexPptx(pkg), index);
+  expect(damaged.missingIds).toBe(2);
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      const url = new URL(request.url);
+      if (url.pathname === "/pptx.mjs") return new Response(renderer, { headers: { "content-type": "text/javascript; charset=utf-8" } });
+      return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
+    },
+  });
+  try {
+    await using view = new Bun.WebView({ width: 800, height: 600 });
+    await view.navigate(server.url.href);
+    type Rendered = { warnings: Array<{ code: string; message: string }>; shapes: number };
+    const whole = (await view.evaluate(`renderSlide(${JSON.stringify(clean)})`)) as Rendered;
+    expect(whole.warnings.filter((w) => w.code === "pptx-missing-id")).toEqual([]);
+    const repaired = (await view.evaluate(`renderSlide(${JSON.stringify(damaged)})`)) as Rendered;
+    const warnings = repaired.warnings.filter((w) => w.code === "pptx-missing-id");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.message).toContain(`2 elements on slide ${index + 1} have no id`);
+    expect(warnings[0]!.message).toMatch(/^[\x20-\x7e]+$/);
+    // Drawn in full: the same shapes are on the page as for the clean slide.
+    expect(repaired.shapes).toBe(whole.shapes);
   } finally {
     server.stop();
   }

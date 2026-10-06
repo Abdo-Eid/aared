@@ -9,7 +9,7 @@
  * `split-wrap.ts` lays out itself, line by line, with browser text.
  */
 
-import type { DocxImageAnchor, DocxImageNode } from "../core/model.js";
+import type { DocxDrawingNode, DocxImageAnchor } from "../core/model.js";
 import { PX_PER_INCH } from "../core/units.js";
 
 /** The box an anchored picture is placed in. Lengths in CSS pixels. */
@@ -46,7 +46,7 @@ const PAGE_EDGES = new Set(["page", "margin", "topMargin", "bottomMargin", "insi
 const px = (inches: number | undefined): number => (inches ?? 0) * PX_PER_INCH;
 
 /** The picture's left edge, in pixels from the text column's left edge. */
-export function horizontalOffsetPx(image: DocxImageNode, frame: AnchorFrame): number {
+export function horizontalOffsetPx(image: DocxDrawingNode, frame: AnchorFrame): number {
   const { horizontal } = image.anchor!;
   const width = px(image.width);
   const fromPage = horizontal.from === "page" && frame.page !== undefined;
@@ -67,7 +67,7 @@ export function horizontalOffsetPx(image: DocxImageNode, frame: AnchorFrame): nu
 }
 
 /** The picture's top edge on the page, when its vertical position is measured from the page or a margin. */
-function pageTopPx(image: DocxImageNode, frame: AnchorFrame): number {
+function pageTopPx(image: DocxDrawingNode, frame: AnchorFrame): number {
   const { vertical } = image.anchor!;
   const page = frame.page!;
   const base = vertical.from === "page" ? 0 : page.marginTopPx;
@@ -90,7 +90,7 @@ function pageTopPx(image: DocxImageNode, frame: AnchorFrame): number {
  * Plan one anchored picture. `paragraphIndentPx` is the anchor paragraph's left
  * indent, which an overlay measured from the paragraph has to take back out.
  */
-export function planFloat(image: DocxImageNode, frame: AnchorFrame, paragraphIndentPx = 0): FloatPlan {
+export function planFloat(image: DocxDrawingNode, frame: AnchorFrame, paragraphIndentPx = 0): FloatPlan {
   const anchor: DocxImageAnchor = image.anchor!;
   const width = px(image.width);
   const x = horizontalOffsetPx(image, frame);

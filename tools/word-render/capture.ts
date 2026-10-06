@@ -1,7 +1,8 @@
 /**
  * Render a DOCX through aared's layout mode in a headless WebView and write one
  * 96 dpi PNG per physical page — the same pixel size `index.ts` gives Word's
- * pages, so the two pair directly. Reads the source, so no build is needed.
+ * pages, so the two pair directly. Reads the source model and serves the
+ * normal package build; run `bun run build` first.
  *
  *   bun tools/word-render/capture.ts fixtures/docx-coverage.docx tools/word-render/out/bidi
  *   bun tools/word-render/capture.ts fixtures/docx-coverage.docx tools/word-render/out/bidi --absent-fonts
@@ -16,8 +17,7 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { absentFontsModule } from "../../packages/aared/test/absent-fonts.js";
-import { serveDocx } from "../../packages/aared/test/docx-harness.js";
+import { absentFontsBrowserModule, serveDocxFromDist } from "./browser-server.js";
 
 const [fixtureArg, outputArg] = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
 const absent = process.argv.includes("--absent-fonts");
@@ -27,7 +27,8 @@ if (fixtureArg === undefined || outputArg === undefined) {
 const outputDir = resolve(outputArg);
 await mkdir(outputDir, { recursive: true });
 
-const { server, sections } = await serveDocx(resolve(fixtureArg), `<!doctype html><style>html,body{margin:0;background:#fff;overflow:hidden}#host{position:absolute;left:0;top:0}</style><main id="host"></main><script type="module">
+const extraModules = absent ? { "/absent-fonts.mjs": await absentFontsBrowserModule() } : {};
+const { server, sections } = await serveDocxFromDist(resolve(fixtureArg), `<!doctype html><style>html,body{margin:0;background:#fff;overflow:hidden}#host{position:absolute;left:0;top:0}</style><main id="host"></main><script type="module">
       import { render } from "/docx.mjs";
       ${absent ? 'import "/absent-fonts.mjs";' : ""}
       window.paint = async (model) => {
@@ -50,12 +51,38 @@ const { server, sections } = await serveDocx(resolve(fixtureArg), `<!doctype htm
         host.style.top = (parseFloat(host.style.top || "0") - box.top) + "px";
         return { width: Math.round(box.width), height: Math.round(box.height) };
       };
-    </script>`, absent ? { "/absent-fonts.mjs": await absentFontsModule() } : {});
+      // Export one position for each whitespace-delimited text token. The
+      // matching Word export is tokenized by PyMuPDF's word boxes, so wrapped
+      // runs and repeated words remain individually observable.
+      window.collectWords = () => {
+        const out = [];
+        [...document.querySelectorAll('[data-aared-element="page"]')].forEach((page, i) => {
+          const walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
+          for (let node; (node = walker.nextNode());) {
+            const text = node.textContent;
+            if (!text) continue;
+            const tokens = /\\S+/gu;
+            for (let match; (match = tokens.exec(text));) {
+              const range = document.createRange();
+              range.setStart(node, match.index);
+              range.setEnd(node, match.index + match[0].length);
+              const box = range.getBoundingClientRect();
+              if (box.width === 0 || box.height === 0) continue;
+              const pageBox = page.getBoundingClientRect();
+              out.push({ page: i + 1, text: match[0], x0: box.left - pageBox.left, y0: box.top - pageBox.top, x1: box.right - pageBox.left, y1: box.bottom - pageBox.top });
+            }
+          }
+        });
+        return out;
+      };
+    </script>`, extraModules);
 
 try {
   await using view = new Bun.WebView({ width: 1200, height: 1200 });
   await view.navigate(server.url.href);
   const pageCount = (await view.evaluate(`paint(${JSON.stringify(sections)})`)) as number;
+  const words = (await view.evaluate("collectWords()")) as Array<{ page: number; text: string; x0: number; y0: number; x1: number; y1: number }>;
+  await writeFile(join(outputDir, "aared-words.json"), JSON.stringify(words));
   for (let index = 0; index < pageCount; index++) {
     const size = (await view.evaluate(`showPage(${index})`)) as { width: number; height: number };
     await view.resize(size.width, size.height);

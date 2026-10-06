@@ -2,7 +2,7 @@
   "name": "aared-fonts",
   "version": "0.0.0",
   "private": true,
-  "description": "OFL font files + a CDN-backed default font resolver for aared, for Office fonts nobody has installed locally.",
+  "description": "A CDN-backed font resolver for aared with metric-calibrated substitutes, for Office fonts nobody has installed locally.",
   "license": "Apache-2.0",
   "author": "Abdulhamed Eid <https://github.com/Abdo-Eid>",
   "type": "module",

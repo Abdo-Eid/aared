@@ -7,11 +7,9 @@
  * Structure mirrors `aared/pptx`: `open()` with a format check, a document
  * holding a `WorkerSession`, collections implementing core's
  * `Collection<TItem, TKey>`, lightweight handles, `search()`, and an
- * input-object `render()` returning an `EventTarget`
- * controller. The grid painter from the previous revision is kept intact
- * below as the internal `paintSheet()`; only its options plumbing changed
- * (headers default on, sheet tabs default off, the benchmark-only `frame`
- * chrome is gone, gridlines follow `appearance.spreadsheet.gridlines`).
+ * input-object `render()` returning an `EventTarget` controller. The internal
+ * `paintSheet()` paints one sheet; headers default on, sheet tabs default off,
+ * and gridlines follow `appearance.spreadsheet.gridlines`.
  *
  * Source-faithful content (like PPTX): the grid always paints as authored —
  * white host surface, Excel black automatic text, automatic text over an
@@ -71,19 +69,19 @@ import type {
   ReadOptions,
   Source,
   UnitRef,
-  ViewerTheme,
   ZoomValue,
 } from "../core/index.js";
 import { AaredError } from "../core/index.js";
 import { adoptClassSheet, classes, cssClass, type ClassSheetScope } from "../class-sheet.js";
-import { clipSnippet, findByTitle, foldQuery, foldText } from "../core/search.js";
+import { clipSnippet, findByTitle, foldQuery, searchKey } from "../core/search.js";
 import { SessionMedia, WorkerSession } from "../core/session.js";
-import type { UnitRange } from "../core/session.js";
+import type { SheetText, UnitRange } from "../core/rpc.js";
 import { itemAt, throwIfAborted } from "../core/errors.js";
 import { PALETTE, automaticInk, paintTokens, resolveTheme } from "../appearance.js";
-import { appendChartPrimitive } from "../chart-svg.js";
+import { chartsSettled, paintChart } from "../chart-svg.js";
 import { MediaUrls } from "../media-url.js";
-import { RenderHandleBase, fitScale, measureFitRoom, safeScale } from "../render-handle.js";
+import { DEFAULT_ZOOM, RenderHandleBase, fitScale, measureFitRoom, missingIdWarning, onReplaced, safeScale, settleRender } from "../render-handle.js";
+import type { EventTargetOf, ZoomChangeEvent } from "../render-handle.js";
 import { MARK_FALLBACKS } from "../diagnostics.js";
 import { awaitDocumentFonts, fontFidelityWarnings } from "../font-fidelity.js";
 import { PX_PER_INCH, inchesToCss } from "../core/units.js";
@@ -101,11 +99,18 @@ export interface SheetInfo extends UnitRef {
   state: "visible" | "hidden" | "veryHidden";
 }
 
-/** One matching cell from `workbook.search()`: which sheet, and which cell in it. */
+/** One matching cell from `sheet.search()`: which sheet, and which cell in it. */
 export interface XlsxSearchMatch extends CellRef {
   /** The sheet holding the match; `sheet.index` is its `goTo()` key. */
   sheet: UnitRef;
   text: string;
+  /**
+   * Set when the match is a word of a chart (its title, an axis title, a series
+   * name or a category label) rather than a cell: `address`, `row` and `col`
+   * are then the cell the chart's top-left corner is anchored to, and `name`
+   * is the chart's name in the sheet.
+   */
+  chart?: { name: string };
 }
 
 /** Options for `sheet.read()`: a window of the sheet, or all of it when `range` is absent. */
@@ -196,6 +201,40 @@ export class SheetHandle {
     return windowed;
   }
 
+  /**
+   * Case-insensitive, Arabic-spelling-insensitive substring search over this
+   * one sheet, as Excel's Find searches the sheet you are on. Every matching
+   * cell yields one match, in row-major order, then a chart's words. A cell
+   * matches on its formatted text, falling back to a string cached value when
+   * the formatted text is empty. The first search reads the sheet and keeps its
+   * cell text (aborting rejects, keeping nothing); later searches scan that
+   * text without touching the Worker. A workbook-wide search is a loop over
+   * `workbook.sheets.list()`.
+   */
+  async search(query: string, options?: ReadOptions): Promise<XlsxSearchMatch[]> {
+    const needle = foldQuery(query);
+    if (needle === null) return [];
+    const signal = options?.signal;
+    throwIfAborted(signal);
+    const cells = await this.owner.cellsOf(this.info.index, signal);
+    const matches: XlsxSearchMatch[] = [];
+    for (let at = 0; at < cells.key.length; at++) {
+      if (!cells.key[at]!.includes(needle)) continue;
+      const row = cells.rows[at]!;
+      const col = cells.cols[at]!;
+      const chart = cells.chart[at];
+      matches.push({
+        sheet: { index: this.info.index, title: this.info.title },
+        address: cellAddress(row, col),
+        row,
+        col,
+        text: clipSnippet(cells.text[at]!),
+        ...(typeof chart === "string" ? { chart: { name: chart } } : {}),
+      });
+    }
+    return matches;
+  }
+
   /** Drawing image bytes for this sheet's `mediaId`s, via the owning session. */
   media(mediaId: string, options?: MediaOptions): Promise<ArrayBuffer> {
     return this.session.media(mediaId, options);
@@ -223,6 +262,7 @@ export class SheetCollection implements Collection<SheetHandle, number | string>
   get(key: number | string): SheetHandle {
     if (typeof key === "number") {
       return itemAt(
+        "aared/xlsx",
         this.handles,
         key,
         () => `aared/xlsx: sheet index ${String(key)} is outside this ${this.handles.length}-sheet workbook`,
@@ -237,20 +277,17 @@ export class SheetCollection implements Collection<SheetHandle, number | string>
   }
 }
 
-/** Non-empty cells of one sheet as `search()` scans them, in row-major order (parallel arrays). */
-interface SheetSearchCells {
-  rows: number[];
-  cols: number[];
-  text: string[];
-  lower: string[];
+/** One sheet's text as `search()` scans it: the Worker's `SheetText` plus the search key of each `text`. */
+interface SheetSearchCells extends SheetText {
+  key: string[];
 }
 
-/** An opened workbook: collections, search, media, and lifecycle. */
+/** An opened workbook: collections, media, and lifecycle. Search is per sheet (`SheetHandle.search`). */
 export class XlsxDocument {
   readonly info: XlsxInfo;
   readonly sheets: SheetCollection;
   readonly media: MediaCollectionShape;
-  /** Per-sheet cell text, filled by the first `search()` that reaches each sheet. */
+  /** Per-sheet cell text, filled by the first `search()` on each sheet. */
   private readonly searchIndex = new Map<number, SheetSearchCells>();
 
   constructor(private readonly session: WorkerSession) {
@@ -270,58 +307,16 @@ export class XlsxDocument {
   }
 
   /**
-   * Case-insensitive substring search across every sheet, hidden sheets
-   * included. The first search reads each sheet in tab order (aborting stops
-   * at the next sheet) and keeps its cell text; later searches scan that text
-   * without touching the Worker. Every matching cell yields one match. A cell
-   * matches on its formatted text, falling back to a string cached value when
-   * the formatted text is empty.
+   * @internal The searchable cell text of one sheet, read once: the Worker's
+   * text read (`sheetText`), its cells' text without the sheet's model. Kept
+   * here, not on the handle, so `close()` drops every sheet's text together.
+   * Called by `SheetHandle.search()`.
    */
-  async search(query: string, options?: ReadOptions): Promise<XlsxSearchMatch[]> {
-    const needle = foldQuery(query);
-    if (needle === null) return [];
-    const signal = options?.signal;
-    const matches: XlsxSearchMatch[] = [];
-    for (const handle of this.sheets.list()) {
-      throwIfAborted(signal);
-      const cells = await this.cellsOf(handle.info.index, signal);
-      for (let at = 0; at < cells.lower.length; at++) {
-        if (cells.lower[at]!.includes(needle)) {
-          const row = cells.rows[at]!;
-          const col = cells.cols[at]!;
-          matches.push({
-            sheet: { index: handle.info.index, title: handle.info.title },
-            address: cellAddress(row, col),
-            row,
-            col,
-            text: clipSnippet(cells.text[at]!),
-          });
-        }
-      }
-    }
-    return matches;
-  }
-
-  /** Searchable cell text of one sheet, read once (search never paints, so no font work). */
-  private async cellsOf(index: number, signal: AbortSignal | undefined): Promise<SheetSearchCells> {
+  async cellsOf(index: number, signal: AbortSignal | undefined): Promise<SheetSearchCells> {
     const cached = this.searchIndex.get(index);
     if (cached !== undefined) return cached;
-    const sheet = await this.session.unit<SheetModel>(index, signal === undefined ? { fonts: false, retain: false } : { signal, fonts: false, retain: false });
-    const cells: SheetSearchCells = { rows: [], cols: [], text: [], lower: [] };
-    for (const row of sheet.rows) {
-      for (const { col, cell } of row.cells) {
-        const haystack = cell.formatted !== ""
-          ? cell.formatted
-          : typeof cell.value === "string"
-            ? cell.value
-            : "";
-        if (haystack === "") continue;
-        cells.rows.push(row.index);
-        cells.cols.push(col);
-        cells.text.push(haystack);
-        cells.lower.push(foldText(haystack));
-      }
-    }
+    const text = await this.session.text<SheetText>(index, signal === undefined ? undefined : { signal });
+    const cells = { ...text, key: text.text.map(searchKey) };
     this.searchIndex.set(index, cells);
     return cells;
   }
@@ -354,10 +349,32 @@ export interface XlsxRenderInput {
   zoom?: ZoomValue;
   /** Override the default session-backed media resolution. */
   mediaResolver?: MediaResolver;
+  /**
+   * Cancel the render until it resolves: before it paints, it paints nothing;
+   * after (it then waits for the sheet's fonts), it takes the sheet back out.
+   * Either way the target keeps its own layout, and the render rejects with
+   * `aborted` and never hands back a handle. Once `render()` has resolved the
+   * signal is ignored; `destroy()` is the teardown.
+   */
+  signal?: AbortSignal;
+}
+
+/** The events an XLSX render handle fires, by name: `addEventListener` types each `event.detail`. Every event names its sheet as a unit reference and its cell as a cell location. */
+export interface XlsxRenderEventMap {
+  /** The zoom changed. */
+  zoomchange: ZoomChangeEvent;
+  /** The sheet shown changed (`goToSheet()`, a sheet tab). */
+  sheetchange: CustomEvent<UnitRef>;
+  /** The selected cell changed, or the selection cleared (`null`). */
+  selectionchange: CustomEvent<{ sheet: UnitRef; selection: CellRef | null }>;
+  /** A cell was activated: Enter or a double-click. */
+  cellactivate: CustomEvent<CellRef & { sheet: UnitRef; model: CellModel }>;
+  /** A cell hyperlink was clicked; nothing navigates. */
+  linkactivate: CustomEvent<CellRef & { target: string; sheet: UnitRef }>;
 }
 
 /** Controller returned by `render()`: zoom, navigation, selection, and lifecycle. */
-export interface XlsxRenderHandle extends EventTarget {
+export interface XlsxRenderHandle extends EventTargetOf<XlsxRenderEventMap> {
   /** Disconnect scroll virtualization, abort pending sheet switches, release image object URLs. Idempotent. */
   destroy(): void;
   /** `true` once destroyed; every method is then a no-op that fires nothing. */
@@ -410,8 +427,6 @@ const GRIDLINE_DARK = "#3B3B45";
 const ROW_OVERSCAN = 8;
 /** Heading chrome dimensions. Viewer chrome, not authored geometry. */
 const HEADER_COL_WIDTH_PX = 40;
-/** Excel's default column width (8.43 characters), used for viewport-fill columns. */
-const FILL_COLUMN_WIDTH_PX = 64;
 /** A fill sliver thinner than this is skipped; the cap bounds a huge viewport. */
 const FILL_MIN_TRACK_PX = 6;
 /**
@@ -441,12 +456,17 @@ const CELL = cssClass(`${CELL_BOX};color:#000000;vertical-align:bottom;white-spa
 const CELL_WRAP = cssClass("line-height:1.1;white-space:pre-wrap;overflow-wrap:break-word;overflow:visible");
 /** A viewport-fill cell: inert, the same box as a data cell. */
 const FILL_CELL = cssClass(`${CELL_BOX};overflow:hidden`);
-/** One fill cell standing for a row's run of fill columns: their lines drawn at the fill-column pitch. */
+/**
+ * One fill cell standing for a row's run of fill columns: their lines drawn at
+ * the fill-column pitch, which is the sheet's own default column width
+ * (`--aared-fill-col`, set on the table by `syncFillLines`).
+ */
+const FILL_PITCH = "var(--aared-fill-col,64px)";
 const FILL_TRACKS = cssClass(
-  `background-origin:border-box;background-image:repeating-linear-gradient(to right,transparent 0 calc(${FILL_COLUMN_WIDTH_PX}px - var(--aared-hairline,1px)),${GRIDLINE} calc(${FILL_COLUMN_WIDTH_PX}px - var(--aared-hairline,1px)) ${FILL_COLUMN_WIDTH_PX}px)`,
+  `background-origin:border-box;background-image:repeating-linear-gradient(to right,transparent 0 calc(${FILL_PITCH} - var(--aared-hairline,1px)),${GRIDLINE} calc(${FILL_PITCH} - var(--aared-hairline,1px)) ${FILL_PITCH})`,
 );
 const FILL_TRACKS_RTL = cssClass(
-  `background-origin:border-box;background-image:repeating-linear-gradient(to left,${GRIDLINE} 0 var(--aared-hairline,1px),transparent var(--aared-hairline,1px) ${FILL_COLUMN_WIDTH_PX}px)`,
+  `background-origin:border-box;background-image:repeating-linear-gradient(to left,${GRIDLINE} 0 var(--aared-hairline,1px),transparent var(--aared-hairline,1px) ${FILL_PITCH})`,
 );
 /** One fill cell standing for a whole empty row: every column's line, from per-sheet custom properties (`syncFillLines`). */
 const FILL_ROW = cssClass(
@@ -492,21 +512,23 @@ function paintSheetTokens(
   element.style.setProperty("--aared-selection", PALETTE[tokens.dark ? "dark" : "light"].accent);
 }
 
-function borderWidth(style: string | undefined): string {
+/**
+ * A cell border as CSS, by SpreadsheetML line style: weight (thin and hair
+ * 1px, medium 2px, thick 3px, a double needs 3px to show two lines) and the
+ * nearest CSS line (CSS has no dash-dot, so those draw dashed).
+ */
+function borderCss(style: string | undefined, color: string | undefined): string {
+  let width = "1px";
+  let line = "solid";
   switch (style) {
-    case "medium": return "2px";
-    case "thick": return "3px";
-    default: return "1px";
+    case "medium": width = "2px"; break;
+    case "thick": width = "3px"; break;
+    case "double": width = "3px"; line = "double"; break;
+    case "dashed": case "dashDot": case "dashDotDot": line = "dashed"; break;
+    case "mediumDashed": case "mediumDashDot": case "mediumDashDotDot": case "slantDashDot": width = "2px"; line = "dashed"; break;
+    case "dotted": line = "dotted"; break;
   }
-}
-
-function borderStyle(style: string | undefined): string {
-  switch (style) {
-    case "dashed": case "mediumDashed": return "dashed";
-    case "dotted": case "mediumDashDot": case "mediumDashDotDot": case "slantDashDot": return "dotted";
-    case "double": return "double";
-    default: return "solid";
-  }
+  return `${width} ${line} ${color ?? "currentColor"}`;
 }
 
 function textAlign(cell: CellModel, sheetRtl: boolean): string {
@@ -661,10 +683,10 @@ function paintCell(cellElement: HTMLElement, cell: CellModel, sheetRtl: boolean,
   else if (style?.readingOrder === 1) cellElement.dir = "ltr";
   else if (hasContent) cellElement.dir = "auto";
   const border = style?.border;
-  if (border?.top !== undefined) cellElement.style.borderTop = `${borderWidth(border.top.style)} ${borderStyle(border.top.style)} ${border.top.color ?? "currentColor"}`;
-  if (border?.left !== undefined) cellElement.style.borderLeft = `${borderWidth(border.left.style)} ${borderStyle(border.left.style)} ${border.left.color ?? "currentColor"}`;
-  if (border?.right !== undefined) cellElement.style.borderRight = `${borderWidth(border.right.style)} ${borderStyle(border.right.style)} ${border.right.color ?? "currentColor"}`;
-  if (border?.bottom !== undefined) cellElement.style.borderBottom = `${borderWidth(border.bottom.style)} ${borderStyle(border.bottom.style)} ${border.bottom.color ?? "currentColor"}`;
+  if (border?.top !== undefined) cellElement.style.borderTop = borderCss(border.top.style, border.top.color);
+  if (border?.left !== undefined) cellElement.style.borderLeft = borderCss(border.left.style, border.left.color);
+  if (border?.right !== undefined) cellElement.style.borderRight = borderCss(border.right.style, border.right.color);
+  if (border?.bottom !== undefined) cellElement.style.borderBottom = borderCss(border.bottom.style, border.bottom.color);
   if (cell.formula !== undefined) cellElement.setAttribute("data-aared-formula", cell.formula);
   if (cell.type === "error") cellElement.setAttribute("data-aared-cell-error", cell.formatted);
   return placement;
@@ -674,7 +696,6 @@ interface GridGeometry {
   visibleColumns: number[];
   visibleRows: number[];
   columnOffsets: number[];
-  rowOffsets: number[];
   totalWidth: number;
   totalHeight: number;
   frozenColumns: number[];
@@ -707,12 +728,8 @@ function computeGeometry(
     columnOffsets.push(x);
     x += width;
   }
-  const rowOffsets: number[] = [];
   let y = 0;
-  for (const height of rowHeights) {
-    rowOffsets.push(y);
-    y += height;
-  }
+  for (const height of rowHeights) y += height;
   // Frozen panes freeze the leading rows/columns; hidden ones inside the
   // frozen band simply never render. Offsets accumulate over visible frozen
   // cells only, so sticky positions stay exact.
@@ -735,7 +752,6 @@ function computeGeometry(
     visibleColumns,
     visibleRows,
     columnOffsets,
-    rowOffsets,
     totalWidth: x,
     totalHeight: y,
     frozenColumns,
@@ -783,6 +799,8 @@ interface SheetPaintSession {
   model: SheetModel;
   /** The rendered cell, falling back to a merge origin when the cell is covered. */
   cellElement(row: number, col: number): HTMLElement | null;
+  /** Where a scrolling (not frozen, not hidden) row starts in the scroller, in host pixels; `undefined` for any other row. */
+  dataRowTop(row: number): number | undefined;
   /** Synchronously re-render the virtualization window (used after programmatic scrolls). */
   renderWindow(): void;
   /**
@@ -839,6 +857,31 @@ function paintSheet(
   const frozenRows: number[] = [...geometry.frozenRows];
   const frozenRowSet = new Set(frozenRows);
   const frozenColumnLookup = new Set(frozenColumns);
+  // The scrolling rows (frozen ones always render at the top), where each one
+  // starts, and their total height: fixed for this model, so a scroll frame
+  // bisects them instead of rebuilding them.
+  const dataRows = geometry.visibleRows.filter((row) => !frozenRowSet.has(row));
+  const dataTops: number[] = [];
+  let dataTotal = 0;
+  for (const row of dataRows) {
+    dataTops.push(dataTotal);
+    dataTotal += rowHeightOf(row);
+  }
+  /** The first index in `dataRows` for which `isPast` holds, or the row count; `isPast` is false, then true, down the rows. */
+  const firstIndexWhere = (isPast: (index: number) => boolean): number => {
+    let low = 0;
+    let high = dataRows.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (isPast(mid)) high = mid;
+      else low = mid + 1;
+    }
+    return low;
+  };
+  const dataRowTop = (row: number): number | undefined => {
+    const index = firstIndexWhere((candidate) => dataRows[candidate]! >= row);
+    return dataRows[index] === row ? dataTops[index] : undefined;
+  };
 
   const host = document.createElement("div");
   host.dataset.aaredElement = "sheet";
@@ -1002,6 +1045,8 @@ function paintSheet(
   const realWidthPx = geometry.totalWidth + headerWidthPx;
   const realHeightPx = geometry.totalHeight + headerHeightPx;
   const fillRowPx = Math.max(model.defaultRowHeight * PX_PER_INCH, 1);
+  /** Columns past the sheet continue at the sheet's own default column width. */
+  const fillColumnPx = Math.max(Math.round(model.defaultColumnWidth * PX_PER_INCH), 1);
   let fillColumnWidths: number[] = [];
   let fillRowHeights: number[] = [];
 
@@ -1199,6 +1244,7 @@ function paintSheet(
     const device = scale * dpr;
     const hair = Math.max(1, Math.floor(device)) / device;
     table.style.setProperty("--aared-hairline", `${hair}px`);
+    table.style.setProperty("--aared-fill-col", `${fillColumnPx}px`);
     const rtl = model.rightToLeft;
     const stops: string[] = [];
     geometry.visibleColumns.forEach((col, i) => {
@@ -1222,8 +1268,8 @@ function paintSheet(
     if (fillWidth > 0) {
       layers.push(
         rtl
-          ? `repeating-linear-gradient(to left,${GRIDLINE} 0 ${hair}px,transparent ${hair}px ${FILL_COLUMN_WIDTH_PX}px)`
-          : `repeating-linear-gradient(to right,transparent 0 ${FILL_COLUMN_WIDTH_PX - hair}px,${GRIDLINE} ${FILL_COLUMN_WIDTH_PX - hair}px ${FILL_COLUMN_WIDTH_PX}px)`,
+          ? `repeating-linear-gradient(to left,${GRIDLINE} 0 ${hair}px,transparent ${hair}px ${fillColumnPx}px)`
+          : `repeating-linear-gradient(to right,transparent 0 ${fillColumnPx - hair}px,${GRIDLINE} ${fillColumnPx - hair}px ${fillColumnPx}px)`,
       );
       sizes.push(`${fillWidth}px 100%`);
       positions.push(rtl ? `right ${geometry.totalWidth}px top 0` : `left ${geometry.totalWidth}px top 0`);
@@ -1261,7 +1307,7 @@ function paintSheet(
   /** Recompute how much fill the current viewport needs; true when it changed. */
   const measureFill = (viewportWidth: number, viewportHeight: number): boolean => {
     if (!paint.fillViewport) return false;
-    const columns = viewportWidth > 0 ? fillTracks(viewportWidth - realWidthPx, FILL_COLUMN_WIDTH_PX) : [];
+    const columns = viewportWidth > 0 ? fillTracks(viewportWidth - realWidthPx, fillColumnPx) : [];
     const rows = viewportHeight > 0 ? fillTracks(viewportHeight - realHeightPx, fillRowPx) : [];
     const columnsChanged = !sameTracks(columns, fillColumnWidths);
     const changed = columnsChanged || !sameTracks(rows, fillRowHeights);
@@ -1483,24 +1529,15 @@ function paintSheet(
     const viewport = windowH;
     measureFill(windowW, fillH);
     body.replaceChildren();
-    const dataRows = geometry.visibleRows.filter((row) => !frozenRowSet.has(row));
-    // Offsets over visible rows only; frozen rows always render at the top.
-    const offsets: number[] = [];
-    let total = 0;
-    for (const row of dataRows) {
-      offsets.push(total);
-      total += rowHeightOf(row);
-    }
-    let startIndex = dataRows.length;
-    let endIndex = -1;
-    for (let i = 0; i < dataRows.length; i++) {
-      const top = offsets[i]!;
-      const bottom = top + rowHeightOf(dataRows[i]!);
-      if (bottom > scrollTop - ROW_OVERSCAN * 20 && top < scrollTop + viewport + ROW_OVERSCAN * 20) {
-        startIndex = Math.min(startIndex, i);
-        endIndex = Math.max(endIndex, i);
-      }
-    }
+    // The rows whose box meets the window plus a pixel margin: they run from the
+    // first row ending below its top to the last row starting above its bottom.
+    const windowTop = scrollTop - ROW_OVERSCAN * 20;
+    const windowBottom = scrollTop + viewport + ROW_OVERSCAN * 20;
+    let startIndex = firstIndexWhere((i) => dataTops[i]! + rowHeightOf(dataRows[i]!) > windowTop);
+    let endIndex = firstIndexWhere((i) => dataTops[i]! >= windowBottom) - 1;
+    if (startIndex > endIndex) endIndex = -1;
+    const offsets = dataTops;
+    const total = dataTotal;
     for (const row of frozenRows) body.append(paintRow(row));
     if (dataRows.length !== 0 && endIndex !== -1) {
       startIndex = Math.max(0, startIndex - ROW_OVERSCAN);
@@ -1602,41 +1639,44 @@ function paintSheet(
     return box;
   };
 
-  const paintChart = (drawing: SheetChartModel): void => {
+  /** The notice a chart shows in its frame when it cannot be drawn. */
+  const paintChartFallback = (box: HTMLElement, reason: string, message: string): void => {
+    box.dataset.aaredChartFallback = reason;
+    box.style.display = "flex";
+    box.style.alignItems = "center";
+    box.style.justifyContent = "center";
+    box.style.border = `1px dashed ${paint.chromeLine}`;
+    box.style.font = "12px system-ui, sans-serif";
+    box.style.color = paint.noticeColor;
+    box.textContent = message;
+  };
+
+  const paintChartDrawing = (drawing: SheetChartModel): void => {
     const box = paintDrawingBox(drawing);
     box.dataset.aaredElement = "chart";
     box.dataset.aaredChartName = drawing.name;
     if (drawing.sourceChartId !== undefined) box.dataset.aaredChartSource = drawing.sourceChartId;
-    if (drawing.graphic === undefined) {
-      box.dataset.aaredChartFallback = drawing.unsupportedReason ?? "unsupported chart";
-      box.style.display = "flex";
-      box.style.alignItems = "center";
-      box.style.justifyContent = "center";
-      box.style.border = `1px dashed ${paint.chromeLine}`;
-      box.style.font = "12px system-ui, sans-serif";
-      box.style.color = paint.noticeColor;
-      box.textContent = drawing.unsupportedReason ?? "This chart type is not previewed.";
-      drawingsLayer.append(box);
+    drawingsLayer.append(box);
+    if (drawing.spec === undefined) {
+      paintChartFallback(box, drawing.unsupportedReason ?? "unsupported chart", drawing.unsupportedReason ?? "This chart type is not previewed.");
       return;
     }
-    // The chart area's own fill sits under everything, gridlines included,
-    // exactly like the frame Office draws.
-    const { background } = drawing.graphic;
-    if (background?.fill !== undefined) box.style.backgroundColor = background.fill;
-    if (background?.stroke !== undefined) {
-      box.style.boxSizing = "border-box";
-      box.style.border = `${background.stroke.width}px solid ${background.stroke.color}`;
-    }
+    // The chart area's own fill and outline are part of the drawing, under
+    // everything, gridlines included, exactly like the frame Office draws.
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.dataset.aaredElement = "chart-graphic";
-    svg.setAttribute("viewBox", `0 0 ${drawing.graphic.viewBox.width} ${drawing.graphic.viewBox.height}`);
     svg.style.width = "100%";
     svg.style.height = "100%";
-    svg.setAttribute("role", "img");
-    svg.setAttribute("aria-label", drawing.name);
-    for (const primitive of drawing.graphic.primitives) appendChartPrimitive(svg, primitive);
     box.append(svg);
-    drawingsLayer.append(box);
+    paintChart(svg, drawing.spec, {
+      frame: drawing.bounds,
+      urls,
+      alt: drawing.alt,
+      unavailable: () => {
+        svg.remove();
+        paintChartFallback(box, "load-error", `${drawing.name} (unavailable)`);
+      },
+    });
   };
 
   const paintPicture = (drawing: SheetPictureModel): void => {
@@ -1676,7 +1716,7 @@ function paintSheet(
   };
 
   for (const drawing of model.drawings) {
-    if (drawing.kind === "chart") paintChart(drawing);
+    if (drawing.kind === "chart") paintChartDrawing(drawing);
     else paintPicture(drawing);
   }
 
@@ -1726,6 +1766,7 @@ function paintSheet(
     rowHeightOf,
     model,
     cellElement,
+    dataRowTop,
     renderWindow,
     naturalSize: () => ({ width: realWidthPx, height: realHeightPx + (notices?.offsetHeight ?? 0) }),
     paintedOverflowY: () => {
@@ -1757,7 +1798,6 @@ function parseSingleCell(cell: string, what: string): { row: number; col: number
 }
 
 interface NormalizedAppearance {
-  theme: ViewerTheme;
   dark: boolean;
   headers: boolean;
   sheetTabs: boolean;
@@ -1767,10 +1807,8 @@ interface NormalizedAppearance {
 }
 
 function normalizeAppearance(appearance: Appearance | undefined): NormalizedAppearance {
-  const theme = appearance?.theme ?? "light";
   return {
-    theme,
-    dark: resolveTheme(theme) === "dark",
+    dark: resolveTheme(appearance?.theme ?? "light") === "dark",
     headers: appearance?.spreadsheet?.headers ?? true,
     sheetTabs: appearance?.spreadsheet?.sheetTabs ?? false,
     fill: appearance?.spreadsheet?.fill ?? true,
@@ -1801,6 +1839,12 @@ function resolveGridPaint(model: SheetModel, appearance: NormalizedAppearance): 
   };
 }
 
+/**
+ * A target's own layout from before the first XLSX render on it set
+ * `display: flex`, and the render that owns the target now (the newest).
+ */
+const targetLayouts = new WeakMap<HTMLElement, { display: string; flexDirection: string; owner: object }>();
+
 /** A fit never scales a sheet below this: a huge sheet scrolls rather than shrinking to nothing (and the row window stays bounded). */
 const MIN_FIT_SCALE = 0.25;
 
@@ -1828,10 +1872,10 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
   readonly #fitObserver: ResizeObserver;
   /** The room the last fit measured; a resize that leaves it unchanged is ignored. */
   #fitRoom = { width: -1, height: -1 };
-  readonly #previousTargetDisplay: string;
-  readonly #previousTargetFlexDirection: string;
   /** This render's hold on the class sheet in the target's root. */
   readonly #classes: ClassSheetScope;
+  /** Stops watching for a newer render replacing this one in the target. */
+  readonly #stopWatching: () => void;
 
   /** Built only by `render()` after the model (and optional handle) resolve. */
   constructor(
@@ -1852,8 +1896,12 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     this.#sheet = handle === undefined
       ? { index: 0, title: model.name, state: "visible" }
       : { ...handle.info };
-    this.#previousTargetDisplay = target.style.display;
-    this.#previousTargetFlexDirection = target.style.flexDirection;
+    // The first render on a target keeps the target's own layout; a render
+    // that replaces another keeps that original, not the flex it found, and
+    // becomes the one that puts it back.
+    const layout = targetLayouts.get(target) ?? { display: target.style.display, flexDirection: target.style.flexDirection, owner: this };
+    layout.owner = this;
+    targetLayouts.set(target, layout);
     // The grid's default look must be in the target's root before any of it is attached or measured.
     this.#classes = adoptClassSheet(target);
     target.style.display = "flex";
@@ -1868,6 +1916,8 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     this.#buildTabs();
     if (this.#tabsBar !== null) target.replaceChildren(this.#tabsBar, this.#gridBox);
     else target.replaceChildren(this.#gridBox);
+    // A newer render into the same target replaced this one: tear it down, as every format does.
+    this.#stopWatching = onReplaced(target, this.#gridBox, () => this.destroy());
     const signal = this.#listeners.signal;
     this.#gridBox.addEventListener("click", (event) => this.#handleClick(event), { signal });
     // Middle-clicks bypass `click`: the same interception applies so a link
@@ -1979,6 +2029,8 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     let model: SheetRangeModel;
     try {
       model = await handle.read({ signal });
+      // As `render()` does: a delivered font loads only when text paints with it.
+      await awaitDocumentFonts(model);
     } catch (error) {
       // A stale switch (aborted by a newer one or by destroy) stays silent.
       if (generation !== this.#sheetGeneration) return;
@@ -1991,6 +2043,7 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     const hadSelection = this.#selection !== null;
     this.#selection = null;
     this.#repaintCurrent();
+    this.setWarnings(sheetWarnings(model));
     // Reset the grid scroll: the new sheet paints a fresh scroller at origin.
     if (hadSelection) {
       this.dispatchEvent(new CustomEvent("selectionchange", { detail: { sheet: this.#sheetRef(), selection: null } }));
@@ -2004,6 +2057,7 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
   }
 
   #teardown(): void {
+    this.#stopWatching();
     this.#sheetGeneration += 1;
     this.#sheetController?.abort();
     this.#sheetController = null;
@@ -2011,8 +2065,15 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     this.#fitObserver.disconnect();
     this.#session?.destroy();
     this.#session = null;
-    this.#target.style.display = this.#previousTargetDisplay;
-    this.#target.style.flexDirection = this.#previousTargetFlexDirection;
+    // The target's own layout goes back with the newest XLSX render on it:
+    // destroyed, emptied by the host, or replaced by another format. One that
+    // a newer sheet replaced leaves it to that sheet.
+    const layout = targetLayouts.get(this.#target);
+    if (layout?.owner === this) {
+      this.#target.style.display = layout.display;
+      this.#target.style.flexDirection = layout.flexDirection;
+      targetLayouts.delete(this.#target);
+    }
     this.#classes.release();
   }
 
@@ -2383,16 +2444,8 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     const frozenRowSet = new Set(geometry.frozenRows);
     const frozenColumnSet = new Set(geometry.frozenColumns);
 
-    const dataRows = geometry.visibleRows.filter((candidate) => !frozenRowSet.has(candidate));
-    const rowIndex = dataRows.indexOf(row);
-    if (rowIndex !== -1) {
-      const offsets: number[] = [];
-      let total = 0;
-      for (const candidate of dataRows) {
-        offsets.push(total);
-        total += session.rowHeightOf(candidate);
-      }
-      const top = offsets[rowIndex]!;
+    const top = session.dataRowTop(row);
+    if (top !== undefined) {
       const height = session.rowHeightOf(row);
       const viewport = scroller.clientHeight || 600;
       const header = session.headerHeightPx;
@@ -2460,21 +2513,44 @@ function isSheetHandle(sheet: SheetHandle | SheetModel | SheetRangeModel): sheet
  * Painting itself is synchronous — only the handle read awaits.
  */
 export async function render(input: XlsxRenderInput): Promise<XlsxRenderHandle> {
+  const { signal } = input;
+  throwIfAborted(signal);
   const requested = input.sheet;
   let mediaResolver = input.mediaResolver;
   let model: SheetModel | SheetRangeModel;
   let handle: SheetHandle | undefined;
   if (isSheetHandle(requested)) {
     handle = requested;
-    model = await requested.read();
+    model = await requested.read(signal === undefined ? undefined : { signal });
     mediaResolver ??= (mediaId: string) => requested.media(mediaId);
   } else {
     model = requested;
   }
-  const viewer = new XlsxViewer(input.target, model, handle, mediaResolver, input.appearance, input.zoom ?? 1);
+  // The last moment a cancel can still leave the target untouched: the viewer paints as it is built.
+  throwIfAborted(signal);
+  const viewer = new XlsxViewer(input.target, model, handle, mediaResolver, input.appearance, input.zoom ?? DEFAULT_ZOOM.xlsx);
   // As in PPTX and DOCX: which fonts painted can only be read once they have
   // arrived (a delivered face loads only when text needs it), so the warnings wait, bounded.
-  await awaitDocumentFonts(model);
-  if (!viewer.destroyed) viewer.setWarnings(fontFidelityWarnings(model));
+  // A first chart waits for the layout code too (DECISION_LOG §71).
+  // Cancelled during that wait, the render takes the sheet back out (its
+  // destroy gives the target its own layout back) and rejects (`settleRender`).
+  const settled = Promise.all([awaitDocumentFonts(model), chartsSettled()]).then(() => undefined);
+  await settleRender(viewer, input.target, [...input.target.childNodes], settled, signal);
+  if (!viewer.destroyed) viewer.setWarnings(sheetWarnings(model));
   return viewer;
 }
+
+/**
+ * What a render noticed about the sheet: drawings the file gave no id (the file is damaged, but
+ * aared never uses a drawing's id, so the sheet is drawn in full), then fonts that painted with a fallback.
+ */
+function sheetWarnings(model: { name: string; missingIds?: number }): RenderWarning[] {
+  const noId = missingIdWarning(
+    "xlsx-missing-id", model.missingIds ?? 0, "drawing", `on sheet "${model.name}"`,
+    "Excel offers to repair such a file; aared does not use the id, and the sheet is rendered in full.",
+  );
+  return [...(noId === undefined ? [] : [noId]), ...fontFidelityWarnings(model)];
+}
+export { preview } from "./viewer.js";
+export type { XlsxPreviewInput } from "./viewer.js";
+export type { XlsxPreview, PreviewSearchOptions, PreviewEventMap, SearchNavigation, SearchNavigationState } from "../preview/index.js";

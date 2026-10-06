@@ -1,11 +1,36 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const require = createRequire(import.meta.url);
+
+/**
+ * The chart corpora (`tools/chart-oracle/`) as bench samples, at
+ * `/chart-oracle/<file>`: every chart type aared draws, Office-made, without
+ * adding test workbooks to `fixtures/` (the public directory).
+ */
+const CHART_ORACLE = fileURLToPath(new URL("../tools/chart-oracle/", import.meta.url));
+const CHART_ORACLE_FILES = ["chart-oracle.pptx", "types-oracle.xlsx", "chartex-oracle.xlsx"];
+function chartOracleSamples(): Plugin {
+  return {
+    name: "chart-oracle-samples",
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const name = request.url?.match(/^\/chart-oracle\/([^/?#]+)/)?.[1];
+        if (name === undefined || !CHART_ORACLE_FILES.includes(name)) return next();
+        response.setHeader("Content-Type", "application/octet-stream");
+        response.end(readFileSync(join(CHART_ORACLE, name)));
+      });
+    },
+    generateBundle() {
+      for (const name of CHART_ORACLE_FILES) this.emitFile({ type: "asset", fileName: `chart-oracle/${name}`, source: readFileSync(join(CHART_ORACLE, name)) });
+    },
+  };
+}
 
 /**
  * Standalone visual bench. No aliases into other repos, no shims: every
@@ -25,7 +50,7 @@ const require = createRequire(import.meta.url);
  * Product code is unaffected by any of these.
  */
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), chartOracleSamples()],
   publicDir: fileURLToPath(new URL("../fixtures", import.meta.url)),
   optimizeDeps: {
     // @silurus/ooxml resolves its parser WASM as

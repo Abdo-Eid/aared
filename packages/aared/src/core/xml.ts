@@ -26,6 +26,7 @@
  */
 
 import { damagedDocument } from "./errors.js";
+import type { AaredError } from "./errors.js";
 
 export interface XmlElement {
   /** Qualified name as written, e.g. `a:pPr`. */
@@ -38,11 +39,8 @@ export interface XmlElement {
   text: string;
 }
 
-export class XmlError extends Error {
-  constructor(message: string) {
-    super(`aared/core: invalid XML: ${message}`);
-    this.name = "XmlError";
-  }
+function invalidXml(detail: string): AaredError {
+  return damagedDocument(`invalid XML: ${detail}`);
 }
 
 /** Stream the direct children of every `<streamChildrenOf>` element to `onChild` instead of keeping them. */
@@ -57,6 +55,8 @@ const EMPTY_CHILDREN = Object.freeze([]) as unknown as XmlElement[];
 const EMPTY_ATTRS = Object.freeze({}) as Record<string, string>;
 /** Cap on the module-level name tables (they live as long as the Worker). */
 const INTERN_LIMIT = 8192;
+/** Office nests well under 100 levels; the cap keeps parse, `ownTree` and `textContent` recursion off the stack limit. */
+const MAX_DEPTH = 512;
 
 /* ------------------------------------------------------------------ */
 /* Query helpers                                                      */
@@ -86,18 +86,23 @@ export function ownTree(el: XmlElement): XmlElement {
   return { name: ownString(el.name), local: ownString(el.local), attrs, children, text: ownString(el.text) };
 }
 
-// Module-level tables outlive every part, so they hold owned copies only.
-const localNames = new Map<string, string>();
+/** Interned tag names with their local part: every element of one tag shares both strings. */
+interface TagName {
+  name: string;
+  local: string;
+}
 
-function localOf(name: string): string {
-  let local = localNames.get(name);
-  if (local === undefined) {
-    const owned = ownString(name);
-    const colon = owned.indexOf(":");
-    local = colon === -1 ? owned : ownString(owned.slice(colon + 1));
-    if (localNames.size < INTERN_LIMIT) localNames.set(owned, local);
-  }
-  return local;
+// The table outlives every part, so it holds owned copies only.
+const internedNames = new Map<string, TagName>();
+
+function intern(name: string): TagName {
+  const known = internedNames.get(name);
+  if (known !== undefined) return known;
+  const owned = ownString(name);
+  const colon = owned.indexOf(":");
+  const tag = { name: owned, local: colon === -1 ? owned : ownString(owned.slice(colon + 1)) };
+  if (internedNames.size < INTERN_LIMIT) internedNames.set(owned, tag);
+  return tag;
 }
 
 /** Attribute lookup by exact name, falling back to local-name match. */
@@ -106,7 +111,7 @@ export function attr(el: XmlElement, name: string): string | undefined {
   const exact = attrs[name];
   if (exact !== undefined) return exact;
   if (attrs === EMPTY_ATTRS) return undefined;
-  const local = localOf(name);
+  const local = intern(name).local;
   const n = local.length;
   for (const key in attrs) {
     // `key`'s local part equals `local`: same rule as splitting at its first
@@ -150,6 +155,15 @@ export function numberAttr(el: XmlElement, name: string, context: string): numbe
   return value === undefined ? undefined : parseNumber(value, name, context);
 }
 
+/** An on/off attribute (`1`/`true`/`on`, `0`/`false`/`off`); an absent or unknown spelling reads as unset, so one odd attribute costs nothing. */
+export function onOff(element: XmlElement, name: string): boolean | undefined {
+  const value = attr(element, name);
+  if (value === undefined) return undefined;
+  if (value === "1" || value === "true" || value === "on") return true;
+  if (value === "0" || value === "false" || value === "off") return false;
+  return undefined;
+}
+
 /* ------------------------------------------------------------------ */
 /* Parser                                                             */
 /* ------------------------------------------------------------------ */
@@ -167,7 +181,8 @@ function decodeEntity(m: string, body: string): string {
       const code = body.charCodeAt(1) === 120 /* x */
         ? Number.parseInt(body.slice(2), 16)
         : Number.parseInt(body.slice(1), 10);
-      if (!Number.isSafeInteger(code)) throw new XmlError(`bad character reference "${m}"`);
+      // fromCodePoint throws a bare RangeError past U+10FFFF, which would read as a viewer bug.
+      if (!(code <= 0x10ffff)) throw invalidXml(`bad character reference "${m}"`);
       return String.fromCodePoint(code);
     }
   }
@@ -188,23 +203,6 @@ function isNameCode(c: number): boolean {
 
 function isSpace(c: number): boolean {
   return c === 32 || c === 10 || c === 9 || c === 13;
-}
-
-/** Interned tag names with their local part: every element of one tag shares both strings. */
-interface TagName {
-  name: string;
-  local: string;
-}
-
-const internedNames = new Map<string, TagName>();
-
-function intern(name: string): TagName {
-  const known = internedNames.get(name);
-  if (known !== undefined) return known;
-  const owned = ownString(name);
-  const tag = { name: owned, local: localOf(owned) };
-  if (internedNames.size < INTERN_LIMIT) internedNames.set(owned, tag);
-  return tag;
 }
 
 class Parser {
@@ -230,7 +228,7 @@ class Parser {
     const start = this.pos;
     let p = start;
     while (p < len && isNameCode(src.charCodeAt(p))) p++;
-    if (p === start) throw new XmlError(`expected a name at offset ${start}`);
+    if (p === start) throw invalidXml(`expected a name at offset ${start}`);
     this.pos = p;
     return src.slice(start, p);
   }
@@ -240,13 +238,13 @@ class Parser {
     const src = this.src;
     if (src.startsWith("<!--", this.pos)) {
       const end = src.indexOf("-->", this.pos + 4);
-      if (end === -1) throw new XmlError("unterminated comment");
+      if (end === -1) throw invalidXml("unterminated comment");
       this.pos = end + 3;
       return true;
     }
     if (src.startsWith("<?", this.pos)) {
       const end = src.indexOf("?>", this.pos + 2);
-      if (end === -1) throw new XmlError("unterminated processing instruction");
+      if (end === -1) throw invalidXml("unterminated processing instruction");
       this.pos = end + 2;
       return true;
     }
@@ -269,21 +267,22 @@ class Parser {
       if (c === 47 || c === 62 || Number.isNaN(c)) return attrs ?? EMPTY_ATTRS;
       const name = this.readName();
       this.skipSpace();
-      if (src.charCodeAt(this.pos) !== 61 /* = */) throw new XmlError(`expected "=" after attribute "${name}"`);
+      if (src.charCodeAt(this.pos) !== 61 /* = */) throw invalidXml(`expected "=" after attribute "${name}"`);
       this.pos++;
       this.skipSpace();
       const quote = src.charCodeAt(this.pos);
-      if (quote !== 34 && quote !== 39) throw new XmlError(`expected a quoted value for "${name}"`);
+      if (quote !== 34 && quote !== 39) throw invalidXml(`expected a quoted value for "${name}"`);
       const start = this.pos + 1;
       const end = src.indexOf(quote === 34 ? '"' : "'", start);
-      if (end === -1) throw new XmlError(`unterminated value for "${name}"`);
+      if (end === -1) throw invalidXml(`unterminated value for "${name}"`);
       (attrs ??= {})[name] = decodeEntities(src.slice(start, end));
       this.pos = end + 1;
     }
   }
 
-  parseElement(): XmlElement {
+  parseElement(depth: number): XmlElement {
     // Assumes src[pos] === '<' and not a declaration/comment/CDATA/close.
+    if (depth > MAX_DEPTH) throw invalidXml(`elements nest deeper than ${MAX_DEPTH} levels`);
     const src = this.src;
     this.pos++;
     const { name, local } = intern(this.readName());
@@ -293,7 +292,7 @@ class Parser {
       this.pos += 2;
       return { name, local, attrs, children: EMPTY_CHILDREN, text: "" };
     }
-    if (src.charCodeAt(this.pos) !== 62) throw new XmlError(`expected ">" to open <${name}>`);
+    if (src.charCodeAt(this.pos) !== 62) throw invalidXml(`expected ">" to open <${name}>`);
     this.pos++;
 
     const onChild = this.stream !== undefined && this.stream.streamChildrenOf === local ? this.stream.onChild : undefined;
@@ -301,7 +300,7 @@ class Parser {
     let text = "";
     for (;;) {
       const lt = src.indexOf("<", this.pos);
-      if (lt === -1) throw new XmlError(`unterminated <${name}>`);
+      if (lt === -1) throw invalidXml(`unterminated <${name}>`);
       // Streamed containers drop their inter-child whitespace with their children.
       if (lt > this.pos && onChild === undefined) text += decodeEntities(src.slice(this.pos, lt));
       this.pos = lt;
@@ -311,11 +310,11 @@ class Parser {
         const end = start + name.length;
         if (!src.startsWith(name, start) || (end < this.len && isNameCode(src.charCodeAt(end)))) {
           this.pos = start;
-          throw new XmlError(`mismatched close tag </${this.readName()}> for <${name}>`);
+          throw invalidXml(`mismatched close tag </${this.readName()}> for <${name}>`);
         }
         this.pos = end;
         this.skipSpace();
-        if (src.charCodeAt(this.pos) !== 62) throw new XmlError(`expected ">" to close </${name}>`);
+        if (src.charCodeAt(this.pos) !== 62) throw invalidXml(`expected ">" to close </${name}>`);
         this.pos++;
         return { name, local, attrs, children: children ?? EMPTY_CHILDREN, text };
       }
@@ -326,18 +325,18 @@ class Parser {
         }
         if (src.startsWith("<![CDATA[", lt)) {
           const close = src.indexOf("]]>", lt + 9);
-          if (close === -1) throw new XmlError("unterminated CDATA section");
+          if (close === -1) throw invalidXml("unterminated CDATA section");
           if (onChild === undefined) text += src.slice(lt + 9, close);
           this.pos = close + 3;
           continue;
         }
-        throw new XmlError("DOCTYPE and other declarations are not supported");
+        throw invalidXml("DOCTYPE and other declarations are not supported");
       }
       if (next === 63 /* ? */) {
         this.skipCommentOrPi();
         continue;
       }
-      const child = this.parseElement();
+      const child = this.parseElement(depth + 1);
       if (onChild !== undefined) onChild(child);
       else (children ??= []).push(child);
     }
@@ -352,13 +351,12 @@ class Parser {
  */
 export function parseXml(src: string, stream?: XmlStreamOptions): XmlElement {
   const p = new Parser(src, stream);
-  if (src.charCodeAt(0) === 0xfeff) p.pos++;
   p.skipMisc();
   if (src.charCodeAt(p.pos) !== 60 /* < */ || src.charCodeAt(p.pos + 1) === 47) {
-    throw new XmlError("no root element");
+    throw invalidXml("no root element");
   }
-  const root = p.parseElement();
+  const root = p.parseElement(0);
   p.skipMisc();
-  if (p.pos !== src.length) throw new XmlError("trailing content after root element");
+  if (p.pos !== src.length) throw invalidXml("trailing content after root element");
   return root;
 }

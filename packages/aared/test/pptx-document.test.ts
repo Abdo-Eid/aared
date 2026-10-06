@@ -12,10 +12,10 @@ test("opens a deck with an addressable slide collection", async () => {
   const deck = await open(await Bun.file(ARABIC_FIXTURE).arrayBuffer());
   try {
     expect(deck.info.format).toBe("pptx");
-    expect(deck.info.count).toBe(12);
+    expect(deck.info.count).toBe(18);
     const slides = deck.slides.list();
-    expect(slides).toHaveLength(12);
-    expect(slides.map((slide) => slide.info.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(slides).toHaveLength(18);
+    expect(slides.map((slide) => slide.info.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
     for (const slide of slides) {
       expect(slide.info.title).toContain("Slide");
       expect(slide.info.size.width).toBeGreaterThan(0);
@@ -48,7 +48,7 @@ test("reports unknown slides with a not-found error", async () => {
   }
   const reopened = await open(await Bun.file(ARABIC_FIXTURE).arrayBuffer());
   try {
-    expect(() => reopened.slides.get(19)).toThrow("outside this 12-slide deck");
+    expect(() => reopened.slides.get(25)).toThrow("outside this 18-slide deck");
   } finally {
     reopened.close();
   }

@@ -10,6 +10,7 @@ import NumbersSection from "../components/NumbersSection.astro";
 import type { Benchmarks } from "../lib/benchmarks.ts";
 import SiteHeader from "../components/SiteHeader.astro";
 import ThemeInit from "../components/ThemeInit.astro";
+import CopyButtons from "../components/CopyButtons.astro";
 import "../styles/tokens.css";
 import { codeThemes } from "../lib/code-themes.ts";
 import pptxUrl from "../../../fixtures/post-production-review.pptx?url";
@@ -31,8 +32,15 @@ const benchmarks = Object.values(
 )[0];
 
 // The install card under the live preview: the preview already shows the
-// code that uses aared, so this adds only how to get it.
-const installCode = "npm install @aared/viewer\nnpm install @aared/fonts";
+// code that uses aared, so this adds only how to get it. Nothing is on npm
+// yet, so it is the from-source route (DECISION_LOG §56 measured the packed
+// tarball in webpack and Next.js apps).
+const installCode = [
+  "git clone https://github.com/Abdo-Eid/aared && cd aared",
+  "bun install && bun run --cwd packages/aared build",
+  "cd packages/aared && npm pack      # writes aared-0.0.0.tgz",
+  "npm install <path>/aared-0.0.0.tgz # in your app",
+].join("\n");
 ---
 
 <html lang="en" data-theme="light">
@@ -44,7 +52,7 @@ const installCode = "npm install @aared/viewer\nnpm install @aared/fonts";
       name="description"
       content="Preview real PowerPoint, Excel, and Word files in the browser — built with Arabic in mind. Real DOM/SVG, never canvas."
     />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/aared-mark.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <ThemeInit />
@@ -54,7 +62,7 @@ const installCode = "npm install @aared/viewer\nnpm install @aared/fonts";
 
     <main>
       <section class="hero">
-        <h1>عارض</h1>
+        <h1 lang="ar" dir="rtl">عارض</h1>
         <p class="tagline">
           Preview real PowerPoint, Excel, and Word files in the browser —
           built with Arabic in mind.
@@ -76,16 +84,19 @@ const installCode = "npm install @aared/viewer\nnpm install @aared/fonts";
         ></video>
       </figure>
 
-      <LightTable fixtures={fixtures} />
+      <div data-copyable>
+        <LightTable fixtures={fixtures} />
+      </div>
 
-      <section class="install" aria-labelledby="install-title">
+      <section class="install" aria-labelledby="install-title" data-copyable>
         <h2 id="install-title">Install</h2>
         <Code code={installCode} lang="bash" themes={codeThemes} defaultColor={false} />
         <p class="install-note">
-          <code>@aared/fonts</code> is optional: Office fonts nobody has
-          installed. The name is reserved on npm but the code is not
-          released yet — until the first release,{" "}
-          <a href="/api/#start-here">build it from source</a>.
+          Not on npm yet. Until the first release (<code>0.1.0</code>,
+          published as <code>@aared/viewer</code>), build it from source and
+          install the packed file into your app; imports read{" "}
+          <code>aared/...</code> until then.{" "}
+          <a href="/start/">Start here</a>.
         </p>
       </section>
 
@@ -118,6 +129,11 @@ const installCode = "npm install @aared/viewer\nnpm install @aared/fonts";
       {benchmarks !== undefined && <NumbersSection data={benchmarks} />}
 
       <section class="next-steps">
+        <a class="next-card" href="/start/">
+          <span class="next-card-kicker">set it up</span>
+          <span class="next-card-title">Start</span>
+          <span class="next-card-body">Install, pick an entry, copy a recipe, fix the usual first problems.</span>
+        </a>
         <a class="next-card" href="/playground/">
           <span class="next-card-kicker">try it</span>
           <span class="next-card-title">Playground</span>
@@ -130,6 +146,7 @@ const installCode = "npm install @aared/viewer\nnpm install @aared/fonts";
         </a>
       </section>
     </main>
+    <CopyButtons />
   </body>
 </html>
 
@@ -356,7 +373,7 @@ const installCode = "npm install @aared/viewer\nnpm install @aared/fonts";
 
   .next-steps {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, 1fr);
     gap: 1.25rem;
     margin-top: 1.25rem;
   }

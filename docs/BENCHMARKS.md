@@ -22,6 +22,11 @@ by hand from vendor READMEs or single ad-hoc runs.
 - **Stage:** one 1280×720 stage for every renderer, in Chromium headless
   (`Bun.WebView`). DOCX renders in layout mode (`pagination: { mode: "layout" }`).
   One renderer × fixture at a time; nothing is fetched but localhost files.
+- **Aared integration:** format-local `preview()` owns opening, navigation and
+  cleanup; XLSX sheet tabs are explicitly disabled, and DOCX uses layout mode.
+  Navigating to the currently displayed unit is a no-op. Older recorded runs
+  used low-level `open()` / `render()` (PPTX repainted even the current slide);
+  generated tables retain those measurements until the harness is rerun.
 - **Runs:** open — 5 cold runs (each a fresh page: modules not yet evaluated,
   browser cache warm) and 11 warm runs after 2 discarded; navigation — 5 passes;
   memory — 5 repeat-open runs, the 5 cold runs, 3 full reads; search — 5 fresh
@@ -82,37 +87,47 @@ by hand from vendor READMEs or single ad-hoc runs.
 ```bash
 bun run --cwd bench build                    # builds the measurement page (bench/dist/measure.html)
 bun tools/bench-measure.ts --calibrate       # checks the memory reading against 10 MiB controls
-bun tools/bench-measure.ts --size            # download size → tools/bench-results/size-<stamp>.json
-bun tools/bench-measure.ts --run             # open / navigation / memory → tools/bench-results/<stamp>.json
+bun tools/bench-measure.ts --size            # aared's download size, merged into the latest size-<stamp>.json
+bun tools/bench-measure.ts --run             # aared's open / navigation / memory, merged into the latest <stamp>.json
 bun tools/bench-measure.ts --search          # search on the large fixtures → tools/bench-results/search-<stamp>.json
 bun tools/bench-measure.ts --render-md       # regenerate the tables below from the latest results
 bun tools/bench-measure.ts --render-site     # regenerate site/src/data/benchmarks.json (the home page's numbers)
 ```
 
-**The full benchmark is not run often.** A complete pass (calibration, size,
-`--run`, `--search`) takes about 30 minutes and needs an idle machine, so it
-is not part of the test suite, CI or a normal change. Run it deliberately:
-before publishing numbers, after a change meant to move them, or when a
-method changes. Between runs, the tables below and the home page's numbers
-are the last full run's, whatever the code has done since. The date and
-machine are in each table's header, and each result file in
-`tools/bench-results/` is stamped. For a quick check of one change, re-run
-only the cells it touches (below) and compare with the last full run.
+**Competitors are measured once.** Their numbers change only with their
+versions, so `--run` and `--size` measure aared alone and put its cells into
+the latest result in place of its old ones, keeping every competitor's.
+Each cell records when, and on which browser, it was measured, and each
+table's header says so when they differ. `--run --all` and `--size --all`
+measure every renderer into a new file: run them after bumping a
+competitor's version in `bench/package.json`, or when a method changes.
 
-`--run` takes optional `fixture:renderer` pairs to re-measure just those cells.
-With `--merge` they go into the latest full run in place of the cells it has
-(keeping its header and date), instead of a partial file: the way to redo a
-failed cell. A hung page can leave the browser unanswering DevTools, and every
-cell after it would then fail the same way, so the pass stops at the first such
-error, keeps the cells measured so far, and prints the `--run --merge …`
-command that measures the rest in a new process (a second browser cannot be
-started in the same one).
+**Still not run often.** An aared pass (calibration, size, `--run`,
+`--search`) is a fraction of a full `--all` pass (about 30 minutes), and
+both need an idle machine on mains power (on battery, small cells read twice
+their time), so neither is part of the test suite, CI or a normal change.
+Run it deliberately: before publishing numbers, or after a change meant to
+move them. Between runs, the tables below and the home page's numbers are
+the last run's, whatever the code has done since. For a quick check of one
+change, re-run only the cells it touches (below) and compare.
+
+`--run` also takes `fixture:renderer` pairs to re-measure just those cells,
+merged the same way: the way to redo a failed cell. A hung page can leave the
+browser unanswering DevTools, and every cell after it would then fail the
+same way, so the pass stops at the first such error, keeps the cells measured
+so far, and prints the `--run …` command that measures the rest in a new
+process (a second browser cannot be started in the same one).
 The large fixtures are optional; cells that need them are skipped until
 `python tools/bench-search/make-fixtures.py` has run. A full pass takes a while
 and should be left alone — other work on the machine skews the timings.
 
 The tables in this file are **generated** from the latest results by the
 harness. Hand-editing a number without re-running is a docs bug.
+
+Result files stay local: `tools/bench-results/` is gitignored, and each
+pass reads only the newest file of its kind. The committed artifacts are this
+file's tables and `site/src/data/benchmarks.json`, so the run named in a
+table's header may not exist in a fresh clone.
 
 ## Results (generated)
 
@@ -167,9 +182,9 @@ harness. Hand-editing a number without re-running is a docs bug.
 <!-- generated:search -->
 | Fixture | Size | open ms | first search ms | repeat search ms | common word ms |
 |---|---|---|---|---|---|
-| large-300-slides.pptx | 0.9 MB | 30 | 317 | 0.2 | 0.2 (214 matches) |
-| large-13-sheets.xlsx | 1.7 MB | 23 | 997 | 3.6 | 10.0 (22185 matches) |
-| large-40x.docx | 0.3 MB | 143 | 4 | 0.2 | 0.4 (361 matches) |
+| large-300-slides.pptx | 0.9 MB | 30 | 217 | 0.3 | 0.3 (214 matches) |
+| large-13-sheets.xlsx | 1.7 MB | 24 | 576 | 3.1 | 10.3 (22185 matches) |
+| large-40x.docx | 0.3 MB | 145 | 7 | 0.2 | 0.5 (361 matches) |
 <!-- /generated:search -->
 
 <!-- generated:size -->

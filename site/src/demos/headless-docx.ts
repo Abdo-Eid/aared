@@ -1,5 +1,5 @@
 import { open, render } from "aared/docx";
-import { UnitController, mountDemoControls } from "../lib/demo-controls.js";
+import { button, label, mountBar, stepZoom, zoomLabel } from "../lib/demo-controls.js";
 import type { DemoOutcome } from "../lib/demo-frame.js";
 
 /**
@@ -8,21 +8,26 @@ import type { DemoOutcome } from "../lib/demo-frame.js";
  * is one unit, so its bar only zooms.
  */
 export async function runHeadlessDocx(stage: HTMLElement, source: string | File): Promise<DemoOutcome> {
-  const document = await open(source);
+  const doc = await open(source);
   try {
-    const viewer = await render({ document, target: stage });
-    const controller = new UnitController(viewer, () => Promise.resolve(viewer));
-    const unmountControls = mountDemoControls(stage, controller, document.info.count);
+    const viewer = await render({ document: doc, target: stage });
+    const zoom = label();
+    const update = (): void => {
+      zoom.textContent = zoomLabel(viewer.zoom);
+    };
+    viewer.addEventListener("zoomchange", update);
+    update();
+    const unmountBar = mountBar(stage, button("-", () => stepZoom(viewer, -0.1), "Zoom out"), zoom, button("+", () => stepZoom(viewer, 0.1), "Zoom in"));
     return {
-      summary: { format: document.info.format, units: document.info.count },
+      summary: { format: doc.info.format, units: doc.info.count },
       dispose: () => {
-        unmountControls();
+        unmountBar();
         viewer.destroy();
-        document.close();
+        doc.close();
       },
     };
   } catch (error) {
-    document.close();
+    doc.close();
     throw error;
   }
 }

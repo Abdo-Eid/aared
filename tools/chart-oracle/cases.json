@@ -1,0 +1,5205 @@
+{
+ "cases": [
+  {
+   "id": "col-default",
+   "kind": "bar",
+   "cats": [
+    "Category 1",
+    "Category 2",
+    "Category 3",
+    "Category 4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "title": "auto"
+  },
+  {
+   "id": "col-notitle",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ]
+  },
+  {
+   "id": "col-stacked",
+   "kind": "bar",
+   "grouping": "stacked",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "title": "Stacked"
+  },
+  {
+   "id": "col-percent",
+   "kind": "bar",
+   "grouping": "percentStacked",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "valAx": {
+    "fmt": "0%"
+   }
+  },
+  {
+   "id": "bar-clustered",
+   "kind": "bar",
+   "dir": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "title": "Horizontal",
+   "legend": "r"
+  },
+  {
+   "id": "bar-stacked-neg",
+   "kind": "bar",
+   "dir": "bar",
+   "grouping": "stacked",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Gain",
+     "values": [
+      5,
+      3,
+      6,
+      2
+     ]
+    },
+    {
+     "name": "Loss",
+     "values": [
+      -2,
+      -4,
+      -1,
+      -3
+     ]
+    }
+   ]
+  },
+  {
+   "id": "col-negative",
+   "kind": "bar",
+   "cats": [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun"
+   ],
+   "series": [
+    {
+     "name": "Net",
+     "values": [
+      12,
+      -7,
+      3.5,
+      -15,
+      22,
+      8
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "col-thousands",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Revenue",
+     "values": [
+      125000,
+      180500,
+      97250,
+      210000
+     ]
+    },
+    {
+     "name": "Cost",
+     "values": [
+      80000,
+      95000,
+      101000,
+      130500
+     ]
+    }
+   ],
+   "valAx": {
+    "fmt": "#,##0"
+   },
+   "title": "Revenue vs cost"
+  },
+  {
+   "id": "col-currency-dlbl",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Sales",
+     "values": [
+      1250.5,
+      980.25,
+      1730,
+      1410
+     ]
+    }
+   ],
+   "legend": null,
+   "dLbls": {
+    "pos": "outEnd",
+    "fmt": "$#,##0"
+   },
+   "valAx": {
+    "fmt": "$#,##0"
+   }
+  },
+  {
+   "id": "col-dlbl-ctr-stacked",
+   "kind": "bar",
+   "grouping": "stacked",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "dLbls": {
+    "pos": "ctr"
+   }
+  },
+  {
+   "id": "col-gap50-ovl",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "gap": 50,
+   "overlap": 30
+  },
+  {
+   "id": "col-gap500",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    }
+   ],
+   "gap": 500,
+   "legend": null
+  },
+  {
+   "id": "col-small-values",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Rate",
+     "values": [
+      0.012,
+      0.034,
+      0.027,
+      0.041
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "col-big-range",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "A",
+     "values": [
+      97,
+      98,
+      99,
+      100
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "col-fixed-scale",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "valAx": {
+    "min": 0,
+    "max": 10,
+    "majorUnit": 2.5
+   }
+  },
+  {
+   "id": "col-log",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Hits",
+     "values": [
+      3,
+      45,
+      900,
+      12000
+     ]
+    }
+   ],
+   "valAx": {
+    "logBase": 10
+   },
+   "legend": null
+  },
+  {
+   "id": "col-reversed",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "catAx": {
+    "orientation": "maxMin"
+   },
+   "valAx": {
+    "orientation": "maxMin"
+   }
+  },
+  {
+   "id": "col-long-labels",
+   "kind": "bar",
+   "cats": [
+    "North America region",
+    "Europe, Middle East and Africa",
+    "Asia Pacific and Japan",
+    "Latin America"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    }
+   ]
+  },
+  {
+   "id": "col-many-cats",
+   "kind": "bar",
+   "cats": [
+    "Item 1",
+    "Item 2",
+    "Item 3",
+    "Item 4",
+    "Item 5",
+    "Item 6",
+    "Item 7",
+    "Item 8",
+    "Item 9",
+    "Item 10",
+    "Item 11",
+    "Item 12",
+    "Item 13",
+    "Item 14",
+    "Item 15",
+    "Item 16",
+    "Item 17",
+    "Item 18",
+    "Item 19",
+    "Item 20",
+    "Item 21",
+    "Item 22",
+    "Item 23",
+    "Item 24",
+    "Item 25",
+    "Item 26",
+    "Item 27",
+    "Item 28",
+    "Item 29",
+    "Item 30"
+   ],
+   "series": [
+    {
+     "name": "V",
+     "values": [
+      2,
+      16,
+      7,
+      21,
+      12,
+      3,
+      17,
+      8,
+      22,
+      13,
+      4,
+      18,
+      9,
+      23,
+      14,
+      5,
+      19,
+      10,
+      24,
+      15,
+      6,
+      20,
+      11,
+      2,
+      16,
+      7,
+      21,
+      12,
+      3,
+      17
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "col-dates",
+   "kind": "bar",
+   "cats": [
+    "2024-01",
+    "2024-02",
+    "2024-03",
+    "2024-04",
+    "2024-05",
+    "2024-06",
+    "2024-07",
+    "2024-08"
+   ],
+   "series": [
+    {
+     "name": "Units",
+     "values": [
+      5,
+      8,
+      6,
+      9,
+      12,
+      10,
+      14,
+      13
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "col-axis-titles",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "title": "With axis titles",
+   "catAx": {
+    "title": "Quarter"
+   },
+   "valAx": {
+    "title": "Units (k)"
+   },
+   "legend": "r"
+  },
+  {
+   "id": "col-legend-top",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "legend": "t"
+  },
+  {
+   "id": "col-legend-left",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "legend": "l"
+  },
+  {
+   "id": "col-legend-tr",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "legend": "tr"
+  },
+  {
+   "id": "col-small-frame",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "title": "Small",
+   "size": [
+    3.5,
+    2.4
+   ]
+  },
+  {
+   "id": "col-tall-frame",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "size": [
+    4,
+    6.5
+   ]
+  },
+  {
+   "id": "col-manual-plot",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "plotLayout": [
+    0.2,
+    0.1,
+    0.6,
+    0.6
+   ]
+  },
+  {
+   "id": "col-manual-outer",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "plotLayout": [
+    0.1,
+    0.05,
+    0.85,
+    0.75
+   ],
+   "layoutTarget": "outer"
+  },
+  {
+   "id": "col-ticks-cross",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "catAx": {
+    "majorTick": "out"
+   },
+   "valAx": {
+    "majorTick": "cross",
+    "line": true,
+    "minor": true
+   }
+  },
+  {
+   "id": "col-arabic",
+   "kind": "bar",
+   "cats": [
+    "الربع الأول",
+    "الربع الثاني",
+    "الربع الثالث",
+    "الربع الرابع"
+   ],
+   "series": [
+    {
+     "name": "المبيعات",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "التكاليف",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    }
+   ],
+   "title": "المبيعات حسب الربع",
+   "script": "arabic"
+  },
+  {
+   "id": "col-many-series",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "S1",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "S2",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "S3",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "S4",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "S5",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "S6",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "S7",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "S8",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "S9",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    }
+   ],
+   "legend": "r"
+  },
+  {
+   "id": "col-20-series-legend-r",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Series 4",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Series 5",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Series 6",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Series 7",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Series 8",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Series 9",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Series 10",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Series 11",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Series 12",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Series 13",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Series 14",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Series 15",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Series 16",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Series 17",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Series 18",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Series 19",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Series 20",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    }
+   ],
+   "legend": "r"
+  },
+  {
+   "id": "col-20-series-legend-b",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Series 4",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Series 5",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Series 6",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Series 7",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Series 8",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Series 9",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Series 10",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Series 11",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Series 12",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Series 13",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Series 14",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Series 15",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Series 16",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Series 17",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Series 18",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Series 19",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Series 20",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    }
+   ],
+   "legend": "b"
+  },
+  {
+   "id": "col-long-names-legend-r",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Quarterly revenue from the region number 1 excluding returns",
+     "values": [
+      1,
+      2,
+      3,
+      4
+     ]
+    },
+    {
+     "name": "Quarterly revenue from the region number 2 excluding returns",
+     "values": [
+      2,
+      3,
+      4,
+      5
+     ]
+    },
+    {
+     "name": "Quarterly revenue from the region number 3 excluding returns",
+     "values": [
+      3,
+      4,
+      5,
+      6
+     ]
+    }
+   ],
+   "legend": "r"
+  },
+  {
+   "id": "col-bare",
+   "kind": "bar",
+   "flavour": "bare",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ]
+  },
+  {
+   "id": "col-bare-style",
+   "kind": "bar",
+   "flavour": "bare",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "style": 26,
+   "title": "Style 26"
+  },
+  {
+   "id": "bar-bare",
+   "kind": "bar",
+   "dir": "bar",
+   "flavour": "bare",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ]
+  },
+  {
+   "id": "col-bare-dlbl",
+   "kind": "bar",
+   "flavour": "bare",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    }
+   ],
+   "dLbls": {
+    "val": true
+   }
+  },
+  {
+   "id": "col-chartarea-fill",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "chartSpPr": "<c:spPr><a:solidFill><a:srgbClr val=\"F2F2F2\"/></a:solidFill><a:ln w=\"12700\"><a:solidFill><a:srgbClr val=\"404040\"/></a:solidFill></a:ln></c:spPr>"
+  },
+  {
+   "id": "col-text-10",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "title": "10pt text",
+   "titleSz": 1400,
+   "catAx": {
+    "sz": 1000
+   },
+   "valAx": {
+    "sz": 1000
+   },
+   "legendSz": 1000
+  },
+  {
+   "id": "line-default",
+   "kind": "line",
+   "cats": [
+    "Category 1",
+    "Category 2",
+    "Category 3",
+    "Category 4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "title": "auto"
+  },
+  {
+   "id": "line-markers",
+   "kind": "line",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "marker": [
+    "circle",
+    5
+   ]
+  },
+  {
+   "id": "line-months",
+   "kind": "line",
+   "cats": [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec"
+   ],
+   "series": [
+    {
+     "name": "2023",
+     "values": [
+      3,
+      4,
+      6,
+      9,
+      12,
+      15,
+      17,
+      16,
+      13,
+      9,
+      6,
+      4
+     ]
+    },
+    {
+     "name": "2024",
+     "values": [
+      4,
+      5,
+      7,
+      10,
+      14,
+      17,
+      19,
+      18,
+      14,
+      10,
+      7,
+      5
+     ]
+    }
+   ]
+  },
+  {
+   "id": "line-smooth",
+   "kind": "line",
+   "cats": [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun"
+   ],
+   "series": [
+    {
+     "name": "Smooth",
+     "values": [
+      1,
+      5,
+      2,
+      6,
+      3,
+      7
+     ]
+    }
+   ],
+   "smooth": true,
+   "legend": null
+  },
+  {
+   "id": "line-stacked",
+   "kind": "line",
+   "grouping": "stacked",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ],
+   "marker": [
+    "square",
+    6
+   ]
+  },
+  {
+   "id": "line-gaps",
+   "kind": "line",
+   "cats": [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun"
+   ],
+   "series": [
+    {
+     "name": "Gappy",
+     "values": [
+      3,
+      null,
+      5,
+      6,
+      null,
+      4
+     ]
+    }
+   ],
+   "legend": null,
+   "marker": [
+    "diamond",
+    7
+   ]
+  },
+  {
+   "id": "line-dlbl-top",
+   "kind": "line",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    }
+   ],
+   "dLbls": {
+    "pos": "t"
+   },
+   "marker": [
+    "circle",
+    5
+   ],
+   "legend": null
+  },
+  {
+   "id": "line-bare",
+   "kind": "line",
+   "flavour": "bare",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ]
+  },
+  {
+   "id": "area-standard",
+   "kind": "area",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ]
+  },
+  {
+   "id": "area-stacked",
+   "kind": "area",
+   "grouping": "stacked",
+   "cats": [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun"
+   ],
+   "series": [
+    {
+     "name": "A",
+     "values": [
+      1,
+      2,
+      3,
+      2,
+      4,
+      3
+     ]
+    },
+    {
+     "name": "B",
+     "values": [
+      2,
+      2,
+      1,
+      3,
+      2,
+      4
+     ]
+    }
+   ]
+  },
+  {
+   "id": "area-percent",
+   "kind": "area",
+   "grouping": "percentStacked",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "Series 3",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pie-default",
+   "kind": "pie",
+   "cats": [
+    "1st Qtr",
+    "2nd Qtr",
+    "3rd Qtr",
+    "4th Qtr"
+   ],
+   "series": [
+    {
+     "name": "Sales",
+     "values": [
+      8.2,
+      3.2,
+      1.4,
+      1.2
+     ]
+    }
+   ],
+   "title": "auto"
+  },
+  {
+   "id": "pie-labels-bestfit",
+   "kind": "pie",
+   "cats": [
+    "1st Qtr",
+    "2nd Qtr",
+    "3rd Qtr",
+    "4th Qtr"
+   ],
+   "series": [
+    {
+     "name": "Sales",
+     "values": [
+      8.2,
+      3.2,
+      1.4,
+      1.2
+     ]
+    }
+   ],
+   "dLbls": {
+    "pos": "bestFit",
+    "pct": true,
+    "val": false,
+    "cat": true
+   },
+   "legend": null
+  },
+  {
+   "id": "pie-outend",
+   "kind": "pie",
+   "cats": [
+    "1st Qtr",
+    "2nd Qtr",
+    "3rd Qtr",
+    "4th Qtr"
+   ],
+   "series": [
+    {
+     "name": "Sales",
+     "values": [
+      8.2,
+      3.2,
+      1.4,
+      1.2
+     ]
+    }
+   ],
+   "dLbls": {
+    "pos": "outEnd",
+    "val": true
+   },
+   "legend": "r"
+  },
+  {
+   "id": "pie-explode-rot",
+   "kind": "pie",
+   "cats": [
+    "1st Qtr",
+    "2nd Qtr",
+    "3rd Qtr",
+    "4th Qtr"
+   ],
+   "series": [
+    {
+     "name": "Sales",
+     "values": [
+      8.2,
+      3.2,
+      1.4,
+      1.2
+     ]
+    }
+   ],
+   "explode": {
+    "1": 15
+   },
+   "firstSliceAng": 90
+  },
+  {
+   "id": "pie-many",
+   "kind": "pie",
+   "cats": [
+    "P1",
+    "P2",
+    "P3",
+    "P4",
+    "P5",
+    "P6",
+    "P7",
+    "P8",
+    "P9"
+   ],
+   "series": [
+    {
+     "name": "Share",
+     "values": [
+      30,
+      20,
+      12,
+      10,
+      8,
+      7,
+      6,
+      4,
+      3
+     ]
+    }
+   ],
+   "legend": "r"
+  },
+  {
+   "id": "pie-busy-outend",
+   "kind": "pie",
+   "cats": [
+    "Category 1",
+    "Category 2",
+    "Category 3",
+    "Category 4",
+    "Category 5",
+    "Category 6",
+    "Category 7",
+    "Category 8",
+    "Category 9",
+    "Category 10"
+   ],
+   "series": [
+    {
+     "name": "Share",
+     "values": [
+      40,
+      20,
+      10,
+      6,
+      5,
+      4,
+      4,
+      4,
+      4,
+      3
+     ]
+    }
+   ],
+   "dLbls": {
+    "pos": "outEnd",
+    "pct": true,
+    "val": false,
+    "cat": true
+   },
+   "legend": null
+  },
+  {
+   "id": "pie-bare",
+   "kind": "pie",
+   "flavour": "bare",
+   "cats": [
+    "1st Qtr",
+    "2nd Qtr",
+    "3rd Qtr",
+    "4th Qtr"
+   ],
+   "series": [
+    {
+     "name": "Sales",
+     "values": [
+      8.2,
+      3.2,
+      1.4,
+      1.2
+     ]
+    }
+   ]
+  },
+  {
+   "id": "doughnut-default",
+   "kind": "doughnut",
+   "cats": [
+    "1st Qtr",
+    "2nd Qtr",
+    "3rd Qtr",
+    "4th Qtr"
+   ],
+   "series": [
+    {
+     "name": "Sales",
+     "values": [
+      8.2,
+      3.2,
+      1.4,
+      1.2
+     ]
+    }
+   ],
+   "hole": 75,
+   "title": "auto"
+  },
+  {
+   "id": "doughnut-hole50-2ser",
+   "kind": "doughnut",
+   "cats": [
+    "1st Qtr",
+    "2nd Qtr",
+    "3rd Qtr",
+    "4th Qtr"
+   ],
+   "series": [
+    {
+     "name": "2023",
+     "values": [
+      8.2,
+      3.2,
+      1.4,
+      1.2
+     ]
+    },
+    {
+     "name": "2024",
+     "values": [
+      5,
+      4,
+      3,
+      2
+     ]
+    }
+   ],
+   "hole": 50
+  },
+  {
+   "id": "scatter-markers",
+   "kind": "scatter",
+   "scatterStyle": "lineMarker",
+   "cats": [
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   "xs": [
+    0.7,
+    1.8,
+    2.6,
+    3.9,
+    5.2
+   ],
+   "series": [
+    {
+     "name": "Y",
+     "values": [
+      2.7,
+      3.2,
+      0.8,
+      4.1,
+      2.2
+     ]
+    }
+   ],
+   "marker": [
+    "circle",
+    5
+   ],
+   "lineW": null,
+   "title": "auto"
+  },
+  {
+   "id": "scatter-lines",
+   "kind": "scatter",
+   "scatterStyle": "lineMarker",
+   "cats": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   "xs": [
+    0,
+    10,
+    20,
+    35,
+    50,
+    80
+   ],
+   "series": [
+    {
+     "name": "A",
+     "values": [
+      1,
+      4,
+      9,
+      16,
+      25,
+      36
+     ]
+    },
+    {
+     "name": "B",
+     "values": [
+      3,
+      3,
+      8,
+      12,
+      30,
+      28
+     ]
+    }
+   ],
+   "marker": [
+    "square",
+    5
+   ]
+  },
+  {
+   "id": "scatter-smooth",
+   "kind": "scatter",
+   "scatterStyle": "smoothMarker",
+   "smooth": true,
+   "cats": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   "xs": [
+    -3,
+    -1,
+    0,
+    1,
+    2,
+    4
+   ],
+   "series": [
+    {
+     "name": "f",
+     "values": [
+      9,
+      1,
+      0,
+      1,
+      4,
+      16
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "bubble",
+   "kind": "bubble",
+   "cats": [
+    "",
+    "",
+    "",
+    ""
+   ],
+   "xs": [
+    1,
+    2,
+    3,
+    4.5
+   ],
+   "series": [
+    {
+     "name": "B",
+     "values": [
+      10,
+      25,
+      15,
+      30
+     ],
+     "sizes": [
+      4,
+      9,
+      2,
+      12
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "radar",
+   "kind": "radar",
+   "cats": [
+    "Speed",
+    "Power",
+    "Range",
+    "Cost",
+    "Comfort"
+   ],
+   "series": [
+    {
+     "name": "A",
+     "values": [
+      4,
+      3,
+      5,
+      2,
+      4
+     ]
+    },
+    {
+     "name": "B",
+     "values": [
+      3,
+      5,
+      2,
+      4,
+      3
+     ]
+    }
+   ],
+   "marker": [
+    "circle",
+    5
+   ]
+  },
+  {
+   "id": "radar-filled",
+   "kind": "radar",
+   "radarStyle": "filled",
+   "cats": [
+    "Speed",
+    "Power",
+    "Range",
+    "Cost",
+    "Comfort"
+   ],
+   "series": [
+    {
+     "name": "A",
+     "values": [
+      4,
+      3,
+      5,
+      2,
+      4
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "combo-bar-line-2ax",
+   "kind": "combo",
+   "split": 2,
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Units",
+     "values": [
+      120,
+      150,
+      90,
+      170
+     ]
+    },
+    {
+     "name": "Returns",
+     "values": [
+      20,
+      35,
+      15,
+      25
+     ]
+    },
+    {
+     "name": "Margin %",
+     "values": [
+      0.21,
+      0.24,
+      0.18,
+      0.27
+     ]
+    }
+   ],
+   "val2": {
+    "fmt": "0%"
+   },
+   "title": "Units and margin"
+  },
+  {
+   "id": "combo-bar-line-1ax",
+   "kind": "combo",
+   "split": 1,
+   "secondary": false,
+   "cats": [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun"
+   ],
+   "series": [
+    {
+     "name": "Actual",
+     "values": [
+      5,
+      7,
+      6,
+      9,
+      8,
+      10
+     ]
+    },
+    {
+     "name": "Target",
+     "values": [
+      6,
+      6,
+      7,
+      7,
+      8,
+      8
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ar-col-clustered",
+   "kind": "bar",
+   "script": "arabic",
+   "cats": [
+    "الربع الأول",
+    "الربع الثاني",
+    "الربع الثالث",
+    "الربع الرابع"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    }
+   ],
+   "legend": "b"
+  },
+  {
+   "id": "ar-legend-right",
+   "kind": "bar",
+   "script": "arabic",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "legend": "r",
+   "series": [
+    {
+     "name": "المبيعات",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "التكاليف الإجمالية",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    },
+    {
+     "name": "صافي الربح",
+     "values": [
+      2,
+      2,
+      3,
+      5
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ar-pie-labels",
+   "kind": "pie",
+   "script": "arabic",
+   "cats": [
+    "الشرق الأوسط",
+    "أوروبا",
+    "آسيا والمحيط الهادئ",
+    "أمريكا الشمالية"
+   ],
+   "series": [
+    {
+     "name": "الحصة",
+     "values": [
+      8.2,
+      3.2,
+      1.4,
+      1.2
+     ]
+    }
+   ],
+   "dLbls": {
+    "pos": "bestFit",
+    "pct": true,
+    "val": false,
+    "cat": true
+   },
+   "legend": "r"
+  },
+  {
+   "id": "ar-title-wrap",
+   "kind": "bar",
+   "script": "arabic",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    }
+   ],
+   "size": [
+    4.5,
+    3.2
+   ],
+   "legend": null,
+   "title": "تقرير المبيعات الفصلية للمنطقة الشرقية مقارنة بالعام الماضي"
+  },
+  {
+   "id": "ar-digits-cats",
+   "kind": "bar",
+   "script": "arabic",
+   "cats": [
+    "الربع 1 2024",
+    "الربع ٢ 2024",
+    "Q3 الثالث",
+    "الشهر 12"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "ar-col-reversed",
+   "kind": "bar",
+   "script": "arabic",
+   "cats": [
+    "الربع الأول",
+    "الربع الثاني",
+    "الربع الثالث",
+    "الربع الرابع"
+   ],
+   "series": [
+    {
+     "name": "Series 1",
+     "values": [
+      4.3,
+      2.5,
+      3.5,
+      4.5
+     ]
+    },
+    {
+     "name": "Series 2",
+     "values": [
+      2.4,
+      4.4,
+      1.8,
+      2.8
+     ]
+    }
+   ],
+   "catAx": {
+    "orientation": "maxMin"
+   }
+  },
+  {
+   "id": "g-legend-r-mid",
+   "guess": "side legend cap",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "legend": "r",
+   "series": [
+    {
+     "name": "Northern region sales",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Southern region sales",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Eastern region sales",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Western region sales",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Central region sales",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Overseas sales",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    }
+   ]
+  },
+  {
+   "id": "g-legend-b-12",
+   "guess": "legend grid",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "legend": "b",
+   "series": [
+    {
+     "name": "Region 1",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Region 2",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Region 3",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Region 4",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Region 5",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Region 6",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Region 7",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Region 8",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Region 9",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    },
+    {
+     "name": "Region 10",
+     "values": [
+      1,
+      6,
+      2,
+      7
+     ]
+    },
+    {
+     "name": "Region 11",
+     "values": [
+      4,
+      9,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Region 12",
+     "values": [
+      7,
+      3,
+      8,
+      4
+     ]
+    }
+   ]
+  },
+  {
+   "id": "g-legend-t-long",
+   "guess": "legend grid",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "legend": "t",
+   "series": [
+    {
+     "name": "Product line number 1",
+     "values": [
+      1,
+      4,
+      7,
+      3
+     ]
+    },
+    {
+     "name": "Product line number 2",
+     "values": [
+      3,
+      6,
+      2,
+      5
+     ]
+    },
+    {
+     "name": "Product line number 3",
+     "values": [
+      5,
+      1,
+      4,
+      7
+     ]
+    },
+    {
+     "name": "Product line number 4",
+     "values": [
+      7,
+      3,
+      6,
+      2
+     ]
+    },
+    {
+     "name": "Product line number 5",
+     "values": [
+      2,
+      5,
+      1,
+      4
+     ]
+    },
+    {
+     "name": "Product line number 6",
+     "values": [
+      4,
+      7,
+      3,
+      6
+     ]
+    },
+    {
+     "name": "Product line number 7",
+     "values": [
+      6,
+      2,
+      5,
+      1
+     ]
+    },
+    {
+     "name": "Product line number 8",
+     "values": [
+      1,
+      4,
+      7,
+      3
+     ]
+    }
+   ]
+  },
+  {
+   "id": "g-pie-bestfit-long",
+   "guess": "pie inside wrap",
+   "kind": "pie",
+   "legend": null,
+   "cats": [
+    "Northern Europe and Scandinavia",
+    "Southern Europe",
+    "North Africa and Levant",
+    "Gulf states"
+   ],
+   "series": [
+    {
+     "name": "Share",
+     "values": [
+      8.2,
+      3.2,
+      1.4,
+      1.2
+     ]
+    }
+   ],
+   "dLbls": {
+    "pos": "bestFit",
+    "pct": true,
+    "val": false,
+    "cat": true
+   }
+  },
+  {
+   "id": "g-date-days",
+   "guess": "date axis",
+   "kind": "bar",
+   "cats": [
+    "45292",
+    "45293",
+    "45294",
+    "45295",
+    "45296",
+    "45297",
+    "45298",
+    "45299",
+    "45300",
+    "45301"
+   ],
+   "catNums": [
+    45292,
+    45293,
+    45294,
+    45295,
+    45296,
+    45297,
+    45298,
+    45299,
+    45300,
+    45301
+   ],
+   "catAx": {
+    "tag": "c:dateAx"
+   },
+   "series": [
+    {
+     "name": "Units",
+     "values": [
+      5,
+      8,
+      6,
+      9,
+      12,
+      10,
+      14,
+      13,
+      11,
+      15
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "g-date-gaps",
+   "guess": "date axis",
+   "kind": "line",
+   "cats": [
+    "45292",
+    "45293",
+    "45323",
+    "45324"
+   ],
+   "catNums": [
+    45292,
+    45293,
+    45323,
+    45324
+   ],
+   "catAx": {
+    "tag": "c:dateAx"
+   },
+   "series": [
+    {
+     "name": "Units",
+     "values": [
+      5,
+      8,
+      6,
+      9
+     ]
+    }
+   ],
+   "legend": null,
+   "marker": [
+    "circle",
+    5
+   ]
+  },
+  {
+   "id": "g-date-28",
+   "guess": "date axis",
+   "kind": "bar",
+   "cats": [
+    "45292",
+    "45320",
+    "45348",
+    "45376",
+    "45404",
+    "45432"
+   ],
+   "catNums": [
+    45292,
+    45320,
+    45348,
+    45376,
+    45404,
+    45432
+   ],
+   "catAx": {
+    "tag": "c:dateAx"
+   },
+   "series": [
+    {
+     "name": "Units",
+     "values": [
+      5,
+      8,
+      6,
+      9,
+      7,
+      10
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "g-date-months",
+   "guess": "date axis",
+   "kind": "line",
+   "cats": [
+    "45292",
+    "45323",
+    "45352",
+    "45383",
+    "45413",
+    "45444",
+    "45474",
+    "45505",
+    "45536",
+    "45566",
+    "45597",
+    "45627"
+   ],
+   "catNums": [
+    45292,
+    45323,
+    45352,
+    45383,
+    45413,
+    45444,
+    45474,
+    45505,
+    45536,
+    45566,
+    45597,
+    45627
+   ],
+   "catAx": {
+    "tag": "c:dateAx"
+   },
+   "series": [
+    {
+     "name": "Units",
+     "values": [
+      3,
+      4,
+      6,
+      9,
+      12,
+      15,
+      17,
+      16,
+      13,
+      9,
+      6,
+      4
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "g-date-years",
+   "guess": "date axis",
+   "kind": "bar",
+   "cats": [
+    "42736",
+    "43101",
+    "43466",
+    "43831",
+    "44197",
+    "44562",
+    "44927",
+    "45292"
+   ],
+   "catNums": [
+    42736,
+    43101,
+    43466,
+    43831,
+    44197,
+    44562,
+    44927,
+    45292
+   ],
+   "catAx": {
+    "tag": "c:dateAx"
+   },
+   "series": [
+    {
+     "name": "Units",
+     "values": [
+      5,
+      8,
+      6,
+      9,
+      12,
+      10,
+      14,
+      13
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "g-date-general",
+   "guess": "date axis",
+   "kind": "bar",
+   "cats": [
+    "45292",
+    "45293",
+    "45294",
+    "45295",
+    "45296",
+    "45297"
+   ],
+   "catNums": [
+    45292,
+    45293,
+    45294,
+    45295,
+    45296,
+    45297
+   ],
+   "catFmt": "General",
+   "catAx": {
+    "tag": "c:dateAx"
+   },
+   "series": [
+    {
+     "name": "Units",
+     "values": [
+      5,
+      8,
+      6,
+      9,
+      12,
+      10
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "g-multilevel",
+   "guess": "grouped categories",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4",
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "catXml": "<c:cat><c:multiLvlStrRef><c:f>Sheet1!$A$2:$B$9</c:f><c:multiLvlStrCache><c:ptCount val=\"8\"/><c:lvl><c:pt idx=\"0\"><c:v>Q1</c:v></c:pt><c:pt idx=\"1\"><c:v>Q2</c:v></c:pt><c:pt idx=\"2\"><c:v>Q3</c:v></c:pt><c:pt idx=\"3\"><c:v>Q4</c:v></c:pt><c:pt idx=\"4\"><c:v>Q1</c:v></c:pt><c:pt idx=\"5\"><c:v>Q2</c:v></c:pt><c:pt idx=\"6\"><c:v>Q3</c:v></c:pt><c:pt idx=\"7\"><c:v>Q4</c:v></c:pt></c:lvl><c:lvl><c:pt idx=\"0\"><c:v>2023</c:v></c:pt><c:pt idx=\"4\"><c:v>2024</c:v></c:pt></c:lvl></c:multiLvlStrCache></c:multiLvlStrRef></c:cat>",
+   "series": [
+    {
+     "name": "Units",
+     "values": [
+      5,
+      8,
+      6,
+      9,
+      7,
+      10,
+      8,
+      12
+     ]
+    }
+   ],
+   "legend": null
+  },
+  {
+   "id": "g-trend-linear-bare",
+   "guess": "trendline look",
+   "kind": "scatter",
+   "flavour": "bare",
+   "cats": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   "xs": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "series": [
+    {
+     "name": "Y",
+     "values": [
+      2.1,
+      3.9,
+      6.2,
+      7.8,
+      10.1,
+      12.2
+     ]
+    }
+   ],
+   "marker": [
+    "circle",
+    5
+   ],
+   "scatterStyle": "marker",
+   "serExtra": "<c:trendline><c:trendlineType val=\"linear\"/><c:dispRSqr val=\"0\"/><c:dispEq val=\"0\"/></c:trendline>",
+   "legend": null
+  },
+  {
+   "id": "g-trend-poly-eq",
+   "guess": "trendline label",
+   "kind": "scatter",
+   "cats": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ],
+   "xs": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "scatterStyle": "marker",
+   "lineW": null,
+   "series": [
+    {
+     "name": "Y",
+     "values": [
+      9,
+      4,
+      1,
+      1,
+      4,
+      9
+     ]
+    }
+   ],
+   "marker": [
+    "circle",
+    5
+   ],
+   "legend": null,
+   "serExtra": "<c:trendline><c:trendlineType val=\"poly\"/><c:order val=\"2\"/><c:dispRSqr val=\"1\"/><c:dispEq val=\"1\"/><c:trendlineLbl><c:numFmt formatCode=\"General\" sourceLinked=\"0\"/></c:trendlineLbl></c:trendline>"
+  },
+  {
+   "id": "g-trend-movavg",
+   "guess": "trendline look",
+   "kind": "line",
+   "flavour": "bare",
+   "cats": [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug"
+   ],
+   "series": [
+    {
+     "name": "V",
+     "values": [
+      3,
+      7,
+      4,
+      8,
+      5,
+      9,
+      6,
+      10
+     ]
+    }
+   ],
+   "serExtra": "<c:trendline><c:trendlineType val=\"movingAvg\"/><c:period val=\"2\"/><c:dispRSqr val=\"0\"/><c:dispEq val=\"0\"/></c:trendline>"
+  },
+  {
+   "id": "g-err-stddev",
+   "guess": "error bars",
+   "kind": "bar",
+   "flavour": "bare",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "V",
+     "values": [
+      2,
+      4,
+      6,
+      8
+     ]
+    }
+   ],
+   "serExtra": "<c:errBars><c:errBarType val=\"both\"/><c:errValType val=\"stdDev\"/><c:noEndCap val=\"0\"/><c:val val=\"1\"/></c:errBars>"
+  },
+  {
+   "id": "g-err-stderr",
+   "guess": "error bars",
+   "kind": "bar",
+   "flavour": "bare",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "V",
+     "values": [
+      2,
+      4,
+      6,
+      8
+     ]
+    }
+   ],
+   "serExtra": "<c:errBars><c:errBarType val=\"both\"/><c:errValType val=\"stdErr\"/><c:noEndCap val=\"0\"/></c:errBars>"
+  },
+  {
+   "id": "g-err-fixed-pct",
+   "guess": "error bars",
+   "kind": "bar",
+   "flavour": "bare",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "A",
+     "values": [
+      2,
+      4,
+      6,
+      8
+     ]
+    },
+    {
+     "name": "B",
+     "values": [
+      3,
+      5,
+      7,
+      9
+     ]
+    }
+   ],
+   "serExtra": [
+    "<c:errBars><c:errBarType val=\"both\"/><c:errValType val=\"fixedVal\"/><c:noEndCap val=\"0\"/><c:val val=\"1\"/></c:errBars>",
+    "<c:errBars><c:errBarType val=\"both\"/><c:errValType val=\"percentage\"/><c:noEndCap val=\"0\"/><c:val val=\"10\"/></c:errBars>"
+   ]
+  },
+  {
+   "id": "g-stock-bare",
+   "guess": "stock defaults",
+   "kind": "stock",
+   "flavour": "bare",
+   "cats": [
+    "D1",
+    "D2",
+    "D3",
+    "D4",
+    "D5",
+    "D6"
+   ],
+   "legend": null,
+   "series": [
+    {
+     "name": "Open",
+     "values": [
+      20,
+      23,
+      21.5,
+      22,
+      25,
+      23
+     ]
+    },
+    {
+     "name": "High",
+     "values": [
+      24,
+      25.5,
+      22.5,
+      26,
+      27,
+      24
+     ]
+    },
+    {
+     "name": "Low",
+     "values": [
+      18.5,
+      21,
+      19,
+      21.5,
+      22.5,
+      20
+     ]
+    },
+    {
+     "name": "Close",
+     "values": [
+      23,
+      21.5,
+      22,
+      25,
+      23,
+      20.5
+     ]
+    }
+   ]
+  },
+  {
+   "id": "g-dlbl-cells",
+   "guess": "value from cells",
+   "kind": "bar",
+   "cats": [
+    "Q1",
+    "Q2",
+    "Q3",
+    "Q4"
+   ],
+   "series": [
+    {
+     "name": "V",
+     "values": [
+      2,
+      4,
+      6,
+      8
+     ]
+    }
+   ],
+   "legend": null,
+   "serExtra": "<c:dLbls><c:showLegendKey val=\"0\"/><c:showVal val=\"1\"/><c:showCatName val=\"0\"/><c:showSerName val=\"0\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/><c:extLst><c:ext uri=\"{CE6537A1-D6FC-4f65-9D91-7224C49458BB}\" xmlns:c15=\"http://schemas.microsoft.com/office/drawing/2012/chart\"><c15:showDataLabelsRange val=\"1\"/></c:ext></c:extLst></c:dLbls>",
+   "serExt": "<c:extLst><c:ext uri=\"{02D57815-91ED-43cb-92C2-25804820EDAC}\" xmlns:c15=\"http://schemas.microsoft.com/office/drawing/2012/chart\"><c15:datalabelsRange><c15:f>Sheet1!$D$2:$D$5</c15:f><c15:dlblRangeCache><c:ptCount val=\"4\"/><c:pt idx=\"0\"><c:v>Low</c:v></c:pt><c:pt idx=\"1\"><c:v>Mid</c:v></c:pt><c:pt idx=\"2\"><c:v>High</c:v></c:pt><c:pt idx=\"3\"><c:v>Peak</c:v></c:pt></c15:dlblRangeCache></c15:datalabelsRange></c:ext></c:extLst>"
+  },
+  {
+   "id": "g-pie-leaders",
+   "guess": "leader lines",
+   "kind": "pie",
+   "flavour": "bare",
+   "cats": [
+    "1st Qtr",
+    "2nd Qtr",
+    "3rd Qtr",
+    "4th Qtr"
+   ],
+   "series": [
+    {
+     "name": "Sales",
+     "values": [
+      8.2,
+      3.2,
+      1.4,
+      1.2
+     ]
+    }
+   ],
+   "legend": null,
+   "serExtra": "<c:dLbls><c:dLbl><c:idx val=\"0\"/><c:layout><c:manualLayout><c:x val=\"0.08\"/><c:y val=\"-0.08\"/></c:manualLayout></c:layout><c:showLegendKey val=\"0\"/><c:showVal val=\"1\"/><c:showCatName val=\"0\"/><c:showSerName val=\"0\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/></c:dLbl><c:dLbl><c:idx val=\"1\"/><c:layout><c:manualLayout><c:x val=\"0.08\"/><c:y val=\"0.08\"/></c:manualLayout></c:layout><c:showLegendKey val=\"0\"/><c:showVal val=\"1\"/><c:showCatName val=\"0\"/><c:showSerName val=\"0\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/></c:dLbl><c:dLbl><c:idx val=\"2\"/><c:layout><c:manualLayout><c:x val=\"-0.08\"/><c:y val=\"0.06\"/></c:manualLayout></c:layout><c:showLegendKey val=\"0\"/><c:showVal val=\"1\"/><c:showCatName val=\"0\"/><c:showSerName val=\"0\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/></c:dLbl><c:dLbl><c:idx val=\"3\"/><c:layout><c:manualLayout><c:x val=\"-0.08\"/><c:y val=\"-0.06\"/></c:manualLayout></c:layout><c:showLegendKey val=\"0\"/><c:showVal val=\"1\"/><c:showCatName val=\"0\"/><c:showSerName val=\"0\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/></c:dLbl><c:dLblPos val=\"outEnd\"/><c:showLegendKey val=\"0\"/><c:showVal val=\"1\"/><c:showCatName val=\"0\"/><c:showSerName val=\"0\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/><c:showLeaderLines val=\"1\"/></c:dLbls>"
+  }
+ ],
+ "frames": [
+  {
+   "id": "col-default",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-notitle",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-stacked",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-percent",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "bar-clustered",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "bar-stacked-neg",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-negative",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-thousands",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-currency-dlbl",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-dlbl-ctr-stacked",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-gap50-ovl",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-gap500",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-small-values",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-big-range",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-fixed-scale",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-log",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-reversed",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-long-labels",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-many-cats",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-dates",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-axis-titles",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-legend-top",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-legend-left",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-legend-tr",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-small-frame",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 3.5,
+   "h": 2.4
+  },
+  {
+   "id": "col-tall-frame",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 4,
+   "h": 6.5
+  },
+  {
+   "id": "col-manual-plot",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-manual-outer",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-ticks-cross",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-arabic",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-many-series",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-20-series-legend-r",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-20-series-legend-b",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-long-names-legend-r",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-bare",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-bare-style",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "bar-bare",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-bare-dlbl",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-chartarea-fill",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-text-10",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-default",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-markers",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-months",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-smooth",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-stacked",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-gaps",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-dlbl-top",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-bare",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "area-standard",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "area-stacked",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "area-percent",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "pie-default",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "pie-labels-bestfit",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "pie-outend",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "pie-explode-rot",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "pie-many",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "pie-busy-outend",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "pie-bare",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "doughnut-default",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "doughnut-hole50-2ser",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "scatter-markers",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "scatter-lines",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "scatter-smooth",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "bubble",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "radar",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "radar-filled",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "combo-bar-line-2ax",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "combo-bar-line-1ax",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "ar-col-clustered",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "ar-legend-right",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "ar-pie-labels",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "ar-title-wrap",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 4.5,
+   "h": 3.2
+  },
+  {
+   "id": "ar-digits-cats",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "ar-col-reversed",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-legend-r-mid",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-legend-b-12",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-legend-t-long",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-pie-bestfit-long",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-date-days",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-date-gaps",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-date-28",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-date-months",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-date-years",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-date-general",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-multilevel",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-trend-linear-bare",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-trend-poly-eq",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-trend-movavg",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-err-stddev",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-err-stderr",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-err-fixed-pct",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-stock-bare",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-dlbl-cells",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-pie-leaders",
+   "x": 0.75,
+   "y": 0.75,
+   "w": 8.0,
+   "h": 4.5
+  }
+ ],
+ "anchors": [
+  {
+   "id": "col-default",
+   "sheet": "c1",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-notitle",
+   "sheet": "c2",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-stacked",
+   "sheet": "c3",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-percent",
+   "sheet": "c4",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "bar-clustered",
+   "sheet": "c5",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "bar-stacked-neg",
+   "sheet": "c6",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-negative",
+   "sheet": "c7",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-thousands",
+   "sheet": "c8",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-currency-dlbl",
+   "sheet": "c9",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-dlbl-ctr-stacked",
+   "sheet": "c10",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-gap50-ovl",
+   "sheet": "c11",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-gap500",
+   "sheet": "c12",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-small-values",
+   "sheet": "c13",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-big-range",
+   "sheet": "c14",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-fixed-scale",
+   "sheet": "c15",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-log",
+   "sheet": "c16",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-reversed",
+   "sheet": "c17",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-long-labels",
+   "sheet": "c18",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-many-cats",
+   "sheet": "c19",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-dates",
+   "sheet": "c20",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-axis-titles",
+   "sheet": "c21",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-legend-top",
+   "sheet": "c22",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-legend-left",
+   "sheet": "c23",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-legend-tr",
+   "sheet": "c24",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-small-frame",
+   "sheet": "c25",
+   "w": 3.5,
+   "h": 2.4
+  },
+  {
+   "id": "col-tall-frame",
+   "sheet": "c26",
+   "w": 4,
+   "h": 6.5
+  },
+  {
+   "id": "col-manual-plot",
+   "sheet": "c27",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-manual-outer",
+   "sheet": "c28",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-ticks-cross",
+   "sheet": "c29",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-arabic",
+   "sheet": "c30",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-many-series",
+   "sheet": "c31",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-20-series-legend-r",
+   "sheet": "c32",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-20-series-legend-b",
+   "sheet": "c33",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-long-names-legend-r",
+   "sheet": "c34",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-bare",
+   "sheet": "c35",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-bare-style",
+   "sheet": "c36",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "bar-bare",
+   "sheet": "c37",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-bare-dlbl",
+   "sheet": "c38",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-chartarea-fill",
+   "sheet": "c39",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "col-text-10",
+   "sheet": "c40",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-default",
+   "sheet": "c41",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-markers",
+   "sheet": "c42",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-months",
+   "sheet": "c43",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-smooth",
+   "sheet": "c44",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-stacked",
+   "sheet": "c45",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-gaps",
+   "sheet": "c46",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-dlbl-top",
+   "sheet": "c47",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "line-bare",
+   "sheet": "c48",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "area-standard",
+   "sheet": "c49",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "area-stacked",
+   "sheet": "c50",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "area-percent",
+   "sheet": "c51",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "pie-default",
+   "sheet": "c52",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "pie-labels-bestfit",
+   "sheet": "c53",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "pie-outend",
+   "sheet": "c54",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "pie-explode-rot",
+   "sheet": "c55",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "pie-many",
+   "sheet": "c56",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "pie-busy-outend",
+   "sheet": "c57",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "pie-bare",
+   "sheet": "c58",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "doughnut-default",
+   "sheet": "c59",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "doughnut-hole50-2ser",
+   "sheet": "c60",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "scatter-markers",
+   "sheet": "c61",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "scatter-lines",
+   "sheet": "c62",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "scatter-smooth",
+   "sheet": "c63",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "bubble",
+   "sheet": "c64",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "radar",
+   "sheet": "c65",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "radar-filled",
+   "sheet": "c66",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "combo-bar-line-2ax",
+   "sheet": "c67",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "combo-bar-line-1ax",
+   "sheet": "c68",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "ar-col-clustered",
+   "sheet": "c69",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "ar-legend-right",
+   "sheet": "c70",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "ar-pie-labels",
+   "sheet": "c71",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "ar-title-wrap",
+   "sheet": "c72",
+   "w": 4.5,
+   "h": 3.2
+  },
+  {
+   "id": "ar-digits-cats",
+   "sheet": "c73",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "ar-col-reversed",
+   "sheet": "c74",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-legend-r-mid",
+   "sheet": "c75",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-legend-b-12",
+   "sheet": "c76",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-legend-t-long",
+   "sheet": "c77",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-pie-bestfit-long",
+   "sheet": "c78",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-date-days",
+   "sheet": "c79",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-date-gaps",
+   "sheet": "c80",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-date-28",
+   "sheet": "c81",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-date-months",
+   "sheet": "c82",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-date-years",
+   "sheet": "c83",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-date-general",
+   "sheet": "c84",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-multilevel",
+   "sheet": "c85",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-trend-linear-bare",
+   "sheet": "c86",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-trend-poly-eq",
+   "sheet": "c87",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-trend-movavg",
+   "sheet": "c88",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-err-stddev",
+   "sheet": "c89",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-err-stderr",
+   "sheet": "c90",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-err-fixed-pct",
+   "sheet": "c91",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-stock-bare",
+   "sheet": "c92",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-dlbl-cells",
+   "sheet": "c93",
+   "w": 8.0,
+   "h": 4.5
+  },
+  {
+   "id": "g-pie-leaders",
+   "sheet": "c94",
+   "w": 8.0,
+   "h": 4.5
+  }
+ ]
+}

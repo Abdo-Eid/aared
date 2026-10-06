@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { PALETTE, automaticInk, paintTokens, resolveTheme } from "../src/appearance.js";
+import { PALETTE, automaticInk, paintTokens, resolveTheme, watchSystemTheme } from "../src/appearance.js";
 import { contrastRatio } from "../src/core/color.js";
 
 /** The custom properties a renderer publishes, read back from a stand-in element. */
@@ -42,6 +42,53 @@ describe("theme resolution", () => {
     expect(resolveTheme("light")).toBe("light");
     systemPrefers("light");
     expect(resolveTheme("dark")).toBe("dark");
+  });
+});
+
+describe("watching the system theme", () => {
+  /** A `matchMedia` whose scheme the test flips, counting the listeners still attached. */
+  function controllableScheme(): { flip(): void; attached(): number } {
+    const listeners = new Set<() => void>();
+    (globalThis as { matchMedia?: unknown }).matchMedia = (query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: (_: string, listener: () => void) => void listeners.add(listener),
+      removeEventListener: (_: string, listener: () => void) => void listeners.delete(listener),
+    });
+    return { flip: () => listeners.forEach((listener) => listener()), attached: () => listeners.size };
+  }
+
+  test("calls back on each flip until stopped, and watches the dark-scheme query", () => {
+    const os = controllableScheme();
+    let calls = 0;
+    const stop = watchSystemTheme(() => void calls++);
+    expect(os.attached()).toBe(1);
+    os.flip();
+    os.flip();
+    expect(calls).toBe(2);
+    stop();
+    expect(os.attached()).toBe(0);
+    os.flip();
+    expect(calls).toBe(2);
+  });
+
+  test("two watchers are independent: stopping one leaves the other", () => {
+    const os = controllableScheme();
+    let a = 0;
+    let b = 0;
+    const stopA = watchSystemTheme(() => void a++);
+    watchSystemTheme(() => void b++);
+    stopA();
+    os.flip();
+    expect([a, b]).toEqual([0, 1]);
+  });
+
+  test("a host without matchMedia never flips, and stopping is safe", () => {
+    (globalThis as { matchMedia?: unknown }).matchMedia = undefined;
+    let calls = 0;
+    const stop = watchSystemTheme(() => void calls++);
+    stop();
+    expect(calls).toBe(0);
   });
 });
 

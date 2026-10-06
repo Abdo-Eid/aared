@@ -1,29 +1,57 @@
 import { open, render } from "aared/xlsx";
-import type { XlsxRenderHandle } from "aared/xlsx";
-import type { ZoomValue } from "aared/core";
-import { mountDemoControls, type DemoController } from "../lib/demo-controls.js";
+import { button, label, mountBar, stepZoom, zoomLabel } from "../lib/demo-controls.js";
 import type { DemoOutcome } from "../lib/demo-frame.js";
 
 /**
- * Headless XLSX: open the workbook, render the first sheet, with the
- * built-in sheet tabs so people can move between sheets (or drive it
- * yourself with `viewer.goToSheet(titleOrIndex)`, as the paging bar does).
+ * Headless XLSX: open the workbook, render the first sheet with the built-in
+ * sheet tabs. One render handle moves between sheets itself: the bar calls
+ * `goToSheet()` (the newest call wins) and follows `sheetchange` (a tab click
+ * fires it too).
  * `sheet.read({ range: "A1:M200" })` windows a range without rendering for
  * data access.
  */
 export async function runHeadlessXlsx(stage: HTMLElement, source: string | File): Promise<DemoOutcome> {
   const workbook = await open(source);
   try {
+    const count = workbook.info.count;
     const viewer = await render({
       sheet: workbook.sheets.get(0),
       target: stage,
       appearance: { spreadsheet: { sheetTabs: true } },
     });
-    const unmountControls = mountDemoControls(stage, sheetController(viewer), workbook.info.count);
+
+    // Where the newest click is heading, so quick clicks add up; a sheet tab moves it too.
+    let heading = 0;
+    const go = (delta: number): void => {
+      const to = Math.min(Math.max(heading + delta, 0), count - 1);
+      if (to === heading) return;
+      heading = to;
+      void viewer.goToSheet(to).catch(() => {
+        if (heading === to) heading = viewer.sheet.index; // this sheet failed: step on from the one on screen
+      });
+    };
+    const previous = button("Previous", () => go(-1));
+    const position = label();
+    const next = button("Next", () => go(1));
+    const zoom = label();
+    const update = (): void => {
+      position.textContent = `${viewer.sheet.index + 1} / ${count}`;
+      previous.disabled = viewer.sheet.index <= 0;
+      next.disabled = viewer.sheet.index >= count - 1;
+      zoom.textContent = zoomLabel(viewer.zoom);
+    };
+    viewer.addEventListener("sheetchange", () => {
+      heading = viewer.sheet.index;
+      update();
+    });
+    viewer.addEventListener("zoomchange", update);
+    update();
+    const paging = count > 1 ? [previous, position, next] : [];
+    const unmountBar = mountBar(stage, ...paging, button("-", () => stepZoom(viewer, -0.1), "Zoom out"), zoom, button("+", () => stepZoom(viewer, 0.1), "Zoom in"));
     return {
-      summary: { format: workbook.info.format, units: workbook.info.count },
+      summary: { format: workbook.info.format, units: count },
       dispose: () => {
-        unmountControls();
+        unmountBar();
         viewer.destroy();
         workbook.close();
       },
@@ -32,19 +60,4 @@ export async function runHeadlessXlsx(stage: HTMLElement, source: string | File)
     workbook.close();
     throw error;
   }
-}
-
-/** The one render handle already moves between sheets: `goToSheet()` and `sheetchange`. */
-function sheetController(viewer: XlsxRenderHandle): DemoController {
-  const controller = new EventTarget() as DemoController;
-  viewer.addEventListener("sheetchange", () => controller.dispatchEvent(new Event("indexchange")));
-  viewer.addEventListener("zoomchange", () => controller.dispatchEvent(new Event("zoomchange")));
-  // Live getters: the handle's sheet and zoom change after this is built.
-  return Object.defineProperties(controller, {
-    index: { get: () => viewer.sheet.index },
-    zoom: { get: () => viewer.zoom },
-    scale: { get: () => viewer.scale },
-    goTo: { value: (index: number) => viewer.goToSheet(index) },
-    setZoom: { value: (zoom: ZoomValue) => viewer.setZoom(zoom) },
-  });
 }

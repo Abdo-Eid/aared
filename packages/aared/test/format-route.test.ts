@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_ZOOM, announceUnit, followSheet, forwardRenderEvents, unitRef } from "../src/format-route.js";
+import { announceUnit, assertUnitIndex, followSheet, forwardRenderEvents, unitRef } from "../src/format-route.js";
 import type { AnyDocument } from "../src/format-route.js";
 
 /** Collect the events a target raises, as `[type, detail]`. */
@@ -42,9 +42,28 @@ describe("announcing a unit", () => {
   });
 });
 
-describe("default zoom", () => {
-  test("a slide opens whole, a sheet at 100% like Excel, a document to the width", () => {
-    expect(DEFAULT_ZOOM).toEqual({ pptx: "fit-page", xlsx: 1, docx: "fit-width" });
+describe("checking a unit index", () => {
+  const codeOf = (run: () => void): string | undefined => {
+    try {
+      run();
+    } catch (error) {
+      return (error as { code?: string }).code;
+    }
+    return undefined;
+  };
+
+  test("a whole number outside the document is not-found, below 0 included; inside passes", () => {
+    expect(codeOf(() => assertUnitIndex("aared/test", 0, 3))).toBeUndefined();
+    expect(codeOf(() => assertUnitIndex("aared/test", 2, 3))).toBeUndefined();
+    expect(codeOf(() => assertUnitIndex("aared/test", 3, 3))).toBe("not-found");
+    expect(codeOf(() => assertUnitIndex("aared/test", -1, 3))).toBe("not-found");
+  });
+
+  test("anything that is not a whole number is invalid-argument, in the caller's scope", () => {
+    for (const index of [1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(codeOf(() => assertUnitIndex("aared/test", index, 3))).toBe("invalid-argument");
+    }
+    expect(() => assertUnitIndex("aared/element", 0.5, 3)).toThrow("aared/element: a unit index must be a whole number");
   });
 });
 

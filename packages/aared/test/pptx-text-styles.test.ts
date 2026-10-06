@@ -30,10 +30,8 @@ describe("PPTX automatic text color", () => {
     const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
     const deck = await indexPptx(pkg);
     const slide3 = await parsePptxSlide(pkg, deck, 2);
-    // History: these slides were dark (`#3A4961`) and the titles resolved
-    // white; re-saving normalized all backgrounds to white, so Automatic is
-    // now black — matching native PowerPoint on the file as it stands. The
-    // dark path stays pinned by the `automaticTextColor` unit test above.
+    // The slides are white, so Automatic is black, as in native PowerPoint.
+    // The dark path is pinned by the `automaticTextColor` unit test above.
     expect(slide3.background).toMatchObject({ kind: "solid", color: "#FFFFFF" });
     // The title run carries only a text outline (`a:ln`) — no fill. The
     // model must carry an explicit resolved color so the renderer never
@@ -250,20 +248,5 @@ describe("PPTX run font styles", () => {
       { links: new Map([["rId9", "https://example.com/x"]]) },
     );
     expect(body.paragraphs[0]!.runs[0]!.hyperlink).toBe("https://example.com/x");
-  });
-
-  test("ea and sym typeface slots parse", async () => {
-    const theme = await themeOf();
-    const body = parseTextBody(
-      parseXml(
-        `<a:txBody xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:bodyPr/><a:lstStyle/>` +
-          `<a:p><a:r><a:rPr><a:ea typeface="Yu Gothic"/><a:sym typeface="Symbol"/></a:rPr><a:t>X</a:t></a:r></a:p>` +
-          `</a:txBody>`,
-      ),
-      theme,
-    );
-    const run = body.paragraphs[0]!.runs[0]!;
-    expect(run.eastAsianTypeface).toBe("Yu Gothic");
-    expect(run.symbolTypeface).toBe("Symbol");
   });
 });

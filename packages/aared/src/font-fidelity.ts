@@ -67,10 +67,15 @@ export async function awaitDocumentFonts(model: unknown, timeoutMs = FONT_LOAD_T
       }
     }
   }
-  await Promise.race([
-    Promise.allSettled(loads).then(() => undefined),
-    new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      Promise.allSettled(loads).then(() => undefined),
+      new Promise<void>((resolve) => { timer = setTimeout(resolve, timeoutMs); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export interface FontFidelity {
@@ -101,7 +106,7 @@ function measuredWidth(fontSpec: string, sample: string): number {
  * something real — the requested name itself, or a delivered substitute's
  * alias — or silently fell to the browser's own unrelated generic default.
  * Measured, not asked: `document.fonts.check()` cannot answer this at all —
- * verified empirically (`tools/probe/font-metrics/`), it reports `true` even
+ * verified empirically (`tools/font-calibration/`), it reports `true` even
  * for a family name that exists nowhere, apparently whenever *anything*
  * could paint the fallback stack, not whether the named family specifically
  * resolved. This instead compares a rendered width against a

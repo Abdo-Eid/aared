@@ -29,6 +29,8 @@ export interface XlsxWorkbookIndex {
   /** True when `workbookPr date1904="1"` (legacy Mac date system). */
   date1904: boolean;
   theme: DrawingTheme;
+  /** The package carries a VBA project (`xl/vbaProject.bin`). */
+  hasMacros: boolean;
 }
 
 /** Fully resolved read context for `parseXlsxSheet()`. */
@@ -73,10 +75,12 @@ export async function indexXlsx(pkg: OpcPackage, signal?: AbortSignal): Promise<
   const date1904 = properties !== undefined && (attr(properties, "date1904") === "1" || attr(properties, "date1904") === "true");
   const theme = await readDrawingTheme(pkg, signal);
   throwIfAborted(signal);
-  return { workbookPart: part, sheets: references, date1904, theme };
+  const hasMacros = pkg.partNames().some((name) => name.toLowerCase() === "xl/vbaproject.bin");
+  return { workbookPart: part, sheets: references, date1904, theme, hasMacros };
 }
 
-function stringItemText(item: XmlElement): string {
+/** The text of a shared-string `<si>` or an inline-string `<is>`: plain `<t>` and rich-text `<r><t>` runs concatenated. */
+export function stringItemText(item: XmlElement): string {
   // Plain `<t>` items and rich-text `<r><t>` runs concatenate; whitespace is
   // preserved because the parser keeps character data verbatim.
   let out = "";

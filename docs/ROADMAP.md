@@ -9,12 +9,14 @@ Keep it current: finished work leaves this file (the DECISION_LOG entry is
 its record), and a difference settled as accepted or by design moves to
 [ARCHITECTURE.md § Known limits](ARCHITECTURE.md#known-limits).
 
-**Status (Sep 2026): the API is complete; fidelity and pre-publish gates
+**Status (Oct 2026): the API is complete; fidelity and pre-publish gates
 remain.** All three formats ship through their entrypoints (`aared/pptx`,
 `aared/xlsx`, `aared/docx`: `open()` → `slides`/`sheets`/`sections`/`headings`
 → `read()` → `render()` → `destroy()` → `close()`, typed `AaredError`,
 `MediaCollection`, theme-only `Appearance`), and through the embed layers
-(`aared/preview`, `aared/react`, `<aared-viewer>`). Content is
+(`aared/preview`, `aared/react`, `<aared-viewer>`). Each format entry also offers
+`preview({ source, target })` with shared navigation, search and one `destroy()`;
+its consumer build omits sibling renderers (§88). Content is
 source-faithful in every theme; unsupported geometry and fills paint marked
 fallbacks, never silent approximations. DOCX layout mode paginates from
 DOM-measured blocks with Word's own numbers: close to Word, not a Word-exact
@@ -24,25 +26,21 @@ Gates (AGENTS.md § Testing rule): typecheck, build, unit tests,
 `docs-parity`, the PPTX/XLSX/DOCX DOM and visual tests, and `bench-measure`
 all pass. One is open: **PPTX visual review sign-off** (same-size PowerPoint
 and aared captures, the Arabic deck with a table included), a `1.0.0` gate.
-No CI is wanted, deliberately; `bench-measure` runs rarely (`--calibrate`
-first on an idle machine, about 30 minutes a pass).
+No CI is wanted, deliberately; `bench-measure` runs rarely, on mains power
+(§60).
 
 ## Next up
 
 In order:
 
-1. **Pre-publish:** settle the resolved-model contract tier ("Before first
-   publish" below), then the first release (checklist there).
-2. **PPTX visual review sign-off.**
-3. **DOCX picture placement:** a top-and-bottom picture after a paragraph
-   whose picture still hangs, and the lowest rows beside a through-wrapped
-   picture (limits table); both visible, both need a Word probe of the rule.
-4. **DOCX residuals:** block images and footnotes still estimate their
-   pagination height; page-3 drift (per-font single-line metrics, block-image
-   spacing); promote the anchor-comparison script into `tools/word-render`.
-5. **Charts, in isolation** (the maintainer's): size and performance first;
-   the quick-fix route is under "Not yet scheduled".
-6. **Final polish pass:** confirmed defects only, then the full gate and docs.
+1. **Pre-publish:** settle the resolved-model contract tier, then the first
+   release ("Before first publish" below).
+2. **PPTX visual review sign-off** (the open gate above).
+3. **DOCX table styles** (first capability below): the largest difference a
+   Word reader sees.
+4. **DOCX, visible differences:** the numbered-heading marker, stale saved
+   table-of-contents results, and the two picture-placement cases (both need a
+   Word probe of the rule). Pagination residuals follow (see the DOCX gaps).
 
 ## Open gaps (not blocking pre-release)
 
@@ -50,21 +48,325 @@ Known differences still meant to be closed. Differences settled as accepted
 or by design are not here: they are in
 [ARCHITECTURE.md § Known limits](ARCHITECTURE.md#known-limits).
 
-| Format | Gap | Status |
-|---|---|---|
-| PPTX | Charts: fixed-template drawing (no chart model) — value axis always 0 to the data maximum in four steps; tick marks, authored text sizes, legend position, `gapWidth`, number formats and manual layout ignored; stacked/percent bars draw clustered, combo charts keep one type; area, scatter, radar and chartex show a placeholder. Charts on layouts and masters are not painted | Deferred — the maintainer's, in isolation |
-| PPTX | WordArt preset warps (`a:prstTxWarp`) paint the text flat, marked `data-aared-text-warp`; the text is all there. The four curve presets (`textArchUp`, `textArchDown`, `textCircle`, `textButton`) could follow an SVG `textPath` as real text (a PowerPoint probe for the arc, then the painter); the other presets reshape the letters and have no DOM form. Low priority (Sep 2026): visible when it occurs, but warped WordArt is rare in current decks and unseen in Arabic ones; PPTX only, since DOCX does not parse text boxes | Deferred — pick up when a real deck needs it |
-| PPTX | Master and layout graphics (a master logo, `showMasterSp="0"` on a layout or slide, a picture background) match PowerPoint on a probe (§54) but no fixture carries them, so the suite does not pin them: three `test.todo` in `pptx-layout.test.ts` | Open — needs master content added to a coverage deck |
-| XLSX | `rotation` missing from cell style model | Deferred |
-| XLSX | Border styles reach the renderer as raw Excel names (mapped in `xlsx/index.ts`), where DOCX resolves its borders in core. Moving them changes the public `XlsxCellStyleModel`, so it waits on the model-contract decision | Deferred |
-| XLSX | First `read()` is unbounded — full sheet parsed then sliced; scroll-driven re-reads deferred | Deferred |
-| DOCX | Layout pagination measures top-level blocks and table rows in the DOM (§21, §44); block images and footnotes still estimate. Table rows never split, and header rows (`w:tblHeader`) do not repeat | Open — estimates in "Next up" |
-| DOCX | Anchored pictures (§55): a wrapped picture positioned vertically from the page or a margin starts at its paragraph's top; paragraphs after a picture with text on both sides do not wrap around what of it remains (they start below it); a top-and-bottom picture right after a paragraph whose picture still hangs is pushed below that picture (about 14px on `docx-coverage.docx` page 5); with a through wrap Word keeps a wider hole on the lowest rows than the polygon at the line's height, so it wraps about a word more there (probe case 8); VML pictures (`w:pict`) have no placement | Open — the band and through-wrap rows are in "Next up" |
-| DOCX | No line grid (`w:docGrid w:type="lines"`): aared counts a line as 12pt, right only with the grid off (§47) | Deferred |
-| DOCX | Text boxes are not parsed (their text is lost); search also excludes headers and footers | Open — not scheduled |
-| DOCX | Table ARIA missing `role="row"` children — non-conforming (PPTX too) | Deferred |
-| DOCX | Element renders flow-only — no layout-mode attribute | Deferred |
-| Cross | `system` theme: `<aared-viewer>` listens for OS flips; `preview()`/hooks rely on the host re-forwarding appearance | Deferred |
+### DOCX
+
+- **Numbered heading:** a numbered paragraph with a heading style takes its
+  number in the sequence (§77) but its marker is not painted. Reproduced on
+  `tools/word-render/out/numbered-heading-probe/word-source.docx`: Word reports
+  `ListString` `1.` for its Heading 1 paragraph and paints `1. Project Overview`;
+  aared paints `Project Overview`. The Word-authored list places the marker at
+  the paragraph start and the heading text after the list's marker tab. The
+  paired page-2 captures are in `tools/word-render/out/word-source/`. The earlier
+  coverage capture was not a valid test because its numeral was typed into the
+  heading text. A heading is not a list item in the model, so painting its
+  computed marker needs data on the heading node. *Open; visible on numbered-
+  heading documents.*
+- **DOCX table-of-contents fields:** Word's page-1 export of the updated
+  `numbered-heading-probe/word-source.docx` includes `5. Delivery tracker /
+  متابعة التسليم` and `الإجمالي`; aared's page 1 still shows the earlier saved
+   TOC result without either entry. `tools/office-export.ts --format docx` updates fields
+  in Word's private read-only export copy, while aared reads the field's cached
+  result from the DOCX and only recalculates live `PAGE`/`NUMPAGES` fields.
+  Refresh supported TOC entries from the parsed body outline (including the
+  document's TOC switches and level range), or define a faithful stale-cache
+  policy. The updated Word/aared page-1 pair is in `tools/word-render/out/word-source/`.
+  *Open; visible when headings change after the TOC cache was last saved.*
+- **Anchored pictures (§55):** a wrapped picture positioned vertically from the
+  page or a margin starts at its paragraph's top; paragraphs after a picture
+  with text on both sides start below what remains of it; a top-and-bottom
+  picture right after a paragraph whose picture still hangs is pushed below it
+  (about 14px on `docx-coverage.docx` page 5); with a through wrap Word keeps a
+  wider hole on the lowest rows than the polygon at the line's height, so it
+  wraps about a word more there (probe case 8); VML pictures (`w:pict`) have no
+  placement. The October 6 paired capture also shows accumulated vertical
+  spacing and wrapping differences on page 5, reaching about 54px at a unique
+  text anchor near the bottom; keep that review with these picture-placement
+  cases. *Open; the band and through-wrap cases need a Word probe.*
+- **Word comparison diagnostics:** `tools/word-render/compare-pagination.ts`
+  runs on Windows, but pairs repeated tokens by sorted occurrence without
+  surrounding context. Different PDF/browser tokenization can shift those
+  pairs and produce false page mismatches or missing/extra text reports. Improve
+  matching and expose ambiguous pairs before using the report as an automatic
+  fidelity check.
+  *Open tooling gap; paired images and unambiguous anchors remain the evidence.*
+- **DOCX content across pages:** tables already break between rows, but a row
+  and a paragraph/list block remain indivisible; long content can exceed a page.
+  `w:tblHeader` rows are not repeated. Word permits row continuation by default
+  (subject to row/style rules) and repeats contiguous leading header rows.
+  Treat row/paragraph continuation and repeated headers as a separate,
+  reader-visible capability, with a real fixture case before expanding scope.
+  *Open.*
+- **Text-box autofit:** DrawingML and VML text boxes use their authored frame
+  and text size; modes that shrink text or grow the frame remain unimplemented.
+  Parsing, browser text rendering and search are delivered (§82–84).
+- **Office 2016 chart:** a chart in a DOCX reads its `cx:lvl` cache, tested on
+  synthetic parts only; `docx-coverage.docx` holds none. *Open: paste one into
+  the document through Word, as was done for the PPTX deck.*
+
+### PPTX
+
+- **WordArt preset warps** (`a:prstTxWarp`) paint the text flat, marked
+  `data-aared-text-warp`; the text is all there. The four curve presets
+  (`textArchUp`, `textArchDown`, `textCircle`, `textButton`) could follow an
+  SVG `textPath` as real text (a PowerPoint probe for the arc, then the
+  painter); the other presets reshape the letters and have no DOM form. Rare in
+  current decks, unseen in Arabic ones. This gap covers PPTX WordArt.
+  *Deferred: pick up when a real deck needs it.*
+- **Group residuals:** group-level effects and `grpFill` inheritance are
+  unresolved. *Open, not scheduled.*
+- Path fill modes: see "Capabilities not built".
+
+### XLSX
+
+- **Conditional formats:** `top10`, `aboveAverage`, `iconSet` and `timePeriod`
+  rules, and `formula` bounds are reported in the sheet's notices but not
+  evaluated. Investigated, not started — read
+  [XLSX conditional formats](#xlsx-conditional-formats) before starting. *Open.*
+- **`rotation`** is missing from the cell style model. *Deferred.*
+- **Border styles** reach the renderer as raw Excel names (mapped in
+  `xlsx/index.ts`), where DOCX resolves its borders in core. Moving them
+  changes the public `XlsxCellStyleModel`, so it waits on the model-contract
+  decision. *Deferred.*
+- **First `read()` is unbounded:** the full sheet is parsed then sliced;
+  scroll-driven re-reads are deferred. *Deferred.*
+
+### Cross-format
+
+- **Untrusted input (§72), still unbounded:** the zip's total inflated bytes and
+  compression ratio (a 1000:1 entry opens, about 630 MB), 100 MB of repeated
+  entities (4 s, 2 GB), the "download from URL" path's size, and
+  `gridSpan`-style loops in code not yet audited. Each is a budget or a typed
+  error away; none is a small-file freeze. *Open, S each.*
+- **Chart border:** an unstyled chart's border is per app (PowerPoint none,
+  Excel a hairline; aared draws Excel's everywhere); a per-format default needs
+  a Word probe first. *Open, small.*
+- **Table ARIA** is missing `role="row"` children, non-conforming (PPTX and
+  DOCX). *Deferred.*
+
+### Tools and bench
+
+- **Chart oracle (94 cases, §74):** the few rules still assumed (ARCHITECTURE
+  Known limits, Charts) need cases of their own; the 2016 types, stock and
+  of-pie are compared with Excel's exports by eye, not scored; the XLSX route
+  and devices without Office's fonts are not scored; a data table for screen
+  readers is not offered. *Open.*
+- **Generated tables** not checked in `bun test`: `core/chart/metrics-data.ts`
+  needs Python and Windows fonts (`tools/chart-oracle/gen_metrics.py`); only
+  `core/presets.ts` has a drift test (§72). *Open: a `--check` mode in
+  `gen_metrics.py`, run by hand.*
+- **Bench:** pptx-browser, Extend and Apollo joined after the last `--all` run:
+  they have download sizes but no open, navigation or memory rows. *Open:
+  measure once, or leave out.*
+
+### Capabilities not built (each its own piece of work)
+
+Two differences are missing features, not defects. Each would be one
+capability under AGENTS.md "Capability delivery": none is started, and none
+lives in Known limits (they are meant to be closed, not accepted).
+
+**DOCX table styles.** A table's `w:tblStyle` is not read, so a table that
+Word draws from a style (Table Grid, Grid Table and List Table: banded rows, a
+shaded or bold header row, style borders, the `w:tblLook` switches) paints
+plain. The tables in `docx-coverage.docx` carry their formatting directly, so
+the suite does not show it.
+- *Layers:* `core/docx/styles.ts` (the table style, its `w:basedOn` chain and
+  `w:tblStylePr` regions), `core/docx/document.ts` (resolve regions per cell
+  under direct formatting), the model's existing cell fields (no new
+  renderer). The PPTX route already does this for `a:tblStyle` (§54,
+  ARCHITECTURE "Table styles"); share what two formats need.
+- *Proven by:* a Word probe first (precedence of style regions against direct
+  formatting; how a band counts around a merged cell or header row), then a
+  table styled through Word's COM added to `docx-coverage.docx` (needs
+  sign-off), a parser test, and a layout-mode comparison with
+  `tools/word-render/`.
+
+**PPTX path fill modes (`darken`, `darkenLess`, `lighten`, `lightenLess`).**
+A preset's sub-path can carry these, but the geometry engine keeps only
+whether a sub-path is filled and stroked (`GeometryPaths`), so the shaded faces
+of a cube, can or bevel paint in the shape's flat fill. Visible on those
+shapes, rare in decks.
+- *Layers:* `scripts/compile-presets.ts` and `core/presets.ts` (carry the mode
+  per sub-path), `core/drawingml-engine.ts`, the model's geometry result, and
+  `pptx/index.ts` plus `fill-paint.ts` (a shaded copy of the fill, through the
+  shared painter). Only PPTX has presets.
+- *Proven by:* a PowerPoint probe of one shape per mode (Office's exact
+  amounts), an engine test against it, and a paired capture.
+
+## XLSX conditional formats
+
+*Investigated Oct 2026, not started. The findings below are verified and worth
+keeping; the choices are not made, and this item is not settled.*
+
+The rule kinds Excel evaluates from a cell's cached value that aared reports in
+`SheetModel.unsupported` instead of painting: `top10`, `aboveAverage`,
+`iconSet` and `timePeriod`, and a `formula` colour-scale or data-bar bound. What
+already paints is unchanged: `cellIs`, the four text rules, `duplicateValues`,
+`uniqueValues`, colour scales and data bars, with `stopIfTrue` and priority
+order (`core/xlsx/sheet.ts`, `EVALUATED_RULES` at `sheet.ts:432`).
+
+**A correction to the earlier record.** The old wording of this item said
+formula bounds "never will be" evaluated, on view-only grounds. That is wrong as
+stated, and the distinction matters:
+
+- **A `formula` bound naming a cell is readable, so it is not a "never".** That
+  is only true of a bound containing a function or arithmetic. `<cfvo
+  type="formula" val="$A$1"/>` is a bare cell reference: read that cell's cached
+  `<v>`, exactly as aared already does for a cell formula, and no formula engine
+  is involved. `scaleBound` (`sheet.ts:393`) currently rejects the whole
+  `type="formula"` case through one `default:` arm, so today it is all-or-nothing
+  by omission, not by policy.
+- **`expression` has no shortcut in the file.** That is a fact about the format,
+  not a decision — see the evidence below, and the cost study in "Open
+  decisions" before treating it as closed.
+
+**Evidence, already gathered.** Re-deriving any of this is wasted work:
+
+- *The file stores no outcome.* Unzipped `fixtures/xlsx-coverage.xlsx`: a
+  `conditionalFormatting` block carries the condition only, and `dxfId` names a
+  **style** in the styles part, not a result. The `x14` extension, where Excel
+  duplicates data-bar rules, duplicates only bounds and colours
+  (`x14:cfvo`, `x14:negativeFillColor`). There is no per-cell "matched" flag
+  anywhere — Excel recomputes which cells match on every load. The contrast that
+  settles it: a cell formula stores both sides, `<f>SUM(F5:F16)</f><v>31.4</v>`,
+  which is why aared can show formula results with no engine. So "use Excel's
+  cached value" works wherever the *inputs* are the cell's own values, and there
+  is nothing to read when the condition is an arbitrary formula.
+- *`expression` has no shortcut in the file.* It is the one rule type where the
+  `<formula>` is the entire condition, with no companion attribute carrying the
+  meaning. Compare `containsText`, which works only because Excel duplicates its
+  meaning into `cfRule/@text`, so `matchesText` (`sheet.ts:375`) evaluates from
+  `@text` and ignores the `<formula>NOT(ISERROR(SEARCH(…)))` sitting beside it.
+  There is no equivalent duplicate for `expression`, so the only way in is
+  evaluating the formula itself — the open cost study in "Open decisions", not a
+  settled refusal. Two constraints any such evaluator must respect: it must
+  never be *wrong* (aared does not guess — a wrong colour is worse than none),
+  and a bounded subset is what makes it tractable, since arbitrary workbook
+  formulas reach named ranges, tables and volatile functions.
+- *`CT_CfRule` (ECMA-376 18.3.1.10), attribute defaults:*
+  `aboveAverage` **true**, `percent` **false**, `bottom` **false**,
+  `equalAverage` **false**, `stopIfTrue` **false**; `rank` is `unsignedInt`,
+  `stdDev` is `int`; up to three `<formula>` children. `top10`'s N is the
+  `rank` attribute, and `percent` says whether `rank` is a percentage or a count
+  (MS-OI29500) — read `rank`, fall back to `<formula>[0]` if a file omits it.
+- *`ST_IconSetType`: 17 base families* (`3Arrows`, `3ArrowsGray`, `3Flags`,
+  `3Signs`, `3Symbols`, `3Symbols2`, `3TrafficLights1`, `3TrafficLights2`,
+  `4Arrows`, `4ArrowsGray`, `4Rating`, `4RedToBlack`, `4TrafficLights`,
+  `5Arrows`, `5ArrowsGray`, `5Quarters`, `5Rating`), plus four that only the
+  `x14` extension adds (`3Stars`, `3Triangles`, `5Boxes`, `NoIcons`).
+- *`CT_IconSet` (18.3.1.49):* `iconSet`, `showValue`, `reverse`, `percent`
+  attributes; thresholds in `<cfvo>` children. Note there are **two** unrelated
+  `percent` attributes — `cfRule@percent` is `top10` only, `iconSet@percent`
+  says the icon thresholds are `percent` rather than `num`.
+- *`ST_TimePeriod`:* eleven values — `today`, `yesterday`, `tomorrow`,
+  `last7Days`, `next7Days`, `lastWeek`, `thisWeek`, `nextWeek`, `lastMonth`,
+  `thisMonth`, `nextMonth`. No `<formula>` child.
+- *Date detection already exists:* `isDateFormatCode`
+  (`core/xlsx/numberfmt.ts:199`), which returns per-section date flags for a
+  format code. Only the serial→date conversion and the clock are missing.
+
+**Open decisions.** Not settled; pick these when the item is picked up.
+
+- *Icon sets: draw one set, map the rest onto it.* The thresholds are free
+  either way (`scaleBound` reused unchanged), so the whole question is how many
+  shapes to draw. Leading idea, from the maintainer: draw a small canonical set
+  and **map every undrawn family onto the closest drawn one** rather than
+  reporting it, so an icon set always paints something. That is defensible
+  because the families differ in shape, not in meaning — all of them encode the
+  same one-to-five tiers, so painting `3Flags` as the three symbols carries the
+  same reading Excel gives it. Still open: which families form the canonical
+  set, what the mapping is for each of the rest (including the four `x14`-only
+  ones), and whether a mapped icon should be reported at all or silently
+  substituted. If mapping turns out to mislead — a shape carrying an unintended
+  association — the fallback is to report the rule instead. Whatever is drawn
+  should be recognisable at a glance and checked against a paired Excel capture,
+  per AGENTS.md "Good enough beats perfect". The grey arrow variants are the
+  coloured geometry in grey, so they are close to free once their coloured
+  counterparts are drawn. All 17 remains a legitimate option.
+- *Whether `timePeriod` follows the clock.* It depends on the reader's date, so
+  the same file would paint differently depending on when it is opened. Excel
+  re-evaluates these rules on every load, so matching it is arguably the
+  faithful choice; the counter-argument is that aared is otherwise deterministic
+  for the same bytes. If it is evaluated, the clock should be injected into
+  `parseXlsxSheet` so `core` stays headless and tests pin a fixed date, and the
+  dependence stated in the API page and Known limits. Leaving it unsupported and
+  reporting it is also defensible; so is deferring until a real workbook with a
+  date-based rule shows up.
+- *The formula engine: study its cost before ruling anything out.* `expression`
+  rules and a `formula` bound containing a function cannot be read from the file
+  (evidence above), so today they are reported and the reasoning stops at rule
+  5. That is a stance, not a measurement, and rule 5 is about not
+  recalculating a document — evaluating a conditional rule is arguably a
+  different act. Before closing this item for good, the open work is a **cost
+  study**: what a minimal evaluator would cost (bundle weight in the Worker, the
+  parse surface, the maintenance of a second expression language next to the
+  number-format parser), and **where it would earn its keep** — which real rule
+  shapes it would actually serve, against `expression` rules in the wild and
+  against formula bounds like `PERCENTILE($B$2:$B$50,0.9)`. Only then decide
+  whether to build it, and if not, make the notice say *why* rather than just
+  that the rule is unevaluated. `timePeriod` is a related question in miniature:
+  `TODAY()` is a clock-dependent function, so it sits on the same boundary.
+  Do not treat "view-only" as the last word on this without doing the study.
+
+**What building it means.** `top10`, `aboveAverage` and `timePeriod` are one
+coherent capability, plus the `formula`-bound fix: a matcher each beside
+`matchesCellIs` (`sheet.ts:350`), over `numericValuesIn` (`sheet.ts:434`),
+reusing the existing `differential` fill/font path, added to `EVALUATED_RULES` —
+no model change, no renderer change, no new notice. The bound fix is smaller
+still: resolve `val` through the existing `parseRef`
+(`core/xlsx/range.ts:60`), read that cell from the grid, and give `scaleBound` a
+resolver parameter. `timePeriod` adds a serial→date conversion over the
+1899-12-30 epoch and a `today` parameter on `parseXlsxSheet`, skipping non-date
+cells.
+
+Icon sets are a second capability, the only one needing a model and renderer
+change. The thresholds are the identical computation as a colour scale, so
+`scaleBound` is reused unchanged across every family and that part is free; the
+cost is drawing — a `cell.conditional.icon` field, then an SVG in
+`appendCellContent` (`xlsx/index.ts:591`) following the `DATA_BAR` pattern:
+absolutely positioned at the inline-start so a RTL sheet mirrors it, text lifted
+with `CELL_TEXT_OVER`, honouring `showValue` and `reverse`. `isEmptyCell`
+(`xlsx/index.ts:587`) must learn that an icon counts as content, or icon-only
+cells would paint nothing.
+
+**Before any of it, measure.** A ground-truth probe through Excel's COM object
+model on a scratch workbook, then `tools/probe/_common/strip_label.py`. This is measurement, not
+investigation: it settles the cases where the spec and Office diverge, so no
+matcher is written against a guess. Open questions: **top10** — how a tie at the
+cut-off is broken (which of the equal cells Excel paints), whether `percent`
+rounds the count down or up, and whether Excel writes `rank` or a `<formula>`.
+**aboveAverage** — which cells count toward the mean (blanks and text
+excluded?), the sign handling of `stdDev`, `equalAverage`. **timePeriod** — does
+`lastWeek` start on Sunday, does `last7Days` include today, where do month
+boundaries fall. **iconSet** — the XML Excel actually writes, and a rendering
+reference per drawn family.
+
+**Proven by:** that probe; `xlsx-conditional.test.ts` reading real parsed cells,
+plus a renderer test that re-reads the DOM for the icon overlay; each new test
+confirmed to **fail** with its feature switched off, as the theme work did (§81);
+`bun run typecheck`, `bun test`, `bun run build` with the Latin-1 `dist` test,
+and the xlsx visual suites; and a paired Excel capture for the new fixture and
+the drawn icon families.
+
+**The fixture gap is part of this.** The new rules go into the existing
+`fixtures/xlsx-coverage.xlsx` through COM — the sanctioned path per
+`fixtures/README.md`, so no new fixture file and no sign-off. That is what
+replaces the injected XML: it is the reason the existing cases are pinned on
+hand-written XML, and closing it is what makes the rest trustworthy.
+`tools/excel-render` then produces the native A4 pages for side-by-side review,
+including the three-colour-scale capture that does not exist yet. Docs to update
+alongside: ARCHITECTURE *Format rules* and *Known limits* (whatever the icon
+decision leaves undrawn, and the `timePeriod` clock if it follows the clock), a
+DECISION_LOG entry carrying the probe findings and blast radius, api.mdx's
+`conditional` overlay prose, and `fixtures/README.md`.
+
+**Stop condition.** The probe is expected to contradict at least one reading
+above — top-10 tie-breaking is the likeliest. Treat what it finds as the answer,
+not as a problem with the probe, and record it in the DECISION_LOG entry rather
+than encoding the spec's version of it.
+
+**Not part of this item.** The `x14` data-bar extras visible in the coverage
+fixture (negative-value fill, axis colour, gradient, border, direction) are
+separate residue.
 
 ## Before first publish (open decisions)
 
@@ -73,10 +375,8 @@ later. AGENTS.md "Pre-release breaking changes" expires at first publish, so
 resolve each first. Delete an entry (and record the outcome in DECISION_LOG)
 when it is settled.
 
-The name is taken: `@aared/viewer@0.0.0` on npm is a name-holding placeholder
-(README only; org `aared`, owner `mego0eid`; §42, git tag `v0.0.0`). The
-repo's packages are still named `aared` / `aared-fonts`, `private: true`,
-`0.0.0`; nothing of the real code is public.
+`@aared/viewer@0.0.0` on npm only holds the name (§42); nothing of the real
+code is public.
 
 ### Release checklist (`0.1.0`), in one piece of work
 
@@ -104,184 +404,60 @@ repo's packages are still named `aared` / `aared-fonts`, `private: true`,
 
 **Status: open. Not decided.**
 
-`read()` returns the parser's resolved models, and `aared/core` exports about
-60 types describing them (`ShapeModel`, `TextRunModel`, `TableModel`,
-`SheetRangeModel`, `CellModel`, `DocxParagraphNode`, …), documented under
-"Resolved models" in the API reference. That makes the parser's output a
-public contract: after publish, renaming a field, splitting a node type,
-changing a unit, or making a field required breaks every consumer that reads
-the models. The parser is still moving — the fill work replaced
-`ImageBackgroundModel` with `PictureFillModel` (§28), and DOCX pictures traded
-`float` for `anchor` and `floats` (§55) — exactly the reshaping a stability
-promise would forbid.
-
-`render()` accepts a handle *or* a model, and `read()` is the seam the
-renderers themselves consume. That justifies `read()` existing, not a
-stability promise on every model shape.
+`aared/core` exports the resolved-model types (`ShapeModel`,
+`SheetRangeModel`, `DocxParagraphNode`, …; the list is the API page's
+"Resolved models" section) that `read()` returns. Published,
+they become a contract, while the parser still reshapes them (§28, §55).
 
 Options:
 
-1. **Stable public API.** Every model type exported and documented as stable;
-   any change after publish is a semver-major with a migration note.
-2. **Tiered (leaning this way).** Keep the XLSX range types
-   (`SheetRangeModel`, `CellModel`, `CellRange`) stable — `sheet.read("A1:M200")`
-   is a headline use and the only place data reading is a natural need. Mark
-   the PPTX and DOCX shape/node models **experimental** (shape may change in
-   a minor version). `render()` keeps accepting a model; the shape simply is
-   not promised.
-3. **Internal.** Stop exporting the model types; `read()` returns opaque or
-   loosely typed values. Smallest surface, but drops typed custom rendering
-   and the XLSX data use.
+1. **Stable:** every model type promised; any change is a major with a
+   migration note.
+2. **Tiered (the lean):** the XLSX range types (`SheetRangeModel`,
+   `CellModel`, `CellRange`) stable, since reading cells is a real need; the
+   PPTX and DOCX models **experimental** (may change in a minor).
+   `render()` still accepts a model.
+3. **Internal:** stop exporting them; smallest surface, but loses typed
+   custom rendering and the XLSX data use.
 
-Rationale for the lean: nobody has a strong reason to write their own PPTX
-renderer against `ShapeModel`, while reading cell values is a plausible need.
-Confirm by checking what real consumers use before publishing (playground,
-bench, and any early adopters).
+Confirm the lean against what real consumers use before publishing.
 
 When settled: update `site/src/content/docs/api.mdx` § Resolved models (state
 the stability tier per format, and label experimental types), trim
 `aared/core` exports if going with option 3, update `docs-parity.test.ts`
 accordingly, and record the outcome in DECISION_LOG.
 
-## Follow-ups (observed, not scheduled)
-
-### Bundle and memory
-
-Deferred unless a real consumer size budget demands it: per-format
-`preview`/`react` subpaths and an element registry variant. Memory follow-ups (weighed, not scheduled —
-§39): one Blob per shared PPTX picture; the PPTX-only geometry evaluator's
-`import()` out of the shared session chunk; a detached layout/master skeleton
-instead of the full trees.
-
-### Search
-
-- No Arabic-aware matching anywhere (tashkeel, alef/hamza, ya/alef-maqsura,
-  digit forms): search is a plain case-insensitive substring.
-- PPTX search skips notes; grouped-shape text is covered (groups recurse).
-- A Worker-side text-only `search` message would cut the cold first search
-  (§16).
-
-### XLSX content size
-
-- No single content-size getter: a consumer that wants a sheet's natural
-  width and height must add up `columnWidths`, `defaultRowHeight` and each
-  row's own `height` from the read model. A `contentSize()` (inches, or CSS
-  px at scale 1) on the read model or the render handle would remove that
-  sum.
-- The numbers exclude the viewer's own chrome (row-number column, column
-  letters, sheet tabs), so a caller sizing a box to the sheet has to add the
-  chrome by hand. `fit-width` and `fit-page` already account for it.
-
 ## Not yet scheduled
 
+- Bundle size and memory, only if a real consumer budget demands it:
+  per-format `preview`/`react` subpaths, an element registry variant, one Blob
+  per shared PPTX picture, the geometry evaluator's `import()` out of the
+  shared session chunk, a detached layout/master skeleton (§39)
+- `viewer.print()` through the browser's own print dialog (Save as PDF
+  included), one slide, sheet range or page per printed page painted from the
+  same DOM/SVG, never an `exportPdf` engine; from the superseded API proposal
+  in `docs/archive/`, not designed beyond that
+- XLSX `contentSize()` (inches, or CSS px at scale 1) on the read model or the
+  render handle: today a caller adds up `columnWidths`, `defaultRowHeight` and
+  each row's `height`, and adds the viewer's own chrome (row numbers, column
+  letters, sheet tabs) by hand
 - Viewer decorations API (`decorations: [{ range, kind }]`) — viewer-only
   annotations overlaying rendered content; revisit when a real consumer
   needs it
-- Search-text highlighting — headless `search()` already returns model ranges;
-  what's missing is painting them as a non-mutating overlay (ranges in,
-  highlight layer out, source text untouched). Small job; rides on the
-  decorations overlay when that lands, or ships standalone before it
-- Headless thumbnail export (nice to have) — render a slide/page/sheet to an
-  image without a browser, for agent pipelines that need a fast high-fidelity
-  glance instead of a full view. Open design: output format (SVG serialize vs
-  raster), DOM-free requirement, per-format scope, and fidelity-vs-speed
-  contract all undecided. Do not promise until the mechanism is proven. For
-  DOCX the DOM-free paginator's estimator (`core/docx/pagination.ts`) is the
-  natural fit: it is the only page layout that runs with no browser, which is
-  why it stays now that the browser renderer measures in the DOM (§21) — and
-  why its accuracy needs a real bar of its own instead of constants fitted to
-  one fixture
-- PPTX group residuals — group-level effects and `grpFill` inheritance are
-  unresolved
-- Chart fidelity (PPTX, and XLSX through the same `core/chart.ts`) —
-  diagnosed Sep 2026 from `post-production-review.pptx` slide 4 vs
-  PowerPoint. Today the chart XML turns straight into drawing primitives on a
-  fixed 1000×600 box: the value axis always runs 0 to the data maximum in
-  four steps (0/10.5/21/31.5/42 where PowerPoint draws 0–45 by 5); tick
-  marks, `txPr` text sizes, legend position, `gapWidth`/`overlap`, `showVal`
-  and number formats, `autoTitleDeleted` and manual `c:layout` are ignored;
-  stacked and percent bars draw clustered; a combo chart keeps one type;
-  doughnut draws as a pie; area, scatter, radar, stock and chartex show the
-  dashed placeholder. The maintainer takes this in isolation (Sep 2026), with
-  size and performance as first-class goals: the chart code is shared with
-  XLSX (`core/chart.ts`, `src/chart-svg.ts`), so any change is checked against
-  both formats' captures, and it should not grow the Worker: check what
-  `core/chart.ts` adds to the shared session chunk (the geometry table set the
-  precedent of keeping bulk out of it, §26).
-  Two paths:
-  (a) quick fix, about a day, keeping the current structure. The list, each
-  item small and independent, in the order that moves slide 4 the most:
-  1. nice-number value-axis scaling (round the data max up to a 1/2/5 step,
-     five or so gridlines; PowerPoint draws 0 to 45 by 5 where aared draws
-     0 to 42 in fours), and honour `c:scaling` `min`/`max`/`majorUnit` when
-     the file states them;
-  2. tick marks and axis line from `c:majorTickMark`, and `c:delete` for an
-     axis the author hid;
-  3. authored text sizes in points from each `c:txPr`, not the fixed ones;
-  4. legend position from `c:legendPos` (right, top, bottom, left) with the
-     plot area making room, centred on its side;
-  5. `c:gapWidth` and `c:overlap` for bar widths;
-  6. data labels (`showVal`, `showPercent`) with `c:numFmt`, reusing the XLSX
-     number-format code so a `0.0%` or `#,##0` reads as Excel prints it;
-  7. `c:autoTitleDeleted`, and a single-series chart's title from the series
-     name when the title is automatic;
-  8. stacked and percent-stacked bars (`c:grouping`) and a real doughnut hole
-     (`c:holeSize`), the two shapes a reader sees wrong most often.
-  Leave placeholders for area, scatter, radar, stock and chartex; leave manual
-  `c:layout` ignored. Each item gets a DOM test that re-reads the painted
-  SVG (`chart-svg.ts`), the coverage deck's charts as the fixture, and the
-  paired PowerPoint capture of `post-production-review.pptx` slide 4 as the
-  review; the `unsupported` placeholder keeps its marker so nothing paints
-  silently wrong;
-  (b) rebuild, multi-week — a semantic chart model in core (plot groups,
-  axes with scaling/format/ticks/gridlines, data labels, legend, text and
-  theme/chart-style colours), Excel-compatible auto axis scaling and number
-  formatting (reusing the XLSX number-format code), a layout engine sized to
-  the real frame (legend placement, axis-label reservation, manual
-  `c:layout`), then more types step by step (stacked/percent, area, scatter,
-  true doughnut, radar, combo with secondary axes, trendlines, error bars)
-  and a picture fallback for chartex from `mc:AlternateContent`
-- CSV/TSV preview — considered Sep 2026, may or may not land. Open a
-  `.csv`/`.tsv` as a one-sheet workbook through `aared/xlsx`, the way Excel
-  does. The renderer side is nearly free: a parsed CSV is a plain
-  `SheetModel` (default 8.43-character columns, default row height, no
-  styles) that the XLSX renderer already paints, overflow, frozen panes and
-  dark mode included. The cost is all on the input side:
-  (a) routing — the Worker's `detect` and `open` both start with
-  `OpcPackage.open`, so non-ZIP bytes fail today as `invalid-document`, and
-  `sourceBytes` drops `File.name`, `Blob.type` and the URL before the Worker
-  sees anything; the element, `preview()` and `aared/xlsx`'s `open()` would
-  carry that hint through, and a CSV Worker session has no package behind it
-  (the media route assumes one);
-  (b) detection needs a positive signal (`.csv`/`.tsv`, `text/csv`,
-  `text/tab-separated-values`, or an explicit type) confirmed by a content
-  check — bytes alone are unsafe: a 200-status HTML login page or a JSON body
-  is valid text, and an encrypted `.xlsx` or a legacy `.xls` (OLE,
-  `D0 CF 11 E0`) is not a ZIP either; none of them may paint as a one-column
-  sheet;
-  (c) encoding — byte-order mark, then strict UTF-8, then `windows-1256`
-  (Bun's `TextDecoder` decodes it headless, so `core` stays testable without
-  a browser). This is the Arabic win: classic Excel reads a BOM-less UTF-8
-  CSV as the system code page and garbles it — confirm on current Excel 365
-  before claiming that anywhere public;
-  (d) parsing — RFC 4180 quoting (delimiters and newlines inside quoted
-  fields); delimiter auto-detected among `,` `;` tab `|`, honouring a `sep=`
-  first line (Excel's own convention; otherwise Excel uses the locale's list
-  separator); cut at the `isInsideGrid` bounds with a visible `unsupported`
-  entry; the tab name is the file name without its extension;
-  (e) sheet direction — a CSV carries no right-to-left signal (Excel follows
-  its own "default direction" option), so a content heuristic or a render
-  option; any Arabic-range test goes through `core/chars.ts` (shipped JS
-  stays Latin-1).
-  Open decisions: `info.format` stays `"xlsx"` (preferred — a one-sheet
-  workbook like Excel, no new entrypoint, events or API-page entries) or a
-  new `"csv"` `DocumentFormat`; cell values shown verbatim, with number
-  detection used only for General alignment (preferred — Excel's inference
-  drops leading zeros, turns long IDs into `1.23457E+11` and some text into
-  dates) or Excel-style inference; and the fixture — rule 4 wants an Arabic
-  fixture with a table, and a CSV cannot live inside the existing coverage
-  workbooks, so it would be a new file in `fixtures/` and needs sign-off.
-  Ground truth: `tools/excel-render/` can open the CSV in Excel for the
-  paired review, but Excel's result depends on that machine's list
-  separator, ANSI code page and default direction, so a capture only counts
-  as an oracle when it records those regional settings
+
+- Headless thumbnail export — a slide/page/sheet as an image without a
+  browser, for agent pipelines. Output format, DOM-free scope and fidelity
+  contract all undecided; do not promise it. For DOCX, the DOM-free
+  paginator (`core/docx/pagination.ts`, §21) is the natural base
+- CSV/TSV preview (may or may not land) — a `.csv`/`.tsv` as a one-sheet
+  workbook through `aared/xlsx`, as Excel does. Painting is nearly free (a
+  plain `SheetModel`); the work is input: routing non-ZIP bytes past
+  `OpcPackage.open` with the file name or type carried through; detection
+  from a positive signal confirmed by content (an HTML error page or a legacy
+  `.xls` must never paint as a sheet); encoding (BOM, strict UTF-8, then
+  `windows-1256`: the Arabic win over Excel, to confirm on Excel 365 first);
+  RFC 4180 parsing with delimiter detection and `sep=`; and sheet direction,
+  which a CSV doesn't carry. Open decisions: `info.format` stays `"xlsx"`
+  (preferred) or a new `"csv"`; values verbatim (preferred) or Excel-style
+  inference; and a new Arabic fixture, which needs sign-off. An Excel capture
+  is an oracle only with its regional settings recorded

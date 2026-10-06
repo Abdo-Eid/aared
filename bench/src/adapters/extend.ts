@@ -170,16 +170,21 @@ export async function openExtendDocx(
   }
   const { root, createElement } = await reactRoot(host);
 
-  await untilPainted<void>(root, signal, (resolve) => {
-    const observer = new MutationObserver(() => {
-      if (host.querySelector(DOCX_PAGE_SELECTOR) === null) return;
-      observer.disconnect();
-      resolve();
+  try {
+    await untilPainted<void>(root, signal, (resolve) => {
+      const observer = new MutationObserver(() => {
+        if (host.querySelector(DOCX_PAGE_SELECTOR) === null) return;
+        observer.disconnect();
+        resolve();
+      });
+      observer.observe(host, { childList: true, subtree: true });
+      signal.addEventListener("abort", () => observer.disconnect(), { once: true });
+      root.render(createElement(ReactDocxViewer, { document: parsed, defaultZoom: 100 }));
     });
-    observer.observe(host, { childList: true, subtree: true });
-    signal.addEventListener("abort", () => observer.disconnect(), { once: true });
-    root.render(createElement(ReactDocxViewer, { document: parsed, defaultZoom: 100 }));
-  });
+  } catch (error) {
+    parsed.dispose();
+    throw error;
+  }
 
   const pages = Array.from(host.querySelectorAll<HTMLElement>(DOCX_PAGE_SELECTOR));
   const outline = docxOutline(parsed.model, host);

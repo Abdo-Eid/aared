@@ -1,55 +1,60 @@
 /**
  * `aared/preview`: one-call auto-detect preview for embeds.
  *
- * `preview(source, target)` detects the format in the Worker, lazily
+ * `preview({ source, target })` detects the format in the Worker, lazily
  * `import()`s only the matching format entrypoint, opens, renders the first
  * unit, and returns a `PreviewHandle` owning navigation, zoom, events, and
  * full teardown (`destroy()` closes the Worker session and clears what was
- * painted). It is a thin delegator over `aared/pptx`, `aared/xlsx`, and
- * `aared/docx` — every format route still parses in the Worker and paints
- * real DOM/SVG on the main thread; nothing here re-implements a renderer.
+ * painted). The handle is the embed viewer (`embed-viewer.ts`) that
+ * `<aared-viewer>` and the React hooks run on too; this entry declares its
+ * public types. Options set where it starts; the handle's methods change it.
  *
  * Import-time safe: no DOM or `Worker` globals are touched until `preview()`
  * or `detect()` runs (SSR-safe imports). Live in a separate subpath so
  * one-format consumers (`import { open } from "aared/xlsx"`) never include
- * this facade — bundlers emit the format chunks the dynamic `import()`s
- * below resolve to, and only the detected one loads at runtime. (The Worker
- * script carries all three parsers regardless.)
+ * this facade — bundlers emit the format chunks the viewer's dynamic
+ * `import()`s resolve to, and only the detected one loads at runtime. (The
+ * Worker script carries all three parsers regardless.)
  *
  * The grammar is the format entrypoints': `goTo(i)` switches units (slides,
  * sheets; a document is one unit), and per-format controls move within the
- * unit on screen (`xlsx.goToCell`, `docx.goToHeading`/`goToPage`). For
- * search, range reads, media access, or several units at once, build on the
+ * unit on screen (`xlsx.goToCell`, `docx.goToHeading`/`goToPage`). `search()`
+ * finds places to go in the viewer's own document. To build from the file's
+ * contents (range reads, media access, several units at once), use the
  * headless format entrypoints directly.
  */
 
 import type {
+  AaredError,
   Appearance,
   CellRef,
   DocumentFormat,
-  DocumentInfo,
   FontResolver,
   MediaResolver,
-  OpenOptions,
+  ReadOptions,
   Source,
+  UnitRef,
   WorkerInit,
   ZoomValue,
 } from "../core/index.js";
-import type { PptxDocument } from "../pptx/index.js";
-import type { XlsxDocument, XlsxRenderHandle } from "../xlsx/index.js";
-import type { DocxDocument, DocxPageInfo, DocxPagination, DocxRenderHandle, HeadingInfo } from "../docx/index.js";
-import { AaredError } from "../core/index.js";
+import type { PptxInfo, PptxRenderEventMap, PptxSearchMatch } from "../pptx/index.js";
+import type { XlsxInfo, XlsxRenderEventMap, XlsxSearchMatch } from "../xlsx/index.js";
+import type { DocxInfo, DocxPageInfo, DocxPagination, DocxRenderEventMap, DocxSearchMatch, HeadingInfo } from "../docx/index.js";
 import { sourceBytes, WorkerSession } from "../core/session.js";
-import { isAbort, throwIfAborted } from "../core/errors.js";
-import { sameZoom } from "../render-handle.js";
-import { DEFAULT_ZOOM, announceUnit, assertHasUnits, followSheet, forwardRenderEvents, openFormat } from "../format-route.js";
-import type { AnyDocument, RenderHandle } from "../format-route.js";
+import { throwIfAborted } from "../core/errors.js";
+import type { EventTargetOf, ZoomChangeEvent } from "../render-handle.js";
+import { openAutoViewer } from "../auto-viewer.js";
 
-export type { DocxPageInfo, DocxPagination, HeadingInfo, SoftBreakPolicy } from "../docx/index.js";
+export type { DocxPageInfo, DocxPagination, DocxSearchMatch, HeadingInfo, SoftBreakPolicy } from "../docx/index.js";
+export type { PptxSearchMatch } from "../pptx/index.js";
+export type { XlsxSearchMatch } from "../xlsx/index.js";
 
 /**
  * Moving within the sheet on screen — the places of an XLSX unit. Switching
- * sheets is the facade's own `goTo(index)`.
+ * sheets is the facade's own `goTo(index)`. One object for the viewer's whole
+ * life, acting on whichever sheet is on screen, so a reference kept across
+ * `goTo()` keeps working; after `destroy()` `goToCell` rejects with `closed`
+ * and the rest do nothing.
  */
 export interface XlsxPreviewControls {
   /** The single selected cell, or `null`. */
@@ -65,6 +70,8 @@ export interface XlsxPreviewControls {
 /**
  * Moving within the document on screen — the places of DOCX's single unit:
  * its body headings (both modes) and its laid-out pages (layout mode only).
+ * One object for the viewer's whole life; after `destroy()` its moves reject
+ * with `closed`.
  */
 export interface DocxPreviewControls {
   /** Laid-out pages: `0` and `[]` in flow mode, which has no pages. */
@@ -76,9 +83,15 @@ export interface DocxPreviewControls {
   goToHeading(target: string | number): Promise<void>;
   /** Scroll a laid-out page into view (layout mode). See `DocxRenderHandle.goToPage`. */
   goToPage(index: number): Promise<void>;
+  /** Navigate to a result; active search highlights remain in place. */
+  goToSearchMatch(match: DocxSearchMatch): Promise<void>;
 }
 
-/** Options for `preview()`. Everything is optional except `source`/`target`. */
+/**
+ * Optional settings for `preview()`; `PreviewInput` adds its source and target.
+ * `index`, `zoom` and `appearance` are where the viewer starts; the handle's
+ * `goTo()`, `setZoom()` and `setAppearance()` change them.
+ */
 export interface PreviewOptions {
   /**
    * Assert a format and skip detection. A mismatch rejects with a typed
@@ -86,14 +99,18 @@ export interface PreviewOptions {
    * error the per-format `open()`s raise.
    */
   type?: DocumentFormat;
-  /** Zero-based initial unit index (slide/sheet; a document is one unit). */
+  /** Zero-based starting unit index (slide/sheet; a document is one unit). */
   index?: number;
   signal?: AbortSignal;
   /** Opt-in font resolution, forwarded to `open()` (see `aared-fonts`). */
   fontResolver?: FontResolver;
   /** Override worker construction (see `WorkerInit` for details). */
   worker?: WorkerInit;
-  /** Viewer appearance, forwarded to `render()`. */
+  /**
+   * Starting appearance, forwarded to `render()`. What it leaves out takes
+   * the embed default: a workbook shows its sheet tabs unless
+   * `spreadsheet.sheetTabs` is `false`.
+   */
   appearance?: Appearance;
   /** Starting zoom; default per format (`fit-page` slides, `1` sheets, `fit-width` documents). */
   zoom?: ZoomValue;
@@ -103,16 +120,128 @@ export interface PreviewOptions {
   pagination?: DocxPagination;
 }
 
-/** Controller returned by `preview()`: navigation, zoom, events, teardown. */
-export interface PreviewHandle extends EventTarget {
-  /** The detected (or asserted) format. */
-  readonly format: DocumentFormat;
-  /** Document metadata resolved at `open()` time. */
-  readonly info: DocumentInfo;
+/** One object describing the file, render target and optional preview settings. */
+export interface PreviewInput extends PreviewOptions {
+  source: Source;
+  target: HTMLElement;
+}
+
+/**
+ * What `preview()` returns: one handle type per format, told apart by
+ * `format`. Checking `viewer.format === "xlsx"` makes `viewer.xlsx`
+ * non-null and `viewer.info` an `XlsxInfo`; the other formats' controls are
+ * `null`.
+ */
+export type PreviewHandle = PptxPreview | XlsxPreview | DocxPreview;
+
+/** Viewer search updates highlights; document and sheet search remain data-only. */
+export interface PreviewSearchOptions extends ReadOptions {
+  /** Highlight matching painted text. Defaults to true; false clears existing highlights. */
+  highlight?: boolean;
+}
+
+/** Live find position: zero-based active index, or null when no match is active. */
+export interface SearchNavigationState {
+  readonly index: number | null;
+  readonly count: number;
+}
+
+/** The current highlighted search's navigation; steps wrap at either end. */
+export interface SearchNavigation extends SearchNavigationState {
+  next(): Promise<void>;
+  previous(): Promise<void>;
+}
+
+/** A presentation's preview: `format` `"pptx"`. A slide has no places inside it, so there is no `pptx` controls object. */
+export interface PptxPreview extends PreviewBase {
+  readonly format: "pptx";
+  readonly info: PptxInfo;
+  readonly xlsx: null;
+  readonly docx: null;
+  /**
+   * Search the deck the viewer has open (no second parse): one result for each
+   * text occurrence, a place to go with `goTo(match.slide.index)`. The same search as
+   * the format's `deck.search()` (the API page's Search grammar); `signal` cancels it.
+   * Highlights painted matches by default; `highlight: false` returns data only
+   * and clears previous highlights. Empty query clears. The query stays active
+   * across navigation and text redraws. A failure rejects and fires no `error`
+   * (that event is for moves); after
+   * `destroy()` it rejects with `closed`.
+   */
+  search(query: string, options?: PreviewSearchOptions): Promise<PptxSearchMatch[]>;
+}
+
+/** A workbook's preview: `format` `"xlsx"`, with the sheet on screen's places on `xlsx`. */
+export interface XlsxPreview extends PreviewBase {
+  readonly format: "xlsx";
+  readonly info: XlsxInfo;
+  /** Moving within the sheet on screen. See `XlsxPreviewControls`. */
+  readonly xlsx: XlsxPreviewControls;
+  readonly docx: null;
+  /**
+   * Search the sheet on screen, as Excel's Find does: each match is a cell
+   * of that sheet, reached with `xlsx.goToCell(match.address)`. Another
+   * sheet is searched by `goTo()`ing it first. The same rules as
+   * `PptxPreview.search()`.
+   */
+  search(query: string, options?: PreviewSearchOptions): Promise<XlsxSearchMatch[]>;
+}
+
+/** A document's preview: `format` `"docx"`, with its headings and pages on `docx`. */
+export interface DocxPreview extends PreviewBase {
+  readonly format: "docx";
+  readonly info: DocxInfo;
+  readonly xlsx: null;
+  /** Moving within the document. See `DocxPreviewControls`. */
+  readonly docx: DocxPreviewControls;
+  /**
+   * Search the document the viewer has open: each match names the nearest
+   * heading above it. `docx.goToSearchMatch(match)` navigates to its story
+   * copy or nearest body heading.
+   * The same rules as `PptxPreview.search()`.
+   */
+  search(query: string, options?: PreviewSearchOptions): Promise<DocxSearchMatch[]>;
+}
+
+/**
+ * The events a preview handle fires, by name: `addEventListener` types each
+ * `event.detail`. The render handle's own events are forwarded; the unit
+ * events and `error` are the facade's.
+ */
+export interface PreviewEventMap {
+  /** Active highlighted search position or total changed. */
+  searchchange: CustomEvent<SearchNavigationState>;
+  /** The unit changed (`goTo()`, an XLSX sheet tab). */
+  indexchange: CustomEvent<{ index: number }>;
+  /** PPTX, alongside `indexchange`. */
+  slidechange: CustomEvent<UnitRef>;
+  /** XLSX, alongside `indexchange`. */
+  sheetchange: CustomEvent<UnitRef>;
+  zoomchange: ZoomChangeEvent;
+  /** A navigation failed (`goTo()`, or a move on `xlsx`/`docx`); `cause` is what the call rejected with. */
+  error: CustomEvent<{ message: string; cause: AaredError }>;
+  linkactivate: PptxRenderEventMap["linkactivate"] | XlsxRenderEventMap["linkactivate"] | DocxRenderEventMap["linkactivate"];
+  /** XLSX. */
+  cellactivate: XlsxRenderEventMap["cellactivate"];
+  /** XLSX. */
+  selectionchange: XlsxRenderEventMap["selectionchange"];
+}
+
+/** What every format's preview handle has: navigation, zoom, events, teardown. */
+interface PreviewBase extends EventTargetOf<PreviewEventMap> {
+  /** Counter and previous/next navigation for the active highlighted search. */
+  readonly searchNavigation: SearchNavigation;
   /** The currently rendered unit index. */
   readonly index: number;
   /** The requested zoom. Carried across `goTo()`. */
   readonly zoom: ZoomValue;
+  /**
+   * The zoom this format opens at when no `zoom` option is given:
+   * `"fit-page"` slides, `1` sheets, `"fit-width"` documents. `resetZoom()`
+   * goes back to it. For a slide or a document it is not `1`: `setZoom(1)`
+   * pins the natural size, which can overflow a small host.
+   */
+  readonly defaultZoom: ZoomValue;
   /** The scale actually painted — the number, or what the fit mode computed. */
   readonly scale: number;
   /**
@@ -122,23 +251,49 @@ export interface PreviewHandle extends EventTarget {
    * plus the format-native sibling (`slidechange` for PPTX, `sheetchange`
    * for XLSX, both `{ index, title }`); going to the unit already shown
    * emits nothing. Zoom and appearance carry over. A failure rejects and
-   * also fires `error` (`{ message, cause }`, as `<aared-viewer>` does), so
-   * whoever holds the handle hears it even when the caller drops the promise;
-   * the unit on screen stays. After `destroy()` it rejects with `closed`.
+   * also fires `error` (`{ message, cause }`), so whoever holds the handle
+   * hears it even when the caller drops the promise; the unit on screen
+   * stays. After `destroy()` it rejects with `closed`.
    */
   goTo(index: number): Promise<void>;
+  /**
+   * The next unit: `goTo()` one step on from where the newest move is
+   * heading, so three quick presses move three units, not one. At the last
+   * unit it changes nothing and resolves; a document is one unit, so there it
+   * always does. Rejects and fires `error` like `goTo()`; after `destroy()`
+   * it rejects with `closed`.
+   */
+  next(): Promise<void>;
+  /** The previous unit, the same way as `next()`; at the first unit it changes nothing. */
+  previous(): Promise<void>;
   /** Change zoom; fires `zoomchange` only when the value changes. Kept across `goTo()`. */
   setZoom(zoom: ZoomValue): void;
-  /** Moving within the sheet on screen; `null` for other formats and before the first render. */
-  readonly xlsx: XlsxPreviewControls | null;
-  /** Moving within the document on screen; `null` for other formats and before the first render. */
-  readonly docx: DocxPreviewControls | null;
+  /**
+   * Zoom in one step: `step` added to the zoom, where `1` is 100% (default
+   * `0.1`, so each press adds 10 points: 100% to 110% to 120%). From a fit
+   * mode it steps from the scale on screen (`scale`), so a slide fitted at
+   * 62% goes to 72%, not 110%. The result is rounded to whole percents, so
+   * repeated presses don't drift, and stops at 300%. A `step` that is not a
+   * number above 0 throws `invalid-argument`. After `destroy()` it does
+   * nothing.
+   */
+  zoomIn(step?: number): void;
+  /**
+   * Zoom out one step: `step` taken away (default `0.1`), so a zoom in and a
+   * zoom out by the same step come back to the same size. Stops at 25%; the
+   * same `step` rules as `zoomIn()`.
+   */
+  zoomOut(step?: number): void;
+  /** Back to `defaultZoom`, the zoom the format opens at. */
+  resetZoom(): void;
   /**
    * Replace the viewer appearance in place without re-opening the document:
    * forwards to the current render handle, keeping the unit index, zoom,
    * selection, and Worker session, and applies to every later `goTo()`.
-   * Replaces, never merges. Content stays source-faithful; only the theme
-   * marker and viewer chrome follow the theme.
+   * Replaces, never merges: what it leaves out goes back to the default (a
+   * workbook's sheet tabs stay on unless `spreadsheet.sheetTabs` is `false`).
+   * Content stays source-faithful; only the theme marker and viewer chrome
+   * follow the theme.
    */
   setAppearance(appearance: Appearance): void;
   /**
@@ -162,243 +317,6 @@ export async function detect(
   return WorkerSession.detectFormat("aared/preview", bytes, options);
 }
 
-/** The `open()` options a preview forwards: only what the caller set. */
-function openOptionsOf(options: PreviewOptions | undefined): OpenOptions | undefined {
-  const signal = options?.signal;
-  const worker = options?.worker;
-  const fontResolver = options?.fontResolver;
-  if (fontResolver === undefined && signal === undefined && worker === undefined) return undefined;
-  return {
-    ...(fontResolver === undefined ? {} : { fontResolver }),
-    ...(signal === undefined ? {} : { signal }),
-    ...(worker === undefined ? {} : { worker }),
-  };
-}
-
-/** A whole number outside the document is `not-found`; anything else is not an index at all. */
-function assertIndex(index: number, count: number): void {
-  if (!Number.isInteger(index)) {
-    throw new AaredError("invalid-argument", `aared/preview: a unit index must be a whole number; received ${String(index)}`);
-  }
-  if (index < 0 || index >= count) {
-    throw new AaredError("not-found", `aared/preview: unit index ${index} is outside this ${count}-unit document`);
-  }
-}
-
-class PreviewViewer extends EventTarget implements PreviewHandle {
-  #destroyed = false;
-  #generation = 0;
-  #index: number;
-  #zoom: ZoomValue | undefined;
-  #rendered: RenderHandle | null = null;
-  #xlsx: XlsxPreviewControls | null = null;
-  #docx: DocxPreviewControls | null = null;
-  #forwardController: AbortController | null = null;
-
-  constructor(
-    readonly format: DocumentFormat,
-    private readonly document: AnyDocument,
-    private readonly target: HTMLElement,
-    private options: PreviewOptions | undefined,
-  ) {
-    super();
-    this.#index = options?.index ?? 0;
-    this.#zoom = options?.zoom;
-  }
-
-  get info(): DocumentInfo {
-    return this.document.info;
-  }
-
-  get index(): number {
-    return this.#index;
-  }
-
-  get zoom(): ZoomValue {
-    return this.#zoom ?? DEFAULT_ZOOM[this.format];
-  }
-
-  get scale(): number {
-    return this.#rendered?.scale ?? 1;
-  }
-
-  get xlsx(): XlsxPreviewControls | null {
-    return this.#xlsx;
-  }
-
-  get docx(): DocxPreviewControls | null {
-    return this.#docx;
-  }
-
-  /**
-   * Render the initial unit; called once before the handle is returned. No
-   * `indexchange` fires here: the starting state is reported by `preview()`
-   * resolving (read `.index`), never by an event.
-   */
-  async mount(signal?: AbortSignal): Promise<void> {
-    assertIndex(this.#index, this.document.info.count);
-    throwIfAborted(signal);
-    await this.renderUnit(this.#index);
-  }
-
-  async goTo(index: number): Promise<void> {
-    // A call that can do nothing says so: resolving would tell the caller the unit changed.
-    if (this.#destroyed) throw new AaredError("closed", "aared/preview: goTo() was called after destroy()");
-    try {
-      assertIndex(index, this.document.info.count);
-      if (index === this.#index && this.#rendered !== null) return;
-      // Overtaken by a later goTo() or a destroy(): that call owns `index` and the announcement.
-      if (!(await this.renderUnit(index))) return;
-    } catch (error) {
-      this.#fail(error);
-      throw error;
-    }
-    this.#index = index;
-    announceUnit(this, this.format, this.document, index);
-  }
-
-  /**
-   * A navigation failed: fire `error` with the shape `<aared-viewer>` uses
-   * (`cause` is what the call rejects with). Cancellations and anything after
-   * `destroy()` are not failures anyone is waiting to hear about.
-   */
-  #fail(cause: unknown): void {
-    if (isAbort(cause) || this.#destroyed) return;
-    const message = cause instanceof Error ? cause.message : String(cause);
-    this.dispatchEvent(new CustomEvent("error", { detail: { message, cause } }));
-  }
-
-  setZoom(zoom: ZoomValue): void {
-    if (this.#destroyed) return;
-    this.#zoom = zoom;
-    this.#rendered?.setZoom(zoom);
-  }
-
-  setAppearance(appearance: Appearance): void {
-    if (this.#destroyed) return;
-    if (this.options === undefined) this.options = { appearance };
-    else this.options = { ...this.options, appearance };
-    this.#rendered?.setAppearance(appearance);
-  }
-
-  destroy(): void {
-    if (this.#destroyed) return;
-    this.#destroyed = true;
-    this.#generation++;
-    this.#forwardController?.abort();
-    this.#forwardController = null;
-    this.#rendered?.destroy();
-    this.#rendered = null;
-    this.#xlsx = null;
-    this.#docx = null;
-    this.document.close();
-    this.target.replaceChildren();
-  }
-
-  /** Paint unit `index`; false when a later render or `destroy()` overtook this one (nothing changed). */
-  private async renderUnit(index: number): Promise<boolean> {
-    const generation = ++this.#generation;
-    const stale = (): boolean => this.#destroyed || generation !== this.#generation;
-    const { appearance, mediaResolver } = this.options ?? {};
-    // Only what the caller set: each format's `render()` owns its defaults
-    // (session media — PPTX routes shared layout pictures through one cache —
-    // and its default zoom).
-    const common = {
-      target: this.target,
-      ...(appearance === undefined ? {} : { appearance }),
-      ...(mediaResolver === undefined ? {} : { mediaResolver }),
-      ...(this.#zoom === undefined ? {} : { zoom: this.#zoom }),
-    };
-    let next: RenderHandle;
-    if (this.format === "pptx") {
-      const renderer = await import("../pptx/index.js");
-      if (stale()) return false;
-      next = await renderer.render({ ...common, slide: (this.document as PptxDocument).slides.get(index) });
-    } else if (this.format === "xlsx") {
-      const renderer = await import("../xlsx/index.js");
-      if (stale()) return false;
-      next = await renderer.render({ ...common, sheet: (this.document as XlsxDocument).sheets.get(index) });
-    } else {
-      const renderer = await import("../docx/index.js");
-      if (stale()) return false;
-      const pagination = this.options?.pagination;
-      next = await renderer.render({
-        ...common,
-        document: this.document as DocxDocument,
-        ...(pagination === undefined ? {} : { pagination }),
-      });
-    }
-    if (stale()) {
-      next.destroy();
-      return false;
-    }
-    // A zoom set while this unit was rendering was announced by the old
-    // handle; apply it before forwarding is attached so it isn't announced twice.
-    if (this.#zoom !== undefined && !sameZoom(next.zoom, this.#zoom)) next.setZoom(this.#zoom);
-    this.#rendered?.destroy();
-    this.#rendered = next;
-    const report = (error: unknown): void => this.#fail(error);
-    this.#xlsx = this.format === "xlsx" ? xlsxControls(next as unknown as XlsxRenderHandle, report) : null;
-    this.#docx = this.format === "docx" ? docxControls(next as unknown as DocxRenderHandle, this.document as DocxDocument, report) : null;
-    this.#forwardController?.abort();
-    this.#forwardController = new AbortController();
-    forwardRenderEvents(next, this, this.#forwardController.signal);
-    // A sheet-tab click switches sheets inside the handle: follow it, so
-    // `index` stays true and the switch is announced like any `goTo()`.
-    followSheet(next, this.#forwardController.signal, (sheet) => {
-      if (this.#destroyed || sheet === this.#index) return;
-      this.#index = sheet;
-      announceUnit(this, this.format, this.document, sheet);
-    });
-    return true;
-  }
-}
-
-/** One stable controls object per rendered sheet, delegating to its handle. */
-function xlsxControls(handle: XlsxRenderHandle, report: (error: unknown) => void): XlsxPreviewControls {
-  return {
-    get selection() {
-      return handle.selection;
-    },
-    goToCell: (cell) => reported(report, () => handle.goToCell(cell)),
-    scrollTo: (target) => reported(report, () => handle.scrollTo(target)),
-    focus: (cell) => reported(report, () => handle.focus(cell)),
-  };
-}
-
-/** One stable controls object per rendered document, delegating to its handle. */
-function docxControls(handle: DocxRenderHandle, document: DocxDocument, report: (error: unknown) => void): DocxPreviewControls {
-  return {
-    pageCount: handle.pageCount,
-    pages: handle.pages,
-    headings: document.headings.list(),
-    goToHeading: (target) => reported(report, () => handle.goToHeading(target)),
-    goToPage: (index) => reported(report, () => handle.goToPage(index)),
-  };
-}
-
-/**
- * Run one navigation inside the unit; when it fails, `report` it (the
- * viewer's `error` event) and still throw or reject for the caller, the way
- * `goTo()` does, so a failure is heard even when the caller drops it.
- */
-function reported<T>(report: (error: unknown) => void, run: () => T): T {
-  let result: T;
-  try {
-    result = run();
-  } catch (error) {
-    report(error);
-    throw error;
-  }
-  if (result instanceof Promise) {
-    return result.catch((error: unknown) => {
-      report(error);
-      throw error;
-    }) as T;
-  }
-  return result;
-}
-
 /**
  * Preview any supported document in one call: detect (or assert `type`),
  * open, and render into `target`. The target is owned by the preview while
@@ -406,29 +324,8 @@ function reported<T>(report: (error: unknown) => void, run: () => T): T {
  * them. One format chunk loads at runtime: the detected one.
  */
 export async function preview(
-  source: Source,
-  target: HTMLElement,
-  options?: PreviewOptions,
+  input: PreviewInput,
 ): Promise<PreviewHandle> {
-  const signal = options?.signal;
-  const bytes = await sourceBytes("aared/preview", source, signal);
-  throwIfAborted(signal);
-  // An asserted type skips detection: the per-format `open()` below raises
-  // the typed `unsupported-format` mismatch itself, naming what it found.
-  const format = options?.type ?? await WorkerSession.detectFormat("aared/preview", bytes, {
-    ...(signal === undefined ? {} : { signal }),
-    ...(options?.worker === undefined ? {} : { worker: options.worker }),
-  });
-  throwIfAborted(signal);
-  const document = await openFormat(format, bytes, openOptionsOf(options));
-  const viewer: PreviewViewer = new PreviewViewer(format, document, target, options);
-  try {
-    assertHasUnits("aared/preview", document);
-    await viewer.mount(signal);
-    throwIfAborted(signal);
-    return viewer;
-  } catch (error) {
-    viewer.destroy();
-    throw error;
-  }
+  const { source, target, ...options } = input;
+  return openAutoViewer({ scope: "aared/preview", source, target, options });
 }

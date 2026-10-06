@@ -1,39 +1,48 @@
 /**
- * `<aared-viewer>`: the default, deliberately small UI over the headless
- * aared APIs. Attributes are its API (`src`, `type`, `index`, `zoom`,
- * `controls`, `theme`); read-only `format` and `info` report what opened;
- * `goTo()` navigates; removing the element is its teardown.
+ * `<aared-viewer>`: the default, deliberately small UI over the embed viewer
+ * that `preview()` returns. Attributes are its API (`src`, `type`, `index`,
+ * `zoom`, `controls`, `theme`, `pagination`); `viewer` is the open document's
+ * handle; removing the element is its teardown.
  *
- * It follows the same grammar as `preview()`: `index`/`goTo()` switch units,
- * events report changes (never the starting state — that is `load`), zoom is
- * the render handle's own (so each format's fit logic applies and
- * `zoomchange` forwards naturally), and every failure is an `AaredError`
- * with the same code `preview()` uses for the same situation.
+ * It runs on the same viewer as `preview()` (`embed-viewer.ts`), so error
+ * codes, events and newest-wins are the same by construction. The attributes
+ * and the viewer are one state: setting `index` or `zoom` calls the viewer,
+ * and the viewer's `indexchange`/`zoomchange` (from `el.viewer.goTo()`, a
+ * sheet tab, the controls) write the attribute back. `theme` owns the
+ * appearance, so `viewer` leaves out `setAppearance` (and `destroy`).
  */
 
-import type { Appearance, DocumentFormat, DocumentInfo, WorkerInit, ZoomValue } from "../core/index.js";
+import type { DocumentFormat, DocumentInfo, LoadProgress, Source, ViewerTheme, WorkerInit, ZoomValue } from "../core/index.js";
+import type { DocxPagination, DocxPreview, PptxPreview, PreviewEventMap, PreviewHandle, XlsxPreview } from "../preview/index.js";
 import { AaredError, isAbort } from "../core/index.js";
 import { abortError } from "../core/errors.js";
-import { resolveTheme } from "../appearance.js";
-import { DEFAULT_ZOOM, announceUnit, assertHasUnits, followSheet, forwardRenderEvents, openFormat } from "../format-route.js";
-import type { AnyDocument, RenderHandle } from "../format-route.js";
-import { safeScale, sameZoom } from "../render-handle.js";
-import type { PptxDocument } from "../pptx/index.js";
-import type { XlsxDocument } from "../xlsx/index.js";
-import type { DocxDocument } from "../docx/index.js";
-import { WorkerSession, sourceBytes } from "../core/session.js";
+import { resolveTheme, watchSystemTheme } from "../appearance.js";
+import { DEFAULT_ZOOM, safeScale, sameZoom } from "../render-handle.js";
+import { constantSheet } from "../class-sheet.js";
+import { VIEWER_EVENTS } from "../embed-viewer.js";
+import { openAutoViewer } from "../auto-viewer.js";
 
 export type { ZoomValue } from "../core/index.js";
 export type { DocumentFormat } from "../core/index.js";
 
-type ViewerSource = File | Blob | ArrayBuffer | string;
+/** What the `file` property takes: any in-memory `Source` (a URL goes in `src`). */
+type ViewerFile = Exclude<Source, string>;
 
-export type ViewerThemeAttribute = "light" | "dark" | "system";
+/** How a DOCX is laid out: the `pagination` attribute. */
+type PaginationMode = NonNullable<DocxPagination["mode"]>;
 
-/** Zoom the controls bar steps through: ×1.25 per press, within 25%–300%. */
-const ZOOM_STEP = 1.25;
-const MIN_ZOOM = 0.25;
-const MAX_ZOOM = 3;
+/** What the element owns itself: the appearance (its `theme` attribute) and teardown (removing it). */
+type OwnedByElement = "setAppearance" | "destroy";
+
+/**
+ * The element's `viewer`: the `preview()` handle without `setAppearance` and
+ * `destroy`, which belong to the element (`theme`, and removing it).
+ * Checking `format` narrows it the same way (`viewer.xlsx` for a workbook).
+ */
+export type AaredViewerHandle =
+  | Omit<PptxPreview, OwnedByElement>
+  | Omit<XlsxPreview, OwnedByElement>
+  | Omit<DocxPreview, OwnedByElement>;
 
 const ICON_OPEN = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">';
 const ENTER_FULLSCREEN_ICON = `${ICON_OPEN}<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>`;
@@ -51,7 +60,77 @@ function sourceTypeError(type: string | null): AaredError | undefined {
   );
 }
 
-export class AaredViewer extends HTMLElement {
+/**
+ * The element's chrome, one constructed sheet per document (`constantSheet`):
+ * no `<style>` text is written, so a strict `style-src` needs no
+ * `'unsafe-inline'`. Theme defaults live in private properties and each visual
+ * property has one rule, so a consumer's --aared-background / --aared-page-shadow
+ * win in both themes (a hard-coded dark rule used to override them). A rule
+ * over a renderer default carries the class sheet's two-ID bump
+ * (`:not(#aared-0#aared-1)`, `class-sheet.ts`), or the default would win.
+ */
+const CHROME_CSS = `
+  :host { display: flex; flex-direction: column; min-width: 0; min-height: 0; --_aared-stage: #f2f2f2; --_aared-shadow: 0 1px 5px rgb(0 0 0 / 0.25); --_aared-controls-ink: inherit; }
+  :host([data-aared-theme="dark"]) { --_aared-stage: #1c1c1f; --_aared-shadow: 0 1px 5px rgb(0 0 0 / 0.6); --_aared-controls-ink: #e4e4e7; }
+  [part="stage"] { display: flex; flex: 1 1 auto; align-items: center; justify-content: center; min-width: 0; min-height: 0; overflow: auto; background: var(--aared-background, var(--_aared-stage)); color: var(--aared-text, inherit); }
+  [part="page"] { flex: 0 0 auto; width: 100%; min-width: 0; margin: auto; box-shadow: var(--aared-page-shadow, var(--_aared-shadow)); }
+  :host([data-aared-format="xlsx"]) [part="stage"] { align-items: stretch; }
+  :host([data-aared-format="xlsx"]) [part="page"] { margin: 0; }
+  :host([data-aared-format="pptx"]) [part="page"] { align-self: stretch; margin: 0; display: flex; flex-direction: column; box-shadow: none; }
+  :host([data-aared-format="pptx"]) [part="page"] > [data-aared-element="slide"] { margin: auto; flex: none; box-shadow: var(--aared-page-shadow, var(--_aared-shadow)); }
+  :host([data-aared-pagination="layout"]) [part="page"] { box-shadow: none; padding-block: 1.5rem; }
+  :host([data-aared-pagination="layout"]) [part="page"] [data-aared-element="page"]:not(#aared-0#aared-1) { box-shadow: var(--aared-page-shadow, var(--_aared-shadow)); }
+  [part~="controls"] { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; padding: .5rem; font: 14px system-ui, sans-serif; color: var(--_aared-controls-ink); }
+  :host(:fullscreen) [part~="controls"] { background: var(--aared-background, var(--_aared-stage)); }
+  button { font: inherit; }
+`;
+
+/**
+ * The events `<aared-viewer>` fires, by name: `addEventListener` types each
+ * `event.detail`. The viewer's events plus the element's own lifecycle; the
+ * page's other element events keep their usual types (this element's
+ * `error`, `load`, `progress` and `selectionchange` are its own).
+ */
+export interface AaredViewerEventMap extends Omit<HTMLElementEventMap, "error" | "load" | "progress" | "selectionchange">, PreviewEventMap {
+  /** The document opened and its first unit painted. */
+  load: CustomEvent<DocumentInfo>;
+  /** Bytes read before parsing starts. */
+  progress: CustomEvent<LoadProgress>;
+}
+
+/** `<aared-viewer>`'s own events, typed on top of `HTMLElement`'s (no runtime code). */
+export interface AaredViewer {
+  addEventListener<K extends keyof AaredViewerEventMap>(
+    type: K,
+    listener: (this: AaredViewer, event: AaredViewerEventMap[K]) => unknown,
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
+  removeEventListener<K extends keyof AaredViewerEventMap>(
+    type: K,
+    listener: (this: AaredViewer, event: AaredViewerEventMap[K]) => unknown,
+    options?: boolean | EventListenerOptions,
+  ): void;
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    /** Typed by `aared/element`: `document.createElement("aared-viewer")` and `querySelector("aared-viewer")` give an `AaredViewer`. */
+    "aared-viewer": AaredViewer;
+  }
+}
+
+/**
+ * `HTMLElement` where the page has one. A server import (SSR, a Next.js
+ * client component prerendered on the server) gets a stand-in, so the module
+ * loads anywhere and only registers the element in a browser.
+ */
+const ElementBase: typeof HTMLElement = typeof HTMLElement === "undefined"
+  ? (class {} as unknown as typeof HTMLElement)
+  : HTMLElement;
+
+export class AaredViewer extends ElementBase {
   static readonly observedAttributes = [
     "src",
     "type",
@@ -59,49 +138,37 @@ export class AaredViewer extends HTMLElement {
     "zoom",
     "controls",
     "theme",
+    "pagination",
   ] as const;
 
-  #doc: AnyDocument | null = null;
-  #format: DocumentFormat | null = null;
   #shadow: ShadowRoot;
   #page: HTMLDivElement;
   #controls: HTMLDivElement;
-  #file: File | Blob | ArrayBuffer | null = null;
+  #file: ViewerFile | null = null;
+  /** Whether `file` was set after `src`: the last one set is what opens. */
+  #fileLast = false;
   #workerInit: WorkerInit | undefined = undefined;
+  /** The open in flight, or the one that opened `#viewer`; aborted when a newer open or a removal replaces it. */
   #openController: AbortController | null = null;
-  #generation = 0;
-  #renderGeneration = 0;
+  #viewer: PreviewHandle | null = null;
+  /** Detaches the element's listeners from `#viewer`. */
+  #viewerListeners: AbortController | null = null;
+  /** The theme `#viewer` was last given (`system` included: the viewer follows the OS itself), so only a real change is forwarded. */
+  #viewerTheme: ViewerTheme | null = null;
+  /** The DOCX layout `#viewer` opened with, so only a real change re-opens it. */
+  #viewerPagination: PaginationMode | null = null;
   #fullscreenButton: HTMLButtonElement | null = null;
-  #slideRender: RenderHandle | null = null;
-  #renderAbortController: AbortController | null = null;
-  #resolvedTheme: "light" | "dark" = "light";
-  #contentRenderTheme: "light" | "dark" | null = null;
-  #themeMediaQuery: MediaQueryList | null = null;
-  /** The unit on screen, so an `index` that already matches it renders nothing. */
-  #shownIndex: number | null = null;
-  /** Set while the element writes its own `index` attribute (tab follow, `goTo`), so no second render runs. */
-  #writingIndex = false;
+  /** Stops the OS colour-scheme listener that keeps the element's own chrome in step. */
+  #stopSystemTheme: (() => void) | null = null;
+  /** Set while the element writes `index`/`zoom` to match the viewer, so the write moves nothing. */
+  #syncing = false;
 
   constructor() {
     super();
     this.#shadow = this.attachShadow({ mode: "open" });
-    const style = document.createElement("style");
-    // Theme defaults live in private properties and each visual property has
-    // one rule, so a consumer's --aared-background / --aared-page-shadow win
-    // in both themes (a hard-coded dark rule used to override them).
-    style.textContent = `
-      :host { display: flex; flex-direction: column; min-width: 0; min-height: 0; --_aared-stage: #f2f2f2; --_aared-shadow: 0 1px 5px rgb(0 0 0 / 0.25); --_aared-controls-ink: inherit; }
-      :host([data-aared-theme="dark"]) { --_aared-stage: #1c1c1f; --_aared-shadow: 0 1px 5px rgb(0 0 0 / 0.6); --_aared-controls-ink: #e4e4e7; }
-      [part="stage"] { display: flex; flex: 1 1 auto; align-items: center; justify-content: center; min-width: 0; min-height: 0; overflow: auto; background: var(--aared-background, var(--_aared-stage)); color: var(--aared-text, inherit); }
-      [part="page"] { flex: 0 0 auto; width: 100%; min-width: 0; margin: auto; box-shadow: var(--aared-page-shadow, var(--_aared-shadow)); }
-      :host([data-aared-format="xlsx"]) [part="stage"] { align-items: stretch; }
-      :host([data-aared-format="xlsx"]) [part="page"] { margin: 0; }
-      :host([data-aared-format="pptx"]) [part="page"] { align-self: stretch; margin: 0; display: flex; flex-direction: column; box-shadow: none; }
-      :host([data-aared-format="pptx"]) [part="page"] > [data-aared-element="slide"] { margin: auto; flex: none; box-shadow: var(--aared-page-shadow, var(--_aared-shadow)); }
-      [part~="controls"] { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; padding: .5rem; font: 14px system-ui, sans-serif; color: var(--_aared-controls-ink); }
-      :host(:fullscreen) [part~="controls"] { background: var(--aared-background, var(--_aared-stage)); }
-      button { font: inherit; }
-    `;
+    // Renders inside the shadow root add their own class sheet beside this one.
+    const chrome = constantSheet(this.ownerDocument, CHROME_CSS);
+    if (chrome !== null) this.#shadow.adoptedStyleSheets = [chrome];
     const stage = document.createElement("div");
     stage.part.add("stage");
     this.#page = document.createElement("div");
@@ -110,7 +177,7 @@ export class AaredViewer extends HTMLElement {
     this.#controls = document.createElement("div");
     this.#controls.part.add("controls");
     this.#controls.part.add("toolbar");
-    this.#shadow.append(style, stage, this.#controls);
+    this.#shadow.append(stage, this.#controls);
     // No `#updateChrome()` here: it writes `data-aared-theme` on the host,
     // and `document.createElement()` / `new AaredViewer()` throw
     // NotSupportedError if the constructor adds attributes. It runs from
@@ -127,7 +194,7 @@ export class AaredViewer extends HTMLElement {
     else this.setAttribute("src", value);
   }
 
-  /** The requested format (`type` attribute), or `null` to detect. See `format` for what opened. */
+  /** The requested format (`type` attribute), or `null` to detect. What opened is `viewer.format`. */
   get type(): DocumentFormat | null {
     const raw = this.getAttribute("type");
     return isFormat(raw) ? raw : null;
@@ -138,14 +205,16 @@ export class AaredViewer extends HTMLElement {
     else this.setAttribute("type", value);
   }
 
-  /** The detected (or asserted) format of the open document, or `null` before one opens. */
-  get format(): DocumentFormat | null {
-    return this.#format;
-  }
-
-  /** What `open()` knows about the open document (also the `load` detail), or `null`. */
-  get info(): DocumentInfo | null {
-    return this.#doc?.info ?? null;
+  /**
+   * The open document's viewer, or `null` before one opens (and after a
+   * failure or removal): `format`, `info`, `index`, `zoom`, `defaultZoom`,
+   * `scale`, `goTo()`, `setZoom()`, the toolbar methods (`next()`,
+   * `previous()`, `zoomIn()`, `zoomOut()`, `resetZoom()`), `search()` over
+   * the open document, the places inside a unit (`xlsx`, `docx`) and the
+   * events. Every move keeps the `index` and `zoom` attributes in step.
+   */
+  get viewer(): AaredViewerHandle | null {
+    return this.#viewer;
   }
 
   /** The unit to show (`index` attribute), zero-based. */
@@ -158,14 +227,15 @@ export class AaredViewer extends HTMLElement {
   }
 
   /**
-   * The zoom: the `zoom` attribute when set, else the render handle's own, else
-   * the format's default (`fit-page` slides, `1` sheets, `fit-width` documents).
+   * The zoom: the `zoom` attribute when set, else the viewer's own, else
+   * `"fit-width"` before a document opens. Each format opens at its default
+   * (`fit-page` slides, `1` sheets, `fit-width` documents).
    */
   get zoom(): ZoomValue {
     const raw = this.getAttribute("zoom");
     if (raw === "fit-width" || raw === "fit-page") return raw;
     if (raw !== null) return Number(raw);
-    return this.#slideRender?.zoom ?? (this.#format === null ? "fit-width" : DEFAULT_ZOOM[this.#format]);
+    return this.#viewer?.zoom ?? "fit-width";
   }
 
   set zoom(value: ZoomValue) {
@@ -181,22 +251,37 @@ export class AaredViewer extends HTMLElement {
   }
 
   /** Viewer theme (`light` | `dark` | `system`). Fixed `light` unless the host opts in to `dark` or `system`. */
-  get theme(): ViewerThemeAttribute {
+  get theme(): ViewerTheme {
     const raw = this.getAttribute("theme");
     return raw === "dark" || raw === "system" ? raw : "light";
   }
 
-  set theme(value: ViewerThemeAttribute) {
+  set theme(value: ViewerTheme) {
     this.setAttribute("theme", value);
   }
 
-  get file(): File | Blob | ArrayBuffer | null {
+  /**
+   * DOCX layout (`pagination` attribute): `"flow"` (default) reflows the
+   * document to the element's width; `"layout"` paints physical pages
+   * (`viewer.docx.pages`, `goToPage()`). Changing it re-opens a DOCX; other
+   * formats ignore it.
+   */
+  get pagination(): PaginationMode {
+    return this.getAttribute("pagination") === "layout" ? "layout" : "flow";
+  }
+
+  set pagination(value: PaginationMode) {
+    this.setAttribute("pagination", value);
+  }
+
+  get file(): ViewerFile | null {
     return this.#file;
   }
 
-  set file(value: File | Blob | ArrayBuffer | null) {
+  set file(value: ViewerFile | null) {
     this.#file = value;
-    if (this.isConnected) void this.open().catch(() => {});
+    this.#fileLast = value !== null;
+    this.#reopen();
   }
 
   get worker(): WorkerInit | undefined {
@@ -208,103 +293,79 @@ export class AaredViewer extends HTMLElement {
   }
 
   /**
-   * (Re)open `file` or `src` and render unit `index`. Resolves once painted
-   * and `load` has fired; rejects — after firing `error` once with the same
-   * `AaredError` as `detail.cause` — when it fails. A newer `open()` wins: the
-   * one it replaced rejects with `aborted` (no `error` event), which `isAbort()`
-   * matches.
+   * (Re)open whichever of `file` and `src` was set last and render unit
+   * `index`. Resolves once painted and `load` has fired; rejects — after
+   * firing `error` once with the same `AaredError` as `detail.cause` — when
+   * it fails. A newer `open()` wins: the one it replaced rejects with
+   * `aborted` (no `error` event), which `isAbort()` matches.
    */
   async open(): Promise<void> {
-    const generation = this.#replaceDocument();
-    const controller = this.#openController!;
-    const source: ViewerSource | null = this.#file ?? this.src;
-    const workerInit = this.#workerInit;
+    this.#close();
+    const controller = new AbortController();
+    this.#openController = controller;
+    const signal = controller.signal;
+    const theme = this.theme;
+    const pagination = this.pagination;
     try {
-      const typeError = sourceTypeError(this.getAttribute("type"));
+      const type = this.getAttribute("type");
+      const typeError = sourceTypeError(type);
       if (typeError !== undefined) throw typeError;
+      const source = this.#source();
       if (source === null) throw new AaredError("invalid-state", "aared/element: provide a src URL or file before calling open()");
-
-      const bytes = await sourceBytes("aared/element", source, controller.signal, (loaded, total) => {
-        this.#progress(loaded, total, generation);
+      const viewer = await openAutoViewer({
+        scope: "aared/element",
+        source,
+        target: this.#page,
+        options: {
+          ...(isFormat(type) ? { type } : {}),
+          index: this.index,
+          ...(this.hasAttribute("zoom") ? { zoom: this.zoom } : {}),
+          appearance: { theme },
+          ...(pagination === "layout" ? { pagination: { mode: pagination } } : {}),
+          ...(this.#workerInit === undefined ? {} : { worker: this.#workerInit }),
+          signal,
+        },
+        onProgress: (loaded, total) => {
+          if (controller !== this.#openController) return;
+          this.dispatchEvent(new CustomEvent("progress", { detail: total === undefined ? { loaded } : { loaded, total } }));
+        },
       });
-      if (!this.#current(generation, controller)) throw abortError();
-      // An asserted type skips detection: the per-format `open()` raises the
-      // typed `unsupported-format` mismatch itself, naming what it found.
-      const format = this.type ?? await WorkerSession.detectFormat("aared/element", bytes, {
-        signal: controller.signal,
-        ...(workerInit === undefined ? {} : { worker: workerInit }),
-      });
-      if (!this.#current(generation, controller)) throw abortError();
-      const doc = await openFormat(
-        format,
-        bytes,
-        workerInit === undefined ? { signal: controller.signal } : { signal: controller.signal, worker: workerInit },
-      );
-      if (!this.#current(generation, controller)) {
-        doc.close();
-        throw abortError();
-      }
       try {
-        assertHasUnits("aared/element", doc);
+        await this.#catchUp(viewer, signal);
       } catch (error) {
-        doc.close();
+        viewer.destroy();
         throw error;
       }
-      this.#doc = doc;
-      this.#format = format;
-      const page = this.#requestedPage(doc.info.count);
-      await this.#render(page, generation);
-      if (!this.#current(generation, controller)) throw abortError();
-      // The starting unit is reported by `load` (read `index`/`info`), never
-      // by `indexchange`: events describe changes.
-      this.dispatchEvent(new CustomEvent<DocumentInfo>("load", { detail: doc.info }));
+      this.#attach(viewer, theme, pagination);
       this.#updateChrome();
+      // The starting unit is reported by `load` (read `index` and `viewer`),
+      // never by `indexchange`: events describe changes.
+      this.dispatchEvent(new CustomEvent<DocumentInfo>("load", { detail: viewer.info }));
     } catch (error) {
       // Superseded or cancelled: no `error` event (nothing failed), but the
       // promise says so instead of resolving as if this open had finished.
       if (isAbort(error)) throw error;
-      if (!this.#current(generation, controller)) throw abortError();
-      this.#doc?.close();
-      this.#doc = null;
-      this.#format = null;
-      this.#shownIndex = null;
-      this.#page.replaceChildren();
+      if (controller !== this.#openController) throw abortError();
       this.#updateChrome();
       this.#report(error);
       throw error;
     }
   }
 
-  /**
-   * Show unit `index`. Resolves once painted; going to the unit already shown
-   * is a no-op. Rejects — after firing `error` once — with a `not-found`
-   * `AaredError` outside `0 <= index < info.count`.
-   */
-  async goTo(index: number): Promise<void> {
-    try {
-      this.#assertPage(index, this.#doc?.info.count);
-    } catch (error) {
-      this.#report(error);
-      throw error;
-    }
-    if (index === this.#shownIndex && this.#slideRender !== null) return;
-    this.#writeIndex(index);
-    if (this.#doc !== null) await this.#showPage(index, true);
-  }
-
   connectedCallback(): void {
     this.#updateChrome();
-    this.#listenSystemTheme();
+    this.#stopSystemTheme?.();
+    this.#stopSystemTheme = watchSystemTheme(this.#onSystemThemeChange);
     document.addEventListener("fullscreenchange", this.#onFullscreenChange);
     this.#syncFullscreen();
-    if (this.#file !== null || this.src !== null) void this.open().catch(() => {});
+    this.#reopen();
   }
 
   disconnectedCallback(): void {
     document.removeEventListener("fullscreenchange", this.#onFullscreenChange);
-    this.#themeMediaQuery?.removeEventListener("change", this.#onSystemThemeChange);
-    this.#themeMediaQuery = null;
-    this.#replaceDocument();
+    this.#stopSystemTheme?.();
+    this.#stopSystemTheme = null;
+    this.#close();
   }
 
   attributeChangedCallback(name: string): void {
@@ -312,199 +373,172 @@ export class AaredViewer extends HTMLElement {
       this.#updateChrome();
       return;
     }
-    if (name === "zoom") {
-      // The render handle owns zoom: its fit logic applies, and its
-      // `zoomchange` (fired only on a real change) forwards to us. Removing
-      // the attribute goes back to the format's default.
-      const handle = this.#slideRender;
-      if (handle !== null && this.#format !== null) {
-        const want = this.hasAttribute("zoom") ? this.zoom : DEFAULT_ZOOM[this.#format];
-        if (!sameZoom(handle.zoom, want)) handle.setZoom(want);
+    if (name === "index" || name === "zoom") {
+      // The element's own write to match the viewer moves nothing; before a
+      // document is open, the open reads both attributes.
+      const viewer = this.#viewer;
+      if (!this.#syncing && viewer !== null) {
+        if (name === "index") this.#showIndex(viewer);
+        else {
+          // Removing the attribute goes back to the format's default.
+          const zoom = this.#wantedZoom(viewer.format);
+          if (!sameZoom(viewer.zoom, zoom)) viewer.setZoom(zoom);
+        }
       }
       this.#updateChrome();
       return;
     }
     if (name === "type") {
-      const requestedType = this.getAttribute("type");
-      if (this.#doc !== null && this.#format !== null && requestedType !== null && requestedType !== this.#format) {
-        const error = sourceTypeError(requestedType) ?? new AaredError(
+      const viewer = this.#viewer;
+      if (viewer !== null) {
+        // The open document's format is known: comparing needs no download.
+        const type = this.getAttribute("type");
+        if (type === null || type === viewer.format) return;
+        const error = sourceTypeError(type) ?? new AaredError(
           "unsupported-format",
-          `aared/element: type "${requestedType}" does not match the open document's format "${this.#format}"`,
+          `aared/element: type "${type}" does not match the open document's format "${viewer.format}"`,
         );
-        this.#replaceDocument();
+        this.#close();
         this.#report(error);
         return;
       }
     }
-    if (name === "index") {
-      if (this.#writingIndex) return;
-      if (this.#doc !== null && this.index !== this.#shownIndex) void this.#showPage(this.index, false);
-      return;
+    if (name === "pagination") {
+      // Only a DOCX has pages, and only a real change re-opens it.
+      const viewer = this.#viewer;
+      if (viewer !== null && (viewer.format !== "docx" || this.pagination === this.#viewerPagination)) return;
     }
-    if (this.isConnected) void this.open().catch(() => {});
+    if (name === "src" && this.src !== null) this.#fileLast = false;
+    this.#reopen();
   }
 
-  #replaceDocument(): number {
-    this.#generation++;
+  /**
+   * What a change to `src`, `file`, `type` or `pagination` (or being put on
+   * the page) does: open the source again, or close quietly when neither `src`
+   * nor `file` is set. Emptying the viewer is not a failure, so no event
+   * fires; only calling `open()` with nothing to open is (`invalid-state`).
+   */
+  #reopen(): void {
+    if (!this.isConnected) return;
+    if (this.#source() === null) this.#close();
+    else void this.open().catch(() => {});
+  }
+
+  /** What opens: whichever of `file` and `src` was set last, else the other. */
+  #source(): Source | null {
+    if (this.#fileLast && this.#file !== null) return this.#file;
+    return this.src ?? this.#file;
+  }
+
+  /** End what is open or opening: abort an open in flight and destroy the viewer, which clears the page. */
+  #close(): void {
     this.#openController?.abort();
-    this.#openController = new AbortController();
-    this.#renderGeneration++;
-    this.#doc?.close();
-    this.#doc = null;
-    this.#format = null;
-    this.#shownIndex = null;
-    this.#slideRender?.destroy();
-    this.#slideRender = null;
-    this.#renderAbortController?.abort();
-    this.#renderAbortController = null;
+    this.#openController = null;
+    this.#viewerListeners?.abort();
+    this.#viewerListeners = null;
+    this.#viewer?.destroy();
+    this.#viewer = null;
+    this.#viewerTheme = null;
+    this.#viewerPagination = null;
     this.#page.replaceChildren();
     this.#updateChrome();
-    return this.#generation;
   }
 
-  #current(generation: number, controller: AbortController): boolean {
-    return generation === this.#generation && controller === this.#openController && !controller.signal.aborted;
-  }
-
-  /** Write `index` without re-rendering (the caller renders, or the unit is already on screen). */
-  #writeIndex(index: number): void {
-    this.#writingIndex = true;
-    try {
-      this.setAttribute("index", String(index));
-    } finally {
-      this.#writingIndex = false;
+  /**
+   * Apply what the attributes asked for while the file loaded, before `load`
+   * and before the element listens, so no change event comes ahead of `load`.
+   * A unit that cannot be shown fails the open, as a bad starting `index` does.
+   */
+  async #catchUp(viewer: PreviewHandle, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) throw abortError();
+    while (viewer.index !== this.index) {
+      await viewer.goTo(this.index);
+      if (signal.aborted) throw abortError();
     }
+    const zoom = this.#wantedZoom(viewer.format);
+    if (!sameZoom(viewer.zoom, zoom)) viewer.setZoom(zoom);
   }
 
-  /** Render `index` and announce it. `rethrow` for `goTo()`; attribute changes only report. */
-  async #showPage(index: number, rethrow: boolean): Promise<void> {
-    try {
-      this.#assertPage(index, this.#doc?.info.count);
-      const generation = this.#generation;
-      const rendered = await this.#render(index, generation);
-      if (!rendered || generation !== this.#generation || this.#doc === null || this.#format === null) return;
-      announceUnit(this, this.#format, this.#doc, index);
-      this.#updateChrome();
-    } catch (error) {
-      if (this.#doc === null || isAbort(error)) return;
-      this.#report(error);
-      if (rethrow) throw error;
+  /** Listen to a freshly opened viewer: re-fire its events here, and keep `index` and `zoom` in step. */
+  #attach(viewer: PreviewHandle, theme: ViewerTheme, pagination: PaginationMode): void {
+    this.#viewer = viewer;
+    this.#viewerTheme = theme;
+    this.#viewerPagination = pagination;
+    const listeners = new AbortController();
+    this.#viewerListeners = listeners;
+    for (const type of VIEWER_EVENTS) {
+      viewer.addEventListener(type, (event: Event) => {
+        if (type === "indexchange") this.#syncAttribute("index", String(viewer.index));
+        else if (type === "zoomchange") this.#syncZoom(viewer);
+        // The same `detail` object: an `error`'s `cause` is the very error the call rejected with.
+        this.dispatchEvent(new CustomEvent(type, { detail: (event as CustomEvent).detail }));
+        if (type === "indexchange" || type === "zoomchange") this.#updateChrome();
+      }, { signal: listeners.signal });
     }
   }
 
   /**
-   * The one appearance the element renders each format with — used for the
-   * first paint and every later theme change alike. `setAppearance` replaces
-   * rather than merges, so building it twice differently would drop knobs
-   * (the XLSX tab strip used to vanish on a theme toggle).
+   * Move to the `index` attribute. Always through the viewer, even when it
+   * names the unit on screen: a move still on its way is then cancelled
+   * (with nothing on its way the viewer does nothing). A move that fails has
+   * already been reported (the viewer's `error`); the attribute goes back to
+   * the unit on screen, unless something newer was written meanwhile.
    */
-  #appearanceFor(format: DocumentFormat): Appearance {
-    return format === "xlsx"
-      ? { theme: this.#resolvedTheme, spreadsheet: { sheetTabs: true } }
-      : { theme: this.#resolvedTheme };
-  }
-
-  async #render(index: number, generation: number): Promise<boolean> {
-    const doc = this.#doc;
-    const format = this.#format;
-    if (doc === null || format === null) throw new AaredError("invalid-state", "aared/element: no document is open");
-    const renderGeneration = ++this.#renderGeneration;
-    const stale = () => generation !== this.#generation || renderGeneration !== this.#renderGeneration;
-    this.#slideRender?.destroy();
-    this.#slideRender = null;
-    // Only what the element sets: each format's `render()` owns its defaults
-    // (session media, its default zoom). The zoom attribute, when set, wins.
-    const common = {
-      target: this.#page,
-      appearance: this.#appearanceFor(format),
-      ...(this.hasAttribute("zoom") ? { zoom: this.zoom } : {}),
-    };
-    let rendered: RenderHandle;
-    if (format === "pptx") {
-      const renderer = await import("../pptx/index.js");
-      if (stale()) return false;
-      rendered = await renderer.render({ ...common, slide: (doc as PptxDocument).slides.get(index) });
-    } else if (format === "xlsx") {
-      const renderer = await import("../xlsx/index.js");
-      if (stale()) return false;
-      rendered = await renderer.render({ ...common, sheet: (doc as XlsxDocument).sheets.get(index) });
-    } else {
-      const renderer = await import("../docx/index.js");
-      if (stale()) return false;
-      rendered = await renderer.render({ ...common, document: doc as DocxDocument });
-    }
-    if (stale()) {
-      rendered.destroy();
-      return false;
-    }
-    this.#slideRender = rendered;
-    this.#shownIndex = index;
-    this.#renderAbortController?.abort();
-    const controller = new AbortController();
-    this.#renderAbortController = controller;
-    forwardRenderEvents(rendered, this, controller.signal);
-    // A sheet-tab click switches sheets inside the renderer: follow it on
-    // `index` without re-rendering, and announce it like any navigation.
-    followSheet(rendered, controller.signal, (sheet) => {
-      if (this.#doc === null || this.#format === null || sheet === this.#shownIndex) return;
-      this.#shownIndex = sheet;
-      this.#writeIndex(sheet);
-      announceUnit(this, this.#format, this.#doc, sheet);
+  #showIndex(viewer: PreviewHandle): void {
+    const asked = this.getAttribute("index");
+    void viewer.goTo(this.index).catch(() => {
+      if (this.#viewer !== viewer || this.getAttribute("index") !== asked) return;
+      this.#syncAttribute("index", String(viewer.index));
       this.#updateChrome();
     });
-    // A zoom attribute changed while this unit rendered: the old handle was
-    // already gone, so apply it now — the forwarded event reports it once.
-    if (this.hasAttribute("zoom") && !sameZoom(rendered.zoom, this.zoom)) rendered.setZoom(this.zoom);
-    this.#contentRenderTheme = this.#resolvedTheme;
-    return true;
   }
 
-  #requestedPage(total: number): number {
-    const page = this.index;
-    this.#assertPage(page, total);
-    return page;
-  }
-
-  #assertPage(page: number, total?: number): void {
-    if (!Number.isInteger(page) || page < 0) {
-      throw new AaredError("invalid-argument", `aared/element: index must be a non-negative integer; received ${String(page)}`);
-    }
-    if (total !== undefined && page >= total) {
-      throw new AaredError("not-found", `aared/element: index ${page} is outside this ${total}-unit document`);
+  /** Write `index` or `zoom` to match the viewer; the write itself moves nothing. */
+  #syncAttribute(name: "index" | "zoom", value: string): void {
+    if (this.getAttribute(name) === value) return;
+    this.#syncing = true;
+    try {
+      this.setAttribute(name, value);
+    } finally {
+      this.#syncing = false;
     }
   }
 
-  #progress(loaded: number, total: number | undefined, generation: number): void {
-    if (generation !== this.#generation) return;
-    this.dispatchEvent(new CustomEvent("progress", {
-      detail: total === undefined ? { loaded } : { loaded, total },
-    }));
+  /** After a zoom change the attribute follows, except that an absent one at the format's default stays absent. */
+  #syncZoom(viewer: PreviewHandle): void {
+    if (this.hasAttribute("zoom") ? sameZoom(this.zoom, viewer.zoom) : sameZoom(viewer.zoom, DEFAULT_ZOOM[viewer.format])) return;
+    this.#syncAttribute("zoom", String(viewer.zoom));
   }
 
-  /** Fire `error` once; `cause` is the `AaredError` itself (the one `goTo()`/`open()` reject with). */
+  /** The zoom the attribute asks for: its value, or the format's default when it is absent. */
+  #wantedZoom(format: DocumentFormat): ZoomValue {
+    return this.hasAttribute("zoom") ? this.zoom : DEFAULT_ZOOM[format];
+  }
+
+  /** Fire `error` once; `cause` is the `AaredError` itself (the one `open()` rejects with). */
   #report(cause: unknown): void {
     const message = cause instanceof Error ? cause.message : String(cause);
     this.dispatchEvent(new CustomEvent("error", { detail: { message, cause } }));
   }
 
+  /** The OS scheme flipped: the chrome (`data-aared-theme`, the stage) follows a `system` theme. The viewer follows it by itself. */
   #onSystemThemeChange = (): void => {
     if (this.theme === "system") this.#updateChrome();
   };
 
-  #listenSystemTheme(): void {
-    this.#themeMediaQuery?.removeEventListener("change", this.#onSystemThemeChange);
-    if (typeof matchMedia !== "undefined") {
-      this.#themeMediaQuery = matchMedia("(prefers-color-scheme: dark)");
-      this.#themeMediaQuery.addEventListener("change", this.#onSystemThemeChange);
-    }
-  }
-
+  /**
+   * The bar is the viewer's own toolbar methods behind buttons (`previous()`,
+   * `next()`, `zoomIn()`, `zoomOut()`), so it pages and steps exactly as an
+   * app's own toolbar would; the `index` and `zoom` attributes follow from the
+   * viewer's events. With nothing open the buttons do nothing.
+   */
   #createControls(): void {
     const previous = document.createElement("button");
     previous.type = "button";
     previous.part.add("button");
     previous.textContent = "Previous";
-    previous.addEventListener("click", () => void this.goTo(Math.max(0, this.index - 1)).catch(() => {}));
+    // A failure is the viewer's `error`, which the element re-fires.
+    previous.addEventListener("click", () => void this.#viewer?.previous().catch(() => {}));
     const indicator = document.createElement("span");
     indicator.part.add("label");
     indicator.dataset.aaredControls = "index";
@@ -512,22 +546,19 @@ export class AaredViewer extends HTMLElement {
     next.type = "button";
     next.part.add("button");
     next.textContent = "Next";
-    next.addEventListener("click", () => {
-      const total = this.#doc?.info.count ?? 0;
-      void this.goTo(Math.min(Math.max(total - 1, 0), this.index + 1)).catch(() => {});
-    });
+    next.addEventListener("click", () => void this.#viewer?.next().catch(() => {}));
     const zoomOut = document.createElement("button");
     zoomOut.type = "button";
     zoomOut.part.add("button");
     zoomOut.textContent = "-";
     zoomOut.setAttribute("aria-label", "Zoom out");
-    zoomOut.addEventListener("click", () => this.#stepZoom(1 / ZOOM_STEP));
+    zoomOut.addEventListener("click", () => this.#viewer?.zoomOut());
     const zoomIn = document.createElement("button");
     zoomIn.type = "button";
     zoomIn.part.add("button");
     zoomIn.textContent = "+";
     zoomIn.setAttribute("aria-label", "Zoom in");
-    zoomIn.addEventListener("click", () => this.#stepZoom(ZOOM_STEP));
+    zoomIn.addEventListener("click", () => this.#viewer?.zoomIn());
     const zoom = document.createElement("span");
     zoom.part.add("label");
     zoom.dataset.aaredControls = "zoom";
@@ -564,37 +595,28 @@ export class AaredViewer extends HTMLElement {
     button.hidden = document.fullscreenEnabled === false;
   }
 
-  /**
-   * +/−: step from the numeric zoom, or from the scale a fit mode actually
-   * painted (so "Fit page" at 62% steps to 78%, not to 125%), clamped to
-   * 25%–300% and rounded so repeated steps don't drift.
-   */
-  #stepZoom(factor: number): void {
-    const zoom = this.zoom;
-    const base = typeof zoom === "number" ? safeScale(zoom) : (this.#slideRender?.scale ?? 1);
-    const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, base * factor));
-    this.zoom = Math.round(next * 100) / 100;
-  }
-
   #updateChrome(): void {
-    const resolved = resolveTheme(this.theme);
-    const prevTheme = this.#resolvedTheme;
-    this.#resolvedTheme = resolved;
-    this.dataset.aaredTheme = resolved;
-    if (this.#format === null) delete this.dataset.aaredFormat;
-    else this.dataset.aaredFormat = this.#format;
-    // When the resolved theme changes and a document is open, forward it in
-    // place — with the same appearance the first paint used — so the unit
-    // index, zoom, and Worker session survive.
-    if (resolved !== prevTheme && this.#format !== null && this.#slideRender !== null && this.#contentRenderTheme !== null) {
-      this.#slideRender.setAppearance(this.#appearanceFor(this.#format));
-      this.#contentRenderTheme = resolved;
+    const theme = this.theme;
+    this.dataset.aaredTheme = resolveTheme(theme);
+    const viewer = this.#viewer;
+    if (viewer === null) delete this.dataset.aaredFormat;
+    else this.dataset.aaredFormat = viewer.format;
+    // Physical pages carry their own shadow, so the chrome follows what opened, not the attribute alone.
+    if (viewer?.format === "docx" && this.#viewerPagination === "layout") this.dataset.aaredPagination = "layout";
+    else delete this.dataset.aaredPagination;
+    // `theme` owns the viewer's appearance: a real change is forwarded in
+    // place, so the unit, zoom and Worker session survive (and the embed
+    // defaults, XLSX sheet tabs among them, stay). `system` goes as `system`:
+    // the viewer then follows the OS flips itself, so one forwarded here
+    // changes nothing but the chrome above.
+    if (viewer !== null && this.#viewerTheme !== theme) {
+      this.#viewerTheme = theme;
+      viewer.setAppearance({ theme });
     }
     this.#controls.hidden = !this.controls;
-    const total = this.#doc?.info.count ?? 0;
     const indicator = this.#controls.querySelector<HTMLElement>('[data-aared-controls="index"]');
     const zoomIndicator = this.#controls.querySelector<HTMLElement>('[data-aared-controls="zoom"]');
-    if (indicator !== null) indicator.textContent = total === 0 ? "0 / 0" : `${this.index + 1} / ${total}`;
+    if (indicator !== null) indicator.textContent = viewer === null ? "0 / 0" : `${viewer.index + 1} / ${viewer.info.count}`;
     if (zoomIndicator !== null) {
       const zoom = this.zoom;
       zoomIndicator.textContent = zoom === "fit-width"
@@ -606,6 +628,6 @@ export class AaredViewer extends HTMLElement {
   }
 }
 
-if (!customElements.get("aared-viewer")) {
+if (typeof customElements !== "undefined" && !customElements.get("aared-viewer")) {
   customElements.define("aared-viewer", AaredViewer);
 }

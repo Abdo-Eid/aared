@@ -121,7 +121,7 @@ describe("PPTX pictures", () => {
   });
 });
 
-describe("PPTX notes and embedded fonts", () => {
+describe("PPTX notes", () => {
   test("extracts production notes as text, including Arabic", async () => {
     const { pkg, deck } = await openDeck(PRODUCTION);
     const slides = await Promise.all(deck.slideParts.map((_, index) => parsePptxSlide(pkg, deck, index)));
@@ -135,12 +135,5 @@ describe("PPTX notes and embedded fonts", () => {
     const { pkg, deck } = await openDeck(COVERAGE);
     const slides = await Promise.all(deck.slideParts.map((_, index) => parsePptxSlide(pkg, deck, index)));
     expect(slides.every((slide) => slide.notes === undefined)).toBe(true);
-  });
-
-  test("indexes embedded-font parts without decoding font bytes", async () => {
-    const { deck: productionDeck } = await openDeck(PRODUCTION);
-    const { deck: coverageDeck } = await openDeck(COVERAGE);
-    expect(productionDeck.embeddedFonts).toEqual([]);
-    expect(coverageDeck.embeddedFonts).toEqual([]);
   });
 });

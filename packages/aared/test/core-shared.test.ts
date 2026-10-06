@@ -11,7 +11,9 @@ import {
   toHexColor,
 } from "../src/core/color.js";
 import { automaticTextColor } from "../src/core/pptx.js";
-import { clipSnippet, foldQuery, foldText, runsText } from "../src/core/search.js";
+import { resolveDrawingColor } from "../src/core/theme.js";
+import { parseXml } from "../src/core/xml.js";
+import { clipSnippet, findByTitle, foldQuery, foldText, runsText, searchKey } from "../src/core/search.js";
 import { MINIMUM_LINE_HEIGHT, arabicShare, usesArabic } from "../src/core/typography.js";
 import {
   EMU_PER_INCH,
@@ -115,6 +117,17 @@ describe("colour arithmetic", () => {
     expect(contrastRatio("#FFFFFF", "rgb(0, 0, 0)")).toBeUndefined();
   });
 
+  test("lumOff is signed: a negative offset darkens, a positive one lightens, both stay inside 0..1", () => {
+    const theme = { colors: {} } as unknown as Parameters<typeof resolveDrawingColor>[1];
+    const fill = (modifier: string): string | undefined =>
+      resolveDrawingColor(parseXml(`<a:solidFill xmlns:a="x"><a:srgbClr val="808080">${modifier}</a:srgbClr></a:solidFill>`), theme);
+    const grey = (hex: string | undefined): number => parseHexColor(hex!)![0]!;
+    expect(grey(fill(`<a:lumOff val="-20000"/>`))).toBeLessThan(0x80);
+    expect(grey(fill(`<a:lumOff val="20000"/>`))).toBeGreaterThan(0x80);
+    expect(fill(`<a:lumOff val="-500000"/>`)).toBe("#000000");
+    expect(fill(`<a:lumOff val="500000"/>`)).toBe("#FFFFFF");
+  });
+
   test("PowerPoint's automatic text colour follows the shared luminance", () => {
     // Ground truth (see automaticTextColor): coverage slide titles on #3A4961 paint white.
     expect(automaticTextColor({ kind: "solid", color: "#3A4961" })).toBe("#FFFFFF");
@@ -130,6 +143,58 @@ describe("search text", () => {
     expect(foldText("Total ΑΒΓ Ünï")).toBe(foldText("total αβγ ünï"));
     expect(foldQuery("Slide")).toBe(foldText("SLIDE"));
     expect(foldQuery("")).toBeNull();
+  });
+
+  test("tashkeel and tatweel do not separate spellings", () => {
+    const plain = searchKey("كتب");
+    expect(searchKey("كَتَبَ")).toBe(plain); // fatha on every letter
+    expect(searchKey("مُحَمَّد")).toBe(searchKey("محمد")); // damma, fatha, shadda
+    expect(searchKey("كـــتب")).toBe(plain); // tatweel
+    expect(searchKey("الله")).toBe(searchKey("اللّٰه")); // shadda and superscript alef
+  });
+
+  test("every alef form is one letter, and alef maqsura is ya", () => {
+    const bare = searchKey("احمد");
+    for (const spelling of ["أحمد", "إحمد", "آحمد", "ٱحمد"]) expect(searchKey(spelling)).toBe(bare);
+    expect(searchKey("الإنتاج")).toBe(searchKey("الانتاج"));
+    expect(searchKey("على")).toBe(searchKey("علي"));
+  });
+
+  test("Arabic-Indic and Persian digits are Western digits, separators included", () => {
+    expect(searchKey("١٢٣")).toBe("123");
+    expect(searchKey("۱۲۳")).toBe("123");
+    expect(searchKey("٠٩")).toBe("09");
+    expect(searchKey("١٬٢٣٤٫٥")).toBe("1,234.5");
+    expect(searchKey("Q١ budget")).toBe("q1 budget");
+  });
+
+  test("presentation forms take their base letters", () => {
+    // U+FEFB is the isolated lam-alef ligature a PDF paste leaves behind.
+    expect(searchKey(String.fromCharCode(0xfefb))).toBe(searchKey("لا"));
+    expect(searchKey(`${String.fromCharCode(0xfe8d)}${String.fromCharCode(0xfee1)}`)).toBe(searchKey("ام"));
+  });
+
+  test("merges that change a word stay apart: ta marbuta against ha, the hamza seats", () => {
+    expect(searchKey("مدرسة")).not.toBe(searchKey("مدرسه"));
+    expect(searchKey("مؤمن")).not.toBe(searchKey("مومن"));
+    expect(searchKey("مسئول")).not.toBe(searchKey("مسيول"));
+  });
+
+  test("text with no Arabic takes the plain case fold", () => {
+    expect(searchKey("Total Ünï 42")).toBe(foldText("Total Ünï 42"));
+    expect(searchKey("")).toBe("");
+  });
+
+  test("a query of nothing but dropped marks matches nothing, not everything", () => {
+    expect(foldQuery("َّ")).toBeNull();
+    expect(foldQuery("ـ")).toBeNull();
+    expect(foldQuery("الإنتاج")).toBe(searchKey("الانتاج"));
+  });
+
+  test("title lookup stays case-only: it never folds Arabic spellings", () => {
+    const sheets = [{ title: "أحمد" }, { title: "Q1" }];
+    expect(findByTitle(sheets, "q1", (sheet) => sheet.title)).toBe(sheets[1]);
+    expect(findByTitle(sheets, "احمد", (sheet) => sheet.title)).toBeUndefined();
   });
 
   test("a block's text is its runs joined in order, and snippets are clipped", () => {

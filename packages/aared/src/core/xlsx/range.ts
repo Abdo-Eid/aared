@@ -51,24 +51,30 @@ export function spanRange(first: Cell, second: Cell): CellRange {
 }
 
 /**
- * Parse an A1 reference into a zero-based inclusive `CellRange`.
- * Accepts a single cell (`"D14"`) or a bounded range (`"A1:M200"`).
- * Reversed corners are normalized to logical order. Anything else —
- * whole-column (`"A:A"`), whole-row (`"1:3"`), unbounded, or malformed
- * input — rejects with an `invalid-range` `AaredError`.
+ * An A1 reference as a zero-based inclusive `CellRange`: a single cell
+ * (`"D14"`) or a bounded range (`"A1:M200"`), case-insensitive, `$` markers
+ * and surrounding whitespace allowed, reversed corners put in logical order.
+ * `undefined` for anything else (whole column `"A:A"`, whole row `"1:3"`,
+ * off the grid, malformed): the worksheet readers skip such a reference.
  */
-export function parseA1Range(reference: A1Range): CellRange {
-  const invalid = new AaredError(
-    "invalid-range",
-    `aared/xlsx: invalid cell range ${JSON.stringify(reference)}; use "A1:M200" or a single cell like "D14"`,
-  );
-  if (typeof reference !== "string") throw invalid;
+export function parseRef(reference: string): CellRange | undefined {
   const parts = reference.trim().split(":");
-  if (parts.length > 2) throw invalid;
+  if (parts.length > 2) return undefined;
   const first = parseCell(parts[0]!.trim().replaceAll("$", ""));
   const second = parts.length === 2 ? parseCell(parts[1]!.trim().replaceAll("$", "")) : first;
-  if (first === undefined || second === undefined) throw invalid;
-  return spanRange(first, second);
+  return first === undefined || second === undefined ? undefined : spanRange(first, second);
+}
+
+/** `parseRef` for the public API: anything it rejects is an `invalid-range` `AaredError`. */
+export function parseA1Range(reference: A1Range): CellRange {
+  const range = typeof reference === "string" ? parseRef(reference) : undefined;
+  if (range === undefined) {
+    throw new AaredError(
+      "invalid-range",
+      `aared/xlsx: invalid cell range ${JSON.stringify(reference)}; use "A1:M200" or a single cell like "D14"`,
+    );
+  }
+  return range;
 }
 
 /** Zero-based column index to Excel letters: 0 → A … 25 → Z, 26 → AA. */

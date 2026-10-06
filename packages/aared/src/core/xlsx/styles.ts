@@ -7,16 +7,15 @@
  *
  * Color notes: `rgb` is author intent; `theme` indexes the DrawingML theme
  * palette (shared with PPTX via `core/theme.ts`); `indexed` falls back to
- * the file's `indexedColors` or the legacy 56-color table. `tint` blends in
- * sRGB toward white (positive) or black (negative) — a documented preview
- * approximation, not Office's exact transform.
+ * the file's `indexedColors` or the legacy 56-color table. `tint` moves the
+ * colour's lightness the way Excel does (`applySpreadsheetTint`).
  */
 
-import { attr, childElements, firstChild } from "../xml.js";
+import { attr, childElements, firstChild, onOff } from "../xml.js";
 import type { XmlElement } from "../xml.js";
 import type { OpcPackage } from "../opc.js";
-import { mixColors, parseHexDigits, toHexColor } from "../color.js";
-import { readDrawingTheme } from "../theme.js";
+import { parseHexDigits, toHexColor } from "../color.js";
+import { applySpreadsheetTint, readDrawingTheme } from "../theme.js";
 import type { DrawingTheme } from "../theme.js";
 import { damagedDocument, throwIfAborted } from "../errors.js";
 import { formatCodeForId } from "./numberfmt.js";
@@ -37,12 +36,6 @@ const LEGACY_INDEXED_COLORS = [
   "#003366", "#339966", "#003300", "#333300", "#993300", "#993366", "#333399", "#333333",
 ];
 
-/** sRGB lerp toward white (positive tint) or black (negative tint). */
-function applyTint(color: string, tint: number): string {
-  if (tint === 0) return color;
-  return mixColors(color, tint > 0 ? "#FFFFFF" : "#000000", Math.abs(tint));
-}
-
 function numberAttribute(element: XmlElement, name: string): number | undefined {
   const value = attr(element, name);
   if (value === undefined) return undefined;
@@ -50,16 +43,13 @@ function numberAttribute(element: XmlElement, name: string): number | undefined 
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function onOff(element: XmlElement, name: string): boolean | undefined {
-  const value = attr(element, name);
-  if (value === undefined) return undefined;
-  if (value === "1" || value === "true") return true;
-  if (value === "0" || value === "false") return false;
-  return undefined;
+/** The channels of an `rgb` attribute: `AARRGGBB` or `RRGGBB`. The alpha byte is ignored, as for the worksheet's own colour reader. */
+function argbChannels(rgb: string): number[] | undefined {
+  return parseHexDigits(rgb.length === 8 ? rgb.slice(2) : rgb);
 }
 
 /** Resolve a SpreadsheetML `<color>`/`fgColor`/`bgColor` element to CSS. */
-export function resolveStyleColor(
+function resolveStyleColor(
   element: XmlElement | undefined,
   theme: DrawingTheme,
   indexedColors: string[] | undefined,
@@ -67,21 +57,15 @@ export function resolveStyleColor(
   if (element === undefined) return undefined;
   const rgb = attr(element, "rgb");
   if (rgb !== undefined) {
-    const channels = parseHexDigits(rgb.length === 8 ? rgb.slice(2) : rgb);
-    if (channels === undefined) return undefined;
-    if (rgb.length === 8 && !rgb.toUpperCase().startsWith("FF")) {
-      const alpha = Number.parseInt(rgb.slice(0, 2), 16) / 255;
-      const [red, green, blue] = channels;
-      return `rgba(${red}, ${green}, ${blue}, ${Math.round(alpha * 100) / 100})`;
-    }
-    return toHexColor(channels);
+    const channels = argbChannels(rgb);
+    return channels === undefined ? undefined : toHexColor(channels);
   }
   const themeIndex = numberAttribute(element, "theme");
   if (themeIndex !== undefined) {
     const scheme = THEME_ORDER[themeIndex];
     const base = scheme === undefined ? undefined : theme.colors[scheme];
     if (base === undefined) return undefined;
-    return applyTint(base, numberAttribute(element, "tint") ?? 0);
+    return applySpreadsheetTint(base, numberAttribute(element, "tint") ?? 0);
   }
   const indexed = numberAttribute(element, "indexed");
   if (indexed !== undefined) {
@@ -122,18 +106,15 @@ function resolveFill(fill: XmlElement, theme: DrawingTheme, indexedColors: strin
   const pattern = firstChild(fill, "patternFill");
   if (pattern === undefined) return undefined;
   const type = attr(pattern, "patternType");
-  if (type === "none" || type === undefined) {
-    // Differential fills sometimes carry only a `bgColor` with no pattern
-    // type; honor it as a solid intent rather than dropping the rule.
-    const loose = resolveStyleColor(firstChild(pattern, "bgColor"), theme, indexedColors);
-    return type === "none" ? undefined : loose;
-  }
+  // Differential fills sometimes carry only a `bgColor` with no pattern
+  // type; honor it as a solid intent rather than dropping the rule.
+  if (type === undefined) return resolveStyleColor(firstChild(pattern, "bgColor"), theme, indexedColors);
   if (type !== "solid") return undefined;
   return resolveStyleColor(firstChild(pattern, "fgColor"), theme, indexedColors)
     ?? resolveStyleColor(firstChild(pattern, "bgColor"), theme, indexedColors);
 }
 
-export interface ResolvedBorder {
+interface ResolvedBorder {
   left?: { style?: string; color?: string };
   right?: { style?: string; color?: string };
   top?: { style?: string; color?: string };
@@ -182,15 +163,11 @@ function resolveAlignment(alignment: XmlElement | undefined): ResolvedAlignment 
     case "center": case "centerContinuous": out.horizontal = "center"; break;
     case "justify": case "distributed": out.horizontal = "justify"; break;
     case "fill": out.horizontal = "left"; break;
-    case undefined: case "general": break;
-    default: break;
   }
   switch (attr(alignment, "vertical")) {
     case "top": out.vertical = "top"; break;
     case "center": out.vertical = "middle"; break;
     case "bottom": out.vertical = "bottom"; break;
-    case undefined: case "justify": case "distributed": break;
-    default: break;
   }
   if (onOff(alignment, "wrapText") === true) out.wrapText = true;
   const indent = numberAttribute(alignment, "indent");
@@ -210,9 +187,6 @@ const EMPTY_STYLE: XlsxCellStyleModel = Object.freeze({});
 
 /** Resolved workbook styles: direct cell formats plus conditional differentials. */
 export interface XlsxStyles {
-  theme: DrawingTheme;
-  /** Number-format code for a numFmtId (custom records win over builtins). */
-  numberFormatCode(id: number): string;
   /**
    * Resolved direct style for a cellXfs index; unknown indexes yield {}.
    * The object is shared by every cell using that index (one allocation per
@@ -220,10 +194,11 @@ export interface XlsxStyles {
    * as read-only.
    */
   cellStyle(xfId: number): XlsxCellStyleModel;
-  /** Resolved differential style for a dxfs index; unknown indexes yield {}. */
+  /** Resolved differential style for a dxfs index; unknown indexes yield {}. Read-only, like `cellStyle`'s. */
   differential(dxfId: number): DifferentialStyle;
-  count: number;
 }
+
+const NO_DIFFERENTIAL: DifferentialStyle = Object.freeze({});
 
 function differentialFor(dxf: XmlElement, theme: DrawingTheme, indexedColors: string[] | undefined): DifferentialStyle {
   const out: DifferentialStyle = {};
@@ -302,15 +277,8 @@ export async function readXlsxStyles(
   throwIfAborted(signal);
   const stylesPart = relationships.find((relationship) => relationship.type.endsWith("/styles"))?.target
     ?? (pkg.hasPart("xl/styles.xml") ? "xl/styles.xml" : undefined);
-  const empty: XlsxStyles = {
-    theme,
-    numberFormatCode: (id) => formatCodeForId(id, new Map()),
-    cellStyle: () => EMPTY_STYLE,
-    differential: () => ({}),
-    count: 0,
-  };
   const root = stylesPart === undefined ? undefined : await pkg.readXmlIfPresent(stylesPart, signal);
-  if (root === undefined) return empty;
+  if (root === undefined) return { cellStyle: () => EMPTY_STYLE, differential: () => NO_DIFFERENTIAL };
   if (root.local !== "styleSheet") throw damagedDocument("xl/styles.xml root must be <styleSheet>");
 
   const numberFormats = new Map<number, string>();
@@ -331,7 +299,7 @@ export async function readXlsxStyles(
     // An unreadable entry keeps its slot (indexes are positional) as black.
     indexedColors = childElements(indexed, "rgbColor").map((entry) => {
       const rgb = attr(entry, "rgb") ?? "";
-      return toHexColor(parseHexDigits(rgb.length === 8 ? rgb.slice(2) : rgb) ?? [0, 0, 0]);
+      return toHexColor(argbChannels(rgb) ?? [0, 0, 0]);
     });
   }
 
@@ -348,17 +316,7 @@ export async function readXlsxStyles(
   const differentials = dxfs === undefined ? [] : childElements(dxfs, "dxf").map((dxf) => differentialFor(dxf, theme, indexedColors));
   throwIfAborted(signal);
   return {
-    theme,
-    numberFormatCode: (id) => formatCodeForId(id, numberFormats),
     cellStyle: (xfId) => resolved[xfId] ?? EMPTY_STYLE,
-    differential: (dxfId) => {
-      const found = differentials[dxfId];
-      if (found === undefined) return {};
-      return {
-        ...(found.font === undefined ? {} : { font: { ...found.font } }),
-        ...(found.fill === undefined ? {} : { fill: found.fill }),
-      };
-    },
-    count: resolved.length,
+    differential: (dxfId) => differentials[dxfId] ?? NO_DIFFERENTIAL,
   };
 }

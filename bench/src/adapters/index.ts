@@ -16,11 +16,11 @@ import { openExtendDocx, openExtendPptx, openExtendXlsx } from "./extend";
 import { openPptxBrowser } from "./pptx-browser";
 
 /**
- * Per-format renderer registry. `ADAPTERS` stays the legacy single-baseline
- * map (per-format default) so existing cards keep working; `BASELINES` is the
- * multi-renderer future the selector UI and the harness consume. Every entry
- * is lazily imported inside its adapter, so opening one renderer never pays
- * for — or breaks from — another.
+ * Per-format renderer registry, keyed by renderer id: what the selector UI
+ * lists and the harness measures (`RENDERERS_BY_FORMAT` in
+ * tools/bench-measure.ts names the same ids and must stay in step). Every
+ * entry is lazily imported inside its adapter, so opening one renderer never
+ * pays for, or breaks from, another.
  */
 export const BASELINES: Record<Format, Record<string, OpenAdapter>> = {
   pdf: { pdf: openPdf },
@@ -49,19 +49,12 @@ export const BASELINES: Record<Format, Record<string, OpenAdapter>> = {
   },
 };
 
-/** Legacy alias target per format — what `"baseline"` means in the UI. */
+/** The baseline compare mode starts with, per format. */
 export const DEFAULT_BASELINE: Record<Format, string> = {
   pdf: "pdf",
   docx: "docx-preview",
   pptx: "pptxviewjs",
   xlsx: "sheetjs",
-};
-
-export const ADAPTERS: Record<Format, OpenAdapter> = {
-  pdf: openPdf,
-  docx: openDocx,
-  pptx: openPptx,
-  xlsx: openXlsx,
 };
 
 export type {

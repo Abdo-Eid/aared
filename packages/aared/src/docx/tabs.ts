@@ -106,9 +106,9 @@ export function lazyPagePaint(): boolean {
  * re-run when next shown; before printing, every page not laid out with the
  * current fonts runs, since print shows them all.
  */
-export function settlePageTabStops(pages: readonly HTMLElement[], alive: () => boolean): void {
+export function settlePageTabStops(pages: readonly HTMLElement[], alive: () => boolean): () => void {
   const tabbed = pages.filter((page) => page.querySelector(`[${TAB_ATTRIBUTE}]`) !== null);
-  if (tabbed.length === 0) return;
+  if (tabbed.length === 0) return () => {};
   /** Bumped on every font load; a page laid out under an older one is stale. */
   let fontEpoch = 0;
   const laidOut = new WeakMap<HTMLElement, number>();
@@ -122,19 +122,13 @@ export function settlePageTabStops(pages: readonly HTMLElement[], alive: () => b
     if (laidOut.get(page) !== fontEpoch) run(page);
   };
   const onFonts = (): void => {
-    if (!alive()) {
-      document.fonts?.removeEventListener("loadingdone", onFonts);
-      return;
-    }
+    if (!alive()) return;
     fontEpoch += 1;
     for (const page of shown) run(page);
   };
   document.fonts?.addEventListener("loadingdone", onFonts);
   const onPrint = (): void => {
-    if (!alive()) {
-      window.removeEventListener("beforeprint", onPrint);
-      return;
-    }
+    if (!alive()) return;
     for (const page of tabbed) if (laidOut.get(page) !== fontEpoch) run(page);
   };
   window.addEventListener("beforeprint", onPrint);
@@ -155,6 +149,11 @@ export function settlePageTabStops(pages: readonly HTMLElement[], alive: () => b
       if (!laidOut.has(page) && content !== null && content.checkVisibility({ contentVisibilityAuto: true })) show(page);
     }
   });
+  // The listeners live on the document and window: the caller's disposer takes them off.
+  return () => {
+    document.fonts?.removeEventListener("loadingdone", onFonts);
+    window.removeEventListener("beforeprint", onPrint);
+  };
 }
 
 /** The paragraph start edge, in unzoomed pixels, for each text direction. */

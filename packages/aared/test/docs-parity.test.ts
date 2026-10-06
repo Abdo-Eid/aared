@@ -67,21 +67,28 @@ test("API reference callable examples resolve to public implementations", async 
     "sheet.read",
     "media.get",
     "deck.search",
-    "workbook.search",
-    "document.search",
+    "sheet.search",
+    "doc.search",
     "deck.close",
     "render",
     "viewer.setZoom",
     "viewer.setAppearance",
     "viewer.goTo",
-    "viewer.goToCell",
-    "viewer.goToSheet",
-    "viewer.goToHeading",
-    "paged.goToPage",
-    "viewer.scrollTo",
-    "viewer.focus",
+    "viewer.next",
+    "viewer.previous",
+    "viewer.zoomIn",
+    "viewer.zoomOut",
+    "viewer.resetZoom",
+    "viewer.defaultZoom",
+    "viewer.search",
+    "viewer.xlsx.goToCell",
+    "viewer.xlsx.goToSheet",
+    "viewer.docx.goToHeading",
+    "viewer.docx.goToPage",
+    "viewer.xlsx.scrollTo",
+    "viewer.xlsx.focus",
     "viewer.destroy",
-    "viewer.open",
+    "element.open",
     "paintSlide",
   ]) {
     expect(api, `documented callable ${callable}`).toContain(callable);
@@ -107,17 +114,29 @@ test("API reference callable examples resolve to public implementations", async 
   expect(preview).toContain("export async function preview(");
   expect(preview).toContain("export async function detect(");
   expect(preview).toContain("goTo(index: number): Promise<void>");
+  expect(preview).toContain("next(): Promise<void>");
+  expect(preview).toContain("previous(): Promise<void>");
+  expect(preview).toContain("zoomIn(step?: number): void");
+  expect(preview).toContain("zoomOut(step?: number): void");
+  expect(preview).toContain("resetZoom(): void");
+  expect(preview).toContain("readonly defaultZoom: ZoomValue");
+  expect(preview).toContain("search(query: string, options?: PreviewSearchOptions): Promise<PptxSearchMatch[]>");
+  expect(preview).toContain("search(query: string, options?: PreviewSearchOptions): Promise<XlsxSearchMatch[]>");
+  expect(preview).toContain("search(query: string, options?: PreviewSearchOptions): Promise<DocxSearchMatch[]>");
   expect(preview).toContain("setAppearance(appearance: Appearance): void");
   expect(pptx).toContain("setAppearance(");
   expect(xlsx).toContain("setAppearance(");
   expect(docx).toContain("setAppearance(");
-  expect(react).toContain("setAppearance");
+  // The hook's result changes nothing itself: changes go through `viewer`.
+  expect(react).toContain("retry: () => void;");
+  expect(react).not.toContain("goTo: (index: number) => Promise<void>;");
   expect(react).toContain("export function usePreview(");
   expect(react).toContain("export function usePptx(");
   expect(react).toContain("export function useXlsx(");
   expect(react).toContain("export function useDocx(");
   expect(react).toContain("export interface UsePreviewOptions");
-  expect(react).toContain("export interface UsePreviewResult");
+  expect(react).toContain("export type UsePreviewResult");
   expect(element).toContain("async open(): Promise<void>");
-  expect(element).toContain("async goTo(index: number): Promise<void>");
+  expect(element).toContain("get viewer(): AaredViewerHandle | null");
+  expect(element).not.toContain("async goTo(");
 });

@@ -1,5 +1,6 @@
 ---
 title: Playground
+sidebar: false
 ---
 
 import PlaygroundCode from '../../components/PlaygroundCode.astro';
@@ -32,15 +33,16 @@ one document. New here? Start with **HTML** — it's a single tag.
     <div class="demo-pills" role="tablist" aria-label="How you use aared">
       <button type="button" role="tab" aria-selected="true" data-tab="component">HTML</button>
       <button type="button" role="tab" aria-selected="false" data-tab="react">React</button>
-      <button type="button" role="tab" aria-selected="false" data-tab="facade">JS · one call</button>
-      <button type="button" role="tab" aria-selected="false" data-tab="headless">JS · full control</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="facade">JS · auto-detect</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="headless">JS · low-level</button>
     </div>
     <PlaygroundPicker fixtures={fixtures} />
   </div>
 
   <div role="tabpanel" data-panel="component">
-    <p class="tab-intro"><strong>The easiest way: one tag.</strong> Add
-    <code>&lt;aared-viewer src="file.pptx" controls&gt;</code> and you're done — it
+    <p class="tab-intro"><strong>The easiest way: one tag.</strong> Import
+    <code>aared/element</code> once in the app code your bundler builds, then add
+    <code>&lt;aared-viewer src="file.pptx" controls&gt;</code> — it
     detects the format, opens the file, and draws it with built-in paging and zoom.
     Use it when you just want a viewer without writing render code.</p>
     <div class="pg-split">
@@ -54,7 +56,9 @@ one document. New here? Start with **HTML** — it's a single tag.
     <code>usePreview(&#123; source &#125;)</code> gives you a <code>ref</code> for a
     <code>&lt;div&gt;</code> plus the loading and error state, and cleans up when the
     component unmounts or the file changes. Use it when your app is React and you want a
-    viewer without managing the lifecycle yourself.</p>
+    viewer without managing the lifecycle yourself. The bar under the demo is the
+    viewer's own <code>next()</code>, <code>zoomIn()</code> and friends behind buttons,
+    as in <a href="/start/#build-your-own-toolbar">Build your own toolbar</a>.</p>
     <div class="pg-split">
       <div class="pg-code"><PlaygroundCode snippets={reactSnippets} /></div>
       <div class="pg-demo"><HooksDemo client:visible="react" fixtures={fixtures} /></div>
@@ -62,11 +66,14 @@ one document. New here? Start with **HTML** — it's a single tag.
   </div>
 
   <div role="tabpanel" data-panel="facade" hidden>
-    <p class="tab-intro"><strong>One function, any format.</strong>
-    <code>preview(source, container)</code> from <code>aared/preview</code> detects the
+    <p class="tab-intro"><strong>Auto-detect preview.</strong>
+    <code>preview(&#123; source, target: container &#125;)</code> from <code>aared/preview</code> detects the
     format, loads only the code it needs, draws into your container, and returns a handle
     (<code>goTo</code>, <code>setZoom</code>, <code>destroy</code>). Use it when you build
-    your own UI around the viewer but don't want a separate code path for each format.</p>
+    your own UI around the viewer but don't want a separate code path for each format.
+    The bar under the demo is that handle's <code>next()</code>, <code>zoomIn()</code> and
+    friends behind buttons, as in
+    <a href="/start/#build-your-own-toolbar">Build your own toolbar</a>.</p>
     <div class="pg-split">
       <div class="pg-code"><PlaygroundCode snippets={facadeSnippets} /></div>
       <div class="pg-demo"><FacadeDemo fixtures={fixtures} /></div>
@@ -74,12 +81,15 @@ one document. New here? Start with **HTML** — it's a single tag.
   </div>
 
   <div role="tabpanel" data-panel="headless" hidden>
-    <p class="tab-intro"><strong>One module per format, everything in your hands.</strong>
+    <p class="tab-intro"><strong>Low-level API: model access and manual rendering.</strong>
     <code>open()</code> → <code>.get()</code> → <code>render()</code> from
     <code>aared/pptx</code>, <code>aared/xlsx</code> or <code>aared/docx</code>, with
     explicit cleanup. The format you pick switches which module runs, and the code on the
-    left follows. Use it when you need search, range reads, media access, or control
-    over a single slide, sheet or document.</p>
+    left follows. Use it to build from the file's contents: thumbnails, exports,
+    pictures, or several slides, sheets or documents at once. Here the bar is yours to
+    write, a few lines per format: a slide is another <code>render()</code>, each click
+    cancelling the one before (<a href="/api/#cancellation">the pattern</a>); a workbook's
+    one handle has <code>goToSheet()</code>; a document only zooms.</p>
     <div class="pg-split">
       <div class="pg-code"><PlaygroundCode snippets={headlessSnippets} /></div>
       <div class="pg-demo"><HeadlessDemo fixtures={fixtures} /></div>

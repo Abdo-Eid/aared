@@ -11,14 +11,11 @@
  * a session is actually opened, never at import time (SSR-safe imports).
  */
 
-import type { DocumentFormat, DocumentInfo, FontResolver, MediaCollection, MediaOptions, WorkerInit } from "./index.js";
-import type { CellRange, SlideLayoutModel } from "./model.js";
-import type { SerializedError, WorkerCall, WorkerRequest, WorkerResponse, WorkerResult } from "./rpc.js";
-import { AaredError, abortError, isAbort, throwIfAborted, type AaredErrorCode } from "./errors.js";
+import type { DocumentFormat, DocumentInfo, FontResolver, MediaCollection, MediaOptions, Source, WorkerInit } from "./index.js";
+import type { SlideLayoutModel } from "./model.js";
+import type { SerializedError, SheetText, UnitRange, WorkerCall, WorkerRequest, WorkerResponse, WorkerResult } from "./rpc.js";
+import { AaredError, abortError, isAbort, throwIfAborted } from "./errors.js";
 import { collectDeferredGeometry, collectStrings } from "./collect.js";
-
-export type { DocumentInfo, FontResolver };
-export type { CellRange };
 
 export interface OpenSessionOptions {
   fontResolver?: FontResolver;
@@ -34,33 +31,8 @@ export interface OpenSessionOptions {
   geometryPrograms?: Readonly<Record<string, string>>;
 }
 
-/** Narrow numeric window for an XLSX `unit` request; other formats reject it. */
-export interface UnitRange {
-  start: { row: number; col: number };
-  end: { row: number; col: number };
-}
-
 export interface UnitRequestOptions {
   signal?: AbortSignal;
-  /**
-   * Set `false` for reads that only inspect the model (search) and never
-   * paint it: skips the font-resolver round trip, which can trigger font
-   * loads, and skips deferred-geometry evaluation. Defaults to resolving
-   * fonts.
-   */
-  fonts?: boolean;
-  /**
-   * Set `false` for reads that never paint (search): skips deferred-geometry
-   * evaluation, which would otherwise load the evaluator and walk the preset
-   * table for outlines a search never uses. Defaults to resolving geometry.
-   */
-  geometry?: boolean;
-  /**
-   * Set `false` for reads that never paint (search): the Worker serves a
-   * cached unit but doesn't keep this one in its bounded cache, so a search
-   * over every unit doesn't push out the ones being viewed.
-   */
-  retain?: boolean;
   /** XLSX-only: numeric window previously validated from an A1 reference. */
   range?: UnitRange;
 }
@@ -423,11 +395,30 @@ let nextSessionId = 1;
  */
 export async function sourceBytes(
   scope: string,
-  source: File | Blob | ArrayBuffer | string,
+  source: Source,
   signal?: AbortSignal,
   onProgress?: (loaded: number, total: number | undefined) => void,
 ): Promise<ArrayBuffer> {
   throwIfAborted(signal);
+  if (
+    typeof source !== "string"
+    && !isArrayBuffer(source)
+    && !ArrayBuffer.isView(source)
+    && typeof (source as { arrayBuffer?: unknown } | null)?.arrayBuffer !== "function"
+  ) {
+    // A File or Blob from another frame has no shared prototype, so it is
+    // recognised by what is used from it, not by `instanceof`.
+    const kind = Object.prototype.toString.call(source).slice(8, -1);
+    throw new AaredError("invalid-argument", `${scope}: a source is a File, Blob, ArrayBuffer, typed array or URL string; received ${kind}`);
+  }
+  if (ArrayBuffer.isView(source)) {
+    // Exactly the view's own range, copied once: a Node Buffer's `.buffer` is a whole shared pool.
+    onProgress?.(0, source.byteLength);
+    const bytes = new Uint8Array(source.buffer, source.byteOffset, source.byteLength).slice().buffer;
+    throwIfAborted(signal);
+    onProgress?.(bytes.byteLength, bytes.byteLength);
+    return bytes;
+  }
   if (typeof source === "string") {
     let response: Response;
     try {
@@ -454,12 +445,17 @@ export async function sourceBytes(
       throw new AaredError("network-error", `${scope}: the download of "${source}" stopped partway: ${detail}`, { cause: error });
     }
   }
-  const total = source instanceof ArrayBuffer ? source.byteLength : source.size;
+  const total = isArrayBuffer(source) ? source.byteLength : source.size;
   onProgress?.(0, total);
-  const bytes = source instanceof ArrayBuffer ? source.slice(0) : await source.arrayBuffer();
+  const bytes = isArrayBuffer(source) ? source.slice(0) : await source.arrayBuffer();
   throwIfAborted(signal);
   onProgress?.(bytes.byteLength, total);
   return bytes;
+}
+
+/** An `ArrayBuffer`, this realm's or another frame's (whose `instanceof` fails). */
+function isArrayBuffer(value: unknown): value is ArrayBuffer {
+  return value instanceof ArrayBuffer || Object.prototype.toString.call(value) === "[object ArrayBuffer]";
 }
 
 /** A response body as bytes, reporting each chunk when someone is listening. */
@@ -552,7 +548,7 @@ export class WorkerSession {
 
   static async open(
     scope: string,
-    source: File | Blob | ArrayBuffer | string,
+    source: Source,
     options?: OpenSessionOptions,
   ): Promise<WorkerSession> {
     const signal = options?.signal;
@@ -578,7 +574,7 @@ export class WorkerSession {
    */
   static async openAs(
     format: DocumentFormat,
-    source: File | Blob | ArrayBuffer | string,
+    source: Source,
     options?: OpenSessionOptions,
   ): Promise<WorkerSession> {
     const scope = `aared/${format}`;
@@ -594,14 +590,6 @@ export class WorkerSession {
     return session;
   }
 
-  get isClosed(): boolean {
-    return this.closed;
-  }
-
-  assertOpen(): void {
-    if (this.closed) throw closedError(this.scope);
-  }
-
   async unit<T extends WorkerResult>(index: number, options?: UnitRequestOptions): Promise<T> {
     // Check before creating the bridge request: otherwise the rejected
     // request promise floats unhandled while `whileOpen` rejects separately.
@@ -611,19 +599,22 @@ export class WorkerSession {
       type: "unit",
       index,
       ...(options?.range === undefined ? {} : { range: options.range }),
-      ...(options?.retain === false ? { retain: false as const } : {}),
     };
     const model = await this.whileOpen(
       this.bridge.request<T>(this.sessionId, call, options?.signal),
       options?.signal,
     );
-    await Promise.all([
-      options?.fonts === false ? undefined : this.resolveFonts(model, options?.signal),
-      options?.geometry === false ? undefined : this.resolveGeometry(model, options?.signal),
-    ]);
+    await Promise.all([this.resolveFonts(model, options?.signal), this.resolveGeometry(model, options?.signal)]);
     if (this.closed) throw closedError(this.scope);
     if (options?.signal?.aborted) throw abortError();
     return model;
+  }
+
+  /** Search's read of one unit: its words only (`TextRequest`), so no fonts, geometry or model to resolve. */
+  text<T extends string[] | SheetText>(index: number, options?: { signal?: AbortSignal }): Promise<T> {
+    if (this.closed) return Promise.reject(closedError(this.scope));
+    if (options?.signal?.aborted === true) return Promise.reject(abortError());
+    return this.whileOpen(this.bridge.request<T>(this.sessionId, { type: "text", index }, options?.signal), options?.signal);
   }
 
   media(mediaId: string, options?: MediaOptions): Promise<ArrayBuffer> {
@@ -690,7 +681,7 @@ export class WorkerSession {
   /** Format sniffing for `<aared-viewer>`: reads content types only, keeps no session. */
   static async detectFormat(
     scope: string,
-    source: File | Blob | ArrayBuffer | string,
+    source: Source,
     options?: { signal?: AbortSignal; worker?: WorkerInit },
   ): Promise<DocumentInfo["format"]> {
     const signal = options?.signal;
@@ -707,10 +698,6 @@ export class WorkerSession {
       // a request was cancelled.
       bridge.close(0);
     }
-  }
-
-  resolveFontsFor(model: unknown, signal?: AbortSignal): Promise<void> {
-    return this.resolveFonts(model, signal);
   }
 
   close(): void {
@@ -812,6 +799,3 @@ export class SessionMedia implements MediaCollection {
     return this.session.media(mediaId, options);
   }
 }
-
-export type { AaredErrorCode };
-export { AaredError };

@@ -3,9 +3,8 @@
  * positioned <div> per shape, inline <svg> for geometry, HTML for text.
  * Never canvas. See AGENTS.md § Rules #1 and docs/ARCHITECTURE.md.
  *
- * Current focused support: text shapes and DrawingML tables from the
- * Arabic gate fixture. Geometry/pictures/fills/rotation join this same
- * DOM model incrementally; no text path ever falls back to canvas.
+ * Paints shapes and their geometry, text, tables, pictures, charts, groups,
+ * fills, rotation and flips; no text path ever falls back to canvas.
  */
 
 import type { BoundsModel, ChartModel, GroupModel, PictureModel, RenderWarning, ShapeFillModel, ShapeModel, SlideModel, StrokeModel, TableCellModel, TableModel, TextBodyModel, TextParagraphModel } from "../core/model.js";
@@ -23,22 +22,26 @@ import type {
   ZoomValue,
 } from "../core/index.js";
 import { BULLET } from "../core/chars.js";
-import { clipSnippet, foldQuery, foldText, runsText } from "../core/search.js";
+import { clipSnippet, foldQuery, searchKey } from "../core/search.js";
 import { SessionMedia, WorkerSession } from "../core/session.js";
 import { presetPrograms } from "../core/presets.js";
 import { itemAt, throwIfAborted } from "../core/errors.js";
 import { resolveTheme } from "../appearance.js";
-import { appendChartPrimitive } from "../chart-svg.js";
+import { chartsSettled, paintChart } from "../chart-svg.js";
 import { MediaUrls } from "../media-url.js";
 import { EMU_PER_INCH, PX_PER_INCH, inchesToCss } from "../core/units.js";
 import { parseResolvedColor } from "../core/color.js";
-import { RenderHandleBase, fitScale, measureFitRoom, safeScale } from "../render-handle.js";
+import { DEFAULT_ZOOM, RenderHandleBase, fitScale, measureFitRoom, missingIdWarning, onReplaced, safeScale, settleRender } from "../render-handle.js";
+import type { EventTargetOf, ZoomChangeEvent } from "../render-handle.js";
 import { createTableCell, createTableGrid } from "../table-dom.js";
 import { groupChildMapping } from "./group-mapping.js";
 import { applyParagraphBox, applyRunBase, exactLinePitch, pt } from "../text-style.js";
 import { awaitDocumentFonts, fontFidelityWarnings } from "../font-fidelity.js";
 import { adoptClassSheet } from "../class-sheet.js";
 import { MINIMUM_LINE_HEIGHT, cssFontFamily, lineFontSizePt } from "../core/typography.js";
+import { MARK_FALLBACKS } from "../diagnostics.js";
+import { fillFallbackReason, fillPaint, officeGradientStops, type FillBox } from "../fill-paint.js";
+import { hollowText } from "./text-outline.js";
 
 /**
  * The line pitch PowerPoint gives 100% (`a:lnSpc/a:spcPct val="100000"`)
@@ -76,9 +79,6 @@ function leadingShiftEm(spacing: number, cssLine: number): number {
   const office = spacing > 1 ? grown : Math.max(DRAWINGML_SINGLE_LINE * (spacing - 1), grown);
   return office - (cssLine - DRAWINGML_SINGLE_LINE) / 2;
 }
-import { MARK_FALLBACKS } from "../diagnostics.js";
-import { fillFallbackReason, fillPaint, officeGradientStops, type FillBox } from "./fill-paint.js";
-import { hollowTextFilter } from "./text-outline.js";
 
 /** Document metadata for a deck; `format` is narrowed to `"pptx"`. */
 export interface PptxInfo extends DocumentInfo {
@@ -95,11 +95,11 @@ export interface SlideInfo extends UnitRef {
   size: { width: number; height: number };
 }
 
-/** One slide result from `deck.search()`. */
+/** One text occurrence from `deck.search()`. */
 export interface PptxSearchMatch {
   /** The slide holding the match; `slide.index` is its `goTo()` key. */
   slide: UnitRef;
-  /** First matching paragraph text on the slide. */
+  /** The matching paragraph text, clipped to 120 characters. */
   text: string;
 }
 
@@ -151,6 +151,7 @@ export class SlideCollection implements Collection<SlideHandle, number> {
 
   get(index: number): SlideHandle {
     return itemAt(
+      "aared/pptx",
       this.handles,
       index,
       () => `aared/pptx: slide index ${String(index)} is outside this ${this.handles.length}-slide deck`,
@@ -158,35 +159,10 @@ export class SlideCollection implements Collection<SlideHandle, number> {
   }
 }
 
-function slideText(model: SlideModel): string[] {
-  const paragraphs: string[] = [];
-  const bodyText = (body: TextBodyModel): void => {
-    for (const paragraph of body.paragraphs) {
-      const text = runsText(paragraph.runs).trim();
-      if (text !== "") paragraphs.push(text);
-    }
-  };
-  const visit = (element: SlideModel["elements"][number]): void => {
-    if (element.kind === "group") {
-      for (const child of element.children) visit(child);
-      return;
-    }
-    if (element.kind === "shape") {
-      if (element.text !== undefined) bodyText(element.text);
-    } else if (element.kind === "table") {
-      for (const row of element.rows) {
-        for (const cell of row.cells) bodyText(cell.text);
-      }
-    }
-  };
-  for (const element of model.elements) visit(element);
-  return paragraphs;
-}
-
-/** One slide paragraph as `search()` scans it: original text plus its folded form. */
+/** One slide paragraph as `search()` scans it: original text plus its search key. */
 interface SlideParagraph {
   text: string;
-  lower: string;
+  key: string;
 }
 
 /** An opened presentation: collections, search, media, and lifecycle. */
@@ -213,10 +189,11 @@ export class PptxDocument {
   }
 
   /**
-   * Case-insensitive substring search across slides. The first search reads
+   * Case-insensitive, Arabic-spelling-insensitive substring search across
+   * slides. The first search reads
    * each slide in order (aborting stops at the next slide) and keeps its
    * paragraph text; later searches scan that text without touching the
-   * Worker. One match per slide, the first matching paragraph.
+   * Worker. One match per non-overlapping occurrence, in slide/paragraph order.
    */
   async search(query: string, options?: ReadOptions): Promise<PptxSearchMatch[]> {
     const needle = foldQuery(query);
@@ -226,23 +203,28 @@ export class PptxDocument {
     for (const handle of this.slides.list()) {
       throwIfAborted(signal);
       const paragraphs = await this.paragraphsOf(handle.info.index, signal);
-      const hit = paragraphs.find(({ lower }) => lower.includes(needle));
-      if (hit !== undefined) {
-        matches.push({ slide: { index: handle.info.index, title: handle.info.title }, text: clipSnippet(hit.text) });
+      for (const paragraph of paragraphs) {
+        let at = 0;
+        while ((at = paragraph.key.indexOf(needle, at)) !== -1) {
+          matches.push({ slide: { index: handle.info.index, title: handle.info.title }, text: clipSnippet(paragraph.text) });
+          at += needle.length;
+        }
       }
     }
     return matches;
   }
 
-  /** Paragraph text of one slide, read once (search never paints, so no font work). */
+  /**
+   * Paragraph text of one slide, read once: the Worker's text read
+   * (`readPptxSlideText`), its words without the slide's model. A chart's
+   * words match as paragraphs of the slide; they are drawn in its SVG, so a
+   * hit finds the slide and the viewer highlights matching painted SVG text.
+   */
   private async paragraphsOf(index: number, signal: AbortSignal | undefined): Promise<SlideParagraph[]> {
     const cached = this.searchIndex.get(index);
     if (cached !== undefined) return cached;
-    const model = await this.session.unit<SlideModel>(
-      index,
-      signal === undefined ? { fonts: false, geometry: false, retain: false } : { signal, fonts: false, geometry: false, retain: false },
-    );
-    const paragraphs = slideText(model).map((text) => ({ text, lower: foldText(text) }));
+    const words = await this.session.text<string[]>(index, signal === undefined ? undefined : { signal });
+    const paragraphs = words.map((text) => ({ text, key: searchKey(text) }));
     this.searchIndex.set(index, paragraphs);
     return paragraphs;
   }
@@ -268,7 +250,15 @@ export async function open(source: Source, options?: OpenOptions): Promise<PptxD
   return new PptxDocument(await WorkerSession.openAs("pptx", source, { ...options, geometryPrograms: presetPrograms }));
 }
 
-export interface PptxRenderHandle extends EventTarget {
+/** The events a PPTX render handle fires, by name: `addEventListener` types each `event.detail`. */
+export interface PptxRenderEventMap {
+  /** The zoom changed. */
+  zoomchange: ZoomChangeEvent;
+  /** A hyperlink was clicked; nothing navigates. `target` is the URL, or a `#`-prefixed part path for a jump inside the deck. */
+  linkactivate: CustomEvent<{ target: string }>;
+}
+
+export interface PptxRenderHandle extends EventTargetOf<PptxRenderEventMap> {
   /** Disconnect layout observers after this slide is no longer displayed. Idempotent. */
   destroy(): void;
   /** `true` once destroyed; every method is then a no-op that fires nothing. */
@@ -304,6 +294,14 @@ export interface PptxRenderInput {
   zoom?: ZoomValue;
   /** Override the default session-backed media resolution. */
   mediaResolver?: MediaResolver;
+  /**
+   * Cancel the render until it resolves: before it paints, it paints
+   * nothing; after (it then waits for the slide's fonts), it takes the slide
+   * back out. Either way it rejects with `aborted` and never hands back a
+   * handle. Once `render()` has resolved the signal is ignored; `destroy()`
+   * is the teardown.
+   */
+  signal?: AbortSignal;
 }
 
 /** `paintSlide()` input: an already-resolved model painted synchronously. */
@@ -364,12 +362,14 @@ function layoutMediaIds(model: SlideModel): ReadonlySet<string> {
  * explicit `mediaResolver` is given. The caller owns virtualization.
  */
 export async function render(input: PptxRenderInput): Promise<PptxRenderHandle> {
+  const { signal } = input;
+  throwIfAborted(signal);
   const requested = input.slide;
   let mediaResolver = input.mediaResolver;
   let model: SlideModel;
   let info: SlideInfo;
   if (isSlideHandle(requested)) {
-    model = await requested.read();
+    model = await requested.read(signal === undefined ? undefined : { signal });
     info = { ...requested.info, size: { ...requested.info.size } };
     // Pictures the layout paints under every slide are fetched once per
     // document; slide-owned pictures are read per slide.
@@ -379,6 +379,8 @@ export async function render(input: PptxRenderInput): Promise<PptxRenderHandle> 
     model = requested;
     info = slideInfoOf(model);
   }
+  // The last moment a cancel can still leave the target untouched: the paint below is synchronous.
+  throwIfAborted(signal);
   const viewer = paintSlideAs(info, {
     model,
     target: input.target,
@@ -389,8 +391,12 @@ export async function render(input: PptxRenderInput): Promise<PptxRenderHandle> 
   // The slide is on screen already; its fonts swap in as they arrive. Which
   // of them painted can only be read once they have (a delivered face loads
   // only when text needs it, DECISION_LOG §50), so the warnings wait, bounded.
-  await awaitDocumentFonts(model);
-  if (!viewer.destroyed) viewer.setWarnings(fontFidelityWarnings(model));
+  // A first chart waits for the layout code too (§71), so a resolved render
+  // has its charts drawn. Cancelled during that wait, the render takes its
+  // slide back out and rejects, so it never hands back a handle (`settleRender`).
+  const settled = Promise.all([awaitDocumentFonts(model), chartsSettled()]).then(() => undefined);
+  await settleRender(viewer, input.target, [...input.target.childNodes], settled, signal);
+  if (!viewer.destroyed) viewer.setWarnings(slideWarnings(model));
   return viewer;
 }
 
@@ -537,7 +543,6 @@ function glowTextShadow(glow: { color: string; radiusPt: number }): string {
 function appendParagraph(
   host: HTMLElement,
   paragraph: TextParagraphModel,
-  textWidth: number | undefined,
   wrapping: TextBodyModel["wrapping"],
   slideNumber: number | undefined,
   urls: MediaUrls | undefined,
@@ -612,7 +617,7 @@ function appendParagraph(
       // trace; the filter itself discards it and repaints only the ring, so
       // the colour never actually reaches the page.
       span.style.color = run.outline.color;
-      span.style.filter = hollowTextFilter(run.outline.widthPt, run.outline.color);
+      hollowText(span, run.outline.widthPt, run.outline.color);
       span.dataset.aaredTextOutline = "true";
       span.dataset.aaredTextNofill = "true";
     } else if (run.noFill === true) {
@@ -679,7 +684,7 @@ function appendParagraph(
   host.append(line);
 }
 
-function appendTextBody(host: HTMLElement, body: TextBodyModel, textWidth?: number, slideNumber?: number, urls?: MediaUrls): void {
+function appendTextBody(host: HTMLElement, body: TextBodyModel, slideNumber?: number, urls?: MediaUrls): void {
   // WordArt warp presets paint unwarped; the marker keeps the authored
   // intent visible instead of silently dropping it.
   if (body.textWarp !== undefined) host.dataset.aaredTextWarp = body.textWarp;
@@ -691,7 +696,7 @@ function appendTextBody(host: HTMLElement, body: TextBodyModel, textWidth?: numb
   host.style.flexDirection = "column";
   const last = body.paragraphs.length - 1;
   body.paragraphs.forEach((paragraph, index) => {
-    appendParagraph(host, paragraph, textWidth, body.wrapping, slideNumber, urls, { first: index === 0, last: index === last });
+    appendParagraph(host, paragraph, body.wrapping, slideNumber, urls, { first: index === 0, last: index === last });
   });
 }
 
@@ -748,7 +753,7 @@ function appendShapeText(host: HTMLElement, shape: ShapeModel, slideNumber?: num
   text.dataset.aaredVerticalAlign = body.verticalAlign ?? "top";
   if (body.wrapping !== undefined) text.dataset.aaredWrapping = body.wrapping;
   if (body.autofit !== undefined) text.dataset.aaredAutofit = body.autofit;
-  appendTextBody(text, body, bounds?.width, slideNumber, urls);
+  appendTextBody(text, body, slideNumber, urls);
   // Whole-shape links wrap the text layer only (`display: contents` keeps
   // layout identical); run-level anchors inside still win their own clicks
   // by bubbling first. Surfaced as `linkactivate`, never navigated.
@@ -932,8 +937,10 @@ function appendCellFill(cell: HTMLElement, fill: ShapeFillModel, id: string, box
 
 /**
  * Each logical cell's box in slide CSS pixels, from the authored column
- * widths and row heights. Rows without an authored height share what is left
- * of the table's height. RTL tables place logical column 0 at the right.
+ * widths and row heights, at the grid slot `tableCellPlacements` gives it
+ * (below a row-spanned cell a row starts past the occupied columns). Rows
+ * without an authored height share what is left of the table's height. RTL
+ * tables place logical column 0 at the right.
  */
 function tableCellBoxes(table: TableModel): Array<Array<{ x: number; y: number; width: number; height: number }>> {
   const tableWidth = table.columns.reduce((sum, width) => sum + width, 0);
@@ -941,16 +948,15 @@ function tableCellBoxes(table: TableModel): Array<Array<{ x: number; y: number; 
   const unsized = table.rows.filter((row) => row.height === undefined).length;
   const spare = unsized === 0 ? 0 : Math.max(0, (table.bounds?.height ?? authored) - authored) / unsized;
   const heights = table.rows.map((row) => row.height ?? spare);
+  const placements = tableCellPlacements(table);
   let top = table.bounds?.y ?? 0;
   return table.rows.map((row, rowIndex) => {
-    let column = 0;
-    const boxes = row.cells.map((cell) => {
-      const span = cell.columnSpan ?? 1;
+    const boxes = row.cells.map((cell, columnIndex) => {
+      const { column } = placements[rowIndex]![columnIndex]!;
       const before = table.columns.slice(0, column).reduce((sum, width) => sum + width, 0);
-      const width = table.columns.slice(column, column + span).reduce((sum, width) => sum + width, 0);
+      const width = table.columns.slice(column, column + (cell.columnSpan ?? 1)).reduce((sum, width) => sum + width, 0);
       const height = heights.slice(rowIndex, rowIndex + (cell.rowSpan ?? 1)).reduce((sum, value) => sum + value, 0);
       const left = (table.bounds?.x ?? 0) + (table.direction === "rtl" ? tableWidth - before - width : before);
-      column += span;
       return { x: left * PX_PER_INCH, y: top * PX_PER_INCH, width: width * PX_PER_INCH, height: height * PX_PER_INCH };
     });
     top += heights[rowIndex] ?? 0;
@@ -963,12 +969,8 @@ function appendTable(scene: HTMLElement, table: TableModel, fillId: string, slid
   const grid = createTableGrid(table.direction, table.columns);
   grid.style.position = "absolute";
   grid.style.transformOrigin = "center";
-  const tableTransforms: string[] = [];
-  if (table.transform?.rotation !== undefined) tableTransforms.push(`rotate(${table.transform.rotation}deg)`);
-  if (table.transform?.flipHorizontal === true || table.transform?.flipVertical === true) {
-    tableTransforms.push(`scale(${table.transform.flipHorizontal === true ? -1 : 1}, ${table.transform.flipVertical === true ? -1 : 1})`);
-  }
-  if (tableTransforms.length > 0) grid.style.transform = tableTransforms.join(" ");
+  const tableTransform = transformFor(table.transform);
+  if (tableTransform !== "") grid.style.transform = tableTransform;
   // Styled tables carry resolved per-cell borders and PowerPoint draws no
   // frame around them. Only a table with none gets this explicit neutral
   // frame (never `currentColor`, so it cannot inherit embedding chrome).
@@ -1036,10 +1038,10 @@ function appendTable(scene: HTMLElement, table: TableModel, fillId: string, slid
         rotated.style.writingMode = "vertical-rl";
         rotated.style.alignSelf = "center";
         if (cellModel.textRotation === 270) rotated.style.transform = "rotate(180deg)";
-        appendTextBody(rotated, cellModel.text, undefined, slideNumber, urls);
+        appendTextBody(rotated, cellModel.text, slideNumber, urls);
         cell.append(rotated);
       } else {
-        appendTextBody(cell, cellModel.text, undefined, slideNumber, urls);
+        appendTextBody(cell, cellModel.text, slideNumber, urls);
       }
       grid.append(cell);
     }
@@ -1254,7 +1256,34 @@ function appendPicture(scene: HTMLElement, picture: PictureModel, urls: MediaUrl
     });
 }
 
-function appendChart(scene: HTMLElement, chart: ChartModel): void {
+/** The dashed box a chart shows when it cannot be drawn: `reason` is `unsupported` (its type) or `load-error` (the layout code did not arrive). */
+function appendChartFallback(wrapper: HTMLElement, chart: ChartModel, reason: "unsupported" | "load-error"): void {
+  wrapper.dataset.aaredChartFallback = reason;
+  const fallback = document.createElement("div");
+  fallback.dataset.aaredElement = "chart-fallback";
+  fallback.style.position = "absolute";
+  fallback.style.inset = "0";
+  fallback.style.display = "flex";
+  fallback.style.alignItems = "center";
+  fallback.style.justifyContent = "center";
+  fallback.style.boxSizing = "border-box";
+  fallback.style.border = "1px dashed currentColor";
+  fallback.style.fontSize = "12px";
+  fallback.style.userSelect = "none";
+  fallback.setAttribute("aria-hidden", "true");
+  // The name, then why it is not drawn ("Map charts are not previewed"), as XLSX shows it.
+  const name = chart.name === "" ? "Chart" : chart.name;
+  const why = reason === "unsupported" ? chart.unsupportedReason : "unavailable";
+  fallback.textContent = why === undefined ? name : `${name}: ${why}`;
+  wrapper.append(fallback);
+}
+
+/**
+ * A chart frame. The chart area paints its own fill (or none, as PowerPoint's
+ * default chart does, showing the slide through it), so the frame has no
+ * backing of its own.
+ */
+function appendChart(scene: HTMLElement, chart: ChartModel, urls: MediaUrls | undefined): void {
   const wrapper = document.createElement("div");
   wrapper.dataset.aaredElement = "chart";
   wrapper.dataset.aaredChartId = chart.id;
@@ -1262,43 +1291,31 @@ function appendChart(scene: HTMLElement, chart: ChartModel): void {
   wrapper.style.position = "absolute";
   wrapper.style.overflow = "hidden";
   wrapper.style.transformOrigin = "center";
-  wrapper.style.background = "white";
   wrapper.style.userSelect = "none";
   const transform = transformFor(chart.transform);
   if (transform !== "") wrapper.style.transform = transform;
   position(chart.bounds, wrapper);
-  if (chart.graphic === undefined) {
-    wrapper.dataset.aaredChartFallback = "unsupported";
-    const fallback = document.createElement("div");
-    fallback.dataset.aaredElement = "chart-fallback";
-    fallback.style.position = "absolute";
-    fallback.style.inset = "0";
-    fallback.style.display = "flex";
-    fallback.style.alignItems = "center";
-    fallback.style.justifyContent = "center";
-    fallback.style.boxSizing = "border-box";
-    fallback.style.border = "1px dashed currentColor";
-    fallback.style.fontSize = "12px";
-    fallback.style.userSelect = "none";
-    fallback.setAttribute("aria-hidden", "true");
-    fallback.textContent = chart.name === "" ? "Chart" : chart.name;
-    wrapper.append(fallback);
-    scene.append(wrapper);
+  scene.append(wrapper);
+  if (chart.spec === undefined) {
+    appendChartFallback(wrapper, chart, "unsupported");
     return;
   }
-  wrapper.dataset.aaredChartPrimitives = String(chart.graphic.primitives.length);
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.dataset.aaredElement = "chart-geometry";
-  svg.setAttribute("viewBox", `0 0 ${chart.graphic.viewBox.width} ${chart.graphic.viewBox.height}`);
-  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
-  svg.setAttribute("role", "img");
   svg.style.position = "absolute";
   svg.style.inset = "0";
   svg.style.width = "100%";
   svg.style.height = "100%";
-  for (const primitive of chart.graphic.primitives) appendChartPrimitive(svg, primitive);
   wrapper.append(svg);
-  scene.append(wrapper);
+  paintChart(svg, chart.spec, {
+    frame: chart.bounds,
+    urls,
+    alt: chart.alt,
+    unavailable: () => {
+      svg.remove();
+      appendChartFallback(wrapper, chart, "load-error");
+    },
+  });
 }
 
 /**
@@ -1381,7 +1398,7 @@ function paintElements(context: ElementPaintContext, elements: readonly SlideMod
       continue;
     }
     if (element.kind === "chart") {
-      appendChart(scene, element);
+      appendChart(scene, element, urls);
       continue;
     }
     if (element.kind === "group") {
@@ -1446,8 +1463,23 @@ export function paintSlide(input: PaintSlideInput): PptxRenderHandle {
   // Synchronous: read against whatever fonts are loaded right now, so a
   // delivered substitute that has not arrived yet reads as unavailable.
   // `render()` waits for them first.
-  viewer.setWarnings(fontFidelityWarnings(input.model));
+  viewer.setWarnings(slideWarnings(input.model));
   return viewer;
+}
+
+/**
+ * What this render noticed about the slide: elements the file gave no id (the
+ * file is damaged; the parser gave each one, as PowerPoint's own repair does,
+ * and the slide is drawn in full), then fonts that painted with a fallback.
+ */
+function slideWarnings(model: SlideModel): RenderWarning[] {
+  const missing = model.missingIds ?? 0;
+  const label = model.number === undefined ? model.part : String(model.number);
+  const noId = missingIdWarning(
+    "pptx-missing-id", missing, "element", `on slide ${label}`,
+    `aared made a trivial fix (gave ${missing === 1 ? "it" : "them"} an id, as PowerPoint's repair does) and the slide is rendered in full.`,
+  );
+  return [...(noId === undefined ? [] : [noId]), ...fontFidelityWarnings(model)];
 }
 
 function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxViewer {
@@ -1455,7 +1487,7 @@ function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxViewer {
   // A slide opens whole, as a slideshow viewer shows it: fit its container's
   // height as well as its width (falling back to width when the container
   // has no height of its own).
-  const viewer = new PptxViewer(input.zoom ?? "fit-page", info);
+  const viewer = new PptxViewer(input.zoom ?? DEFAULT_ZOOM.pptx, info);
   const viewport = document.createElement("div");
   viewport.dataset.aaredElement = "slide";
   viewport.style.position = "relative";
@@ -1542,9 +1574,6 @@ function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxViewer {
     return lastScale;
   };
   const observer = new ResizeObserver(() => viewer.refit());
-  const removalObserver = new MutationObserver(() => {
-    if (viewport.parentElement !== container) destroy();
-  });
   // Hyperlinks never navigate: prevent the default and report the activation
   // to the embedder instead (same contract as XLSX/DOCX `linkactivate`).
   // Run-level anchors match first, so they win inside shape-level links.
@@ -1566,7 +1595,7 @@ function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxViewer {
     urls?.close();
     classSheet.release();
     observer.disconnect();
-    removalObserver.disconnect();
+    stopWatching();
     viewport.removeEventListener("click", onLinkClick);
     viewport.removeEventListener("auxclick", onLinkClick);
   };
@@ -1576,7 +1605,10 @@ function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxViewer {
   };
   viewer.attach({ applyZoom, destroy, applyAppearance });
   observer.observe(container);
-  removalObserver.observe(container, { childList: true });
+  const stopWatching = onReplaced(container, viewport, destroy);
   viewer.refit();
   return viewer;
 }
+export { preview } from "./viewer.js";
+export type { PptxPreviewInput } from "./viewer.js";
+export type { PptxPreview, PreviewSearchOptions, PreviewEventMap, SearchNavigation, SearchNavigationState } from "../preview/index.js";

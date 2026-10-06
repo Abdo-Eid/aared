@@ -80,6 +80,12 @@ export interface LayoutPageMargins {
 export interface LayoutPage {
   /** 1-based physical page number. */
   index: number;
+  /**
+   * The number printed for the page (`PAGE` fields, and which pages are even):
+   * the physical number, unless a section restarts at its own
+   * `w:pgNumType/@w:start`.
+   */
+  number: number;
   sectionIndex: number;
   widthPx: number;
   heightPx: number;
@@ -299,6 +305,9 @@ function measureUncached(block: FlowNode, ctx: EstimateContext): BlockMetrics {
       // Tables paint flush: Word gives them no margin of their own.
       return metrics(0, tableRowHeightsPx(block, ctx).reduce((sum, height) => sum + height, 0), 0);
     case "image":
+    case "chart":
+      return metrics(BLOCK_MARGIN_PX, block.height * PX_PER_INCH, BLOCK_MARGIN_PX);
+    case "textBox":
       return metrics(BLOCK_MARGIN_PX, block.height * PX_PER_INCH, BLOCK_MARGIN_PX);
     case "footnote":
       return metrics(0, FOOTNOTE_SEPARATOR_PX + foldBlocksHeightPx(block.nodes, ctx), 0);
@@ -517,18 +526,23 @@ interface BodyInsets {
 }
 
 /** Header/footer bands push the body inward once they outgrow the margins (see `LayoutPage.bodyInsetsPx`). */
-function bodyInsets(section: DocumentSection): BodyInsets {
+function bandInsets(section: DocumentSection, header: FlowNode[] | undefined, footer: FlowNode[] | undefined): BodyInsets {
   const { margins, widthTwips } = section.properties.page;
   const ctx: EstimateContext = { bodyWidthPx: twipsToPx(widthTwips - margins.left - margins.right) };
   const top = twipsToPx(margins.top);
   const bottom = twipsToPx(margins.bottom);
-  const headerBand = section.header !== undefined && section.header.length > 0
-    ? twipsToPx(margins.header) + foldBlocksHeightPx(section.header, ctx)
+  const headerBand = header !== undefined && header.length > 0
+    ? twipsToPx(margins.header) + foldBlocksHeightPx(header, ctx)
     : 0;
-  const footerBand = section.footer !== undefined && section.footer.length > 0
-    ? twipsToPx(margins.footer) + foldBlocksHeightPx(section.footer, ctx)
+  const footerBand = footer !== undefined && footer.length > 0
+    ? twipsToPx(margins.footer) + foldBlocksHeightPx(footer, ctx)
     : 0;
   return { top: Math.max(top, headerBand), bottom: Math.max(bottom, footerBand) };
+}
+
+/** The bands of a section's default header and footer: what every page is fitted to while it fills (see `paginate`). */
+function bodyInsets(section: DocumentSection): BodyInsets {
+  return bandInsets(section, section.header, section.footer);
 }
 
 /** The body width a section's blocks lay out in, in CSS pixels (for `PaginateOptions.measured`). */
@@ -575,6 +589,7 @@ function newPage(index: number, sectionIndex: number, section: DocumentSection, 
   return {
     page: {
       index,
+      number: index,
       sectionIndex,
       widthPx: twipsToPx(page.widthTwips),
       heightPx: twipsToPx(page.heightTwips),
@@ -833,7 +848,29 @@ export function paginate(sections: DocumentSection[], options?: PaginateOptions)
     sectionIndex += 1;
   }
   flushPage();
-  // Page numbers are final once every page exists.
-  for (const [position, page] of pages.entries()) page.index = position + 1;
+  // Page numbers are final once every page exists, and with them which header
+  // and footer each page shows (probe `docx-first-header`, Word 16): a section's
+  // first page takes the `first` pair when it has `titlePg`, otherwise an even
+  // printed number takes the `even` pair when the document sets
+  // `evenAndOddHeaders`, otherwise the `default` pair. A kind with nothing
+  // resolved shows nothing, not the default.
+  let number = 0;
+  let previousSection = -1;
+  for (const [position, page] of pages.entries()) {
+    page.index = position + 1;
+    const section = sections[page.sectionIndex]!;
+    const firstOfSection = page.sectionIndex !== previousSection;
+    previousSection = page.sectionIndex;
+    number = firstOfSection && section.properties.pageNumberStart !== undefined ? section.properties.pageNumberStart : number + 1;
+    page.number = number;
+    const kind = firstOfSection && section.properties.titlePage === true ? "first" : section.properties.evenAndOddPages === true && number % 2 === 0 ? "even" : "default";
+    const header = kind === "first" ? section.firstHeader : kind === "even" ? section.evenHeader : section.header;
+    const footer = kind === "first" ? section.firstFooter : kind === "even" ? section.evenFooter : section.footer;
+    delete page.header;
+    delete page.footer;
+    if (header !== undefined) page.header = header;
+    if (footer !== undefined) page.footer = footer;
+    page.bodyInsetsPx = bandInsets(section, header, footer);
+  }
   return { pages, warnings };
 }

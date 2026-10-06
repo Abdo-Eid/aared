@@ -6,7 +6,8 @@
  * Coverage: style + numbering inheritance, bidirectional paragraphs
  * (mixed Arabic/Latin runs in one paragraph), heading outline, tables
  * (logical order, `bidiVisual`, spans, shading), lists (bullet + ordered,
- * nested levels), inline images and `wp:anchor` pictures with full placement, footnotes and
+ * nested levels), inline images, charts (read by the shared `core/chart.ts`)
+ * and `wp:anchor` pictures and charts with full placement, footnotes and
  * endnotes, tracked-changes-as-final (`w:ins` kept, `w:del`/`w:moveFrom`
  * dropped), per-section headers/footers, page geometry (`w:pgSz`/`w:pgMar`),
  * explicit page breaks and soft `w:lastRenderedPageBreak` hints.
@@ -24,13 +25,17 @@ import type { XmlElement } from "../xml.js";
 import type { OpcPackage } from "../opc.js";
 import { parseHexDigits, toHexColor } from "../color.js";
 import { runsText } from "../search.js";
-import { readDrawingTheme, themeFontFamily } from "../theme.js";
+import { readDrawingTheme, resolveDrawingColor, themeFontFamily, themeForColorMap } from "../theme.js";
 import { isLtrRunInRtl, usesArabic } from "../typography.js";
 import type { DrawingTheme } from "../theme.js";
 import { damagedDocument, throwIfAborted } from "../errors.js";
 import { TWIPS_PER_PT, emuToInches, ptToInches, twipsToInches } from "../units.js";
+import { clampSpan } from "../table-span.js";
+import { chartFillOwner, readChartModel } from "../chart.js";
 import type {
   DocxAnchorPosition,
+  DocxChartNode,
+  DocxDrawingNode,
   DocxHeadingNode,
   DocxImageAnchor,
   DocxImageNode,
@@ -46,10 +51,12 @@ import type {
   DocxTableCellNode,
   DocxTableEdge,
   DocxTableRowNode,
+  DocxTextBoxNode,
   DocxUnsupportedNode,
   DocumentSection,
   TextAlign,
   FlowNode,
+  HeaderFooterParts,
   SectionBreakType,
   SectionProperties,
   TextDirection,
@@ -122,6 +129,9 @@ const HIGHLIGHT_COLORS: Record<string, string> = {
 interface ResolvedRunProps {
   bold?: boolean;
   italic?: boolean;
+  /** `w:bCs` / `w:iCs`: the bold and italic a complex-script run takes (see `finalizeRun`). */
+  boldCs?: boolean;
+  italicCs?: boolean;
   fontSizePt?: number;
   fontSizeCsPt?: number;
   color?: string;
@@ -151,12 +161,16 @@ function readRunProps(rPr: XmlElement | undefined, out: ResolvedRunProps, theme:
   for (const child of rPr.children) {
     switch (child.local) {
       case "b":
-      case "bCs":
         out.bold = onOffValue(attr(child, "val"));
         break;
+      case "bCs":
+        out.boldCs = onOffValue(attr(child, "val"));
+        break;
       case "i":
-      case "iCs":
         out.italic = onOffValue(attr(child, "val"));
+        break;
+      case "iCs":
+        out.italicCs = onOffValue(attr(child, "val"));
         break;
       case "sz": {
         const value = numberAttr(child, "val", "w:sz");
@@ -246,7 +260,7 @@ function readRunProps(rPr: XmlElement | undefined, out: ResolvedRunProps, theme:
       case "smallCaps": {
         // All caps outranks small caps when both are on, as in Word; an explicit
         // off (`w:val="0"`) clears what a style inherited.
-        const on = onOffValue(attr(child, "val")) !== false;
+        const on = onOffValue(attr(child, "val"));
         const kind = child.local === "caps" ? "all" : "small";
         if (on && (kind === "all" || out.caps !== "all")) out.caps = kind;
         else if (!on && out.caps === kind) delete out.caps;
@@ -287,6 +301,7 @@ interface ResolvedParaProps {
   styleId?: string;
   jc?: string;
   bidi?: boolean;
+  snapToGrid?: boolean;
   /** Paragraph-level default run size in points, from style `w:sz`. */
   fontSizePt?: number;
   spaceBeforePt?: number;
@@ -356,6 +371,9 @@ function readParaProps(pPr: XmlElement | undefined, out: ResolvedParaProps): voi
       }
       case "bidi":
         out.bidi = onOffValue(attr(child, "val"));
+        break;
+      case "snapToGrid":
+        out.snapToGrid = onOffValue(attr(child, "val"));
         break;
       case "keepNext":
         out.keepNext = onOffValue(attr(child, "val"));
@@ -493,6 +511,10 @@ export interface DocxIndex {
   hyperlinks: Map<string, string>;
   /** Word lays the document out as 2013 or later (see `wordLayoutShrinksSpaces`). */
   justifyShrinks: boolean;
+  /** `w:evenAndOddHeaders` of the settings: even page numbers take their own header and footer. */
+  evenAndOddHeaders: boolean;
+  /** Word applies section line grids inside table cells only when this setting is enabled. */
+  adjustLineHeightInTable: boolean;
   /**
    * The document title from its core properties, if it sets one — the label
    * of DOCX's single unit. The heading outline is not an index concern: it
@@ -510,18 +532,67 @@ interface ParseContext {
   hyperlinks: Map<string, string>;
   /** MIME lookup for image parts (`OpcPackage.mediaContentType`); the worker media route serves the bytes. */
   mediaContentType: (part: string) => string;
+  /** The part's charts, read ahead by part path (`readPartCharts`): drawings parse synchronously. */
+  charts: PartCharts;
   footnoteLabels: Map<string, string>;
   footnoteOrder: string[];
+  /** List counters by list definition (`abstractNum`), see `advanceCounters`. */
   counters: Map<string, number[]>;
+  /** The numbering ids already used in this part: a `w:startOverride` applies at a num's first use. */
+  startedNums: Set<string>;
   justifyShrinks: boolean;
+  adjustLineHeightInTable: boolean;
+  /** Drawings read without a `wp:docPr/@id`, counted over every part of one parse (see `DocumentSection.missingIds`). */
+  missing: { drawings: number };
   signal?: AbortSignal;
+}
+
+type PartCharts = Map<string, ReturnType<typeof readChartModel>>;
+
+/**
+ * Every chart a part's relationships point at, read once before the part's
+ * drawings are (`parseDrawing` is synchronous). Word, like Excel, has no
+ * colour map for chart DrawingML: `tx1` and `bg1` take the default one.
+ */
+async function readPartCharts(pkg: OpcPackage, part: string, theme: DrawingTheme, signal?: AbortSignal): Promise<PartCharts> {
+  const charts: PartCharts = new Map();
+  let chartTheme: DrawingTheme | undefined;
+  for (const relationship of await pkg.relationships(part, signal)) {
+    // `/chart`, and `/chartEx` for an Office 2016 chart (waterfall, treemap, ...).
+    if (relationship.targetMode === "External" || !(relationship.type.endsWith("/chart") || relationship.type.endsWith("/chartEx"))) continue;
+    const root = await pkg.readXmlIfPresent(relationship.target, signal);
+    throwIfAborted(signal);
+    if (root === undefined) continue;
+    chartTheme ??= themeForColorMap(theme, undefined);
+    charts.set(relationship.target, readChartModel(root, chartTheme, { owner: await chartFillOwner(pkg, relationship.target, signal) }));
+  }
+  return charts;
+}
+
+/** A part's own relationships: ids are per part, so a header, a footnote or the body each resolve theirs. */
+interface PartRels {
+  /** `r:id` → internal part path. */
+  relTargets: Map<string, string>;
+  /** `r:id` → external hyperlink URL. */
+  hyperlinks: Map<string, string>;
+}
+
+async function readPartRels(pkg: OpcPackage, part: string, signal?: AbortSignal): Promise<PartRels> {
+  const rels: PartRels = { relTargets: new Map(), hyperlinks: new Map() };
+  for (const relationship of await pkg.relationships(part, signal)) {
+    if (relationship.targetMode !== "External") rels.relTargets.set(relationship.id, relationship.target);
+    else if (relationship.type.endsWith("/hyperlink")) rels.hyperlinks.set(relationship.id, relationship.target);
+  }
+  return rels;
 }
 
 function partContext(
   index: DocxIndex,
   notes: Map<string, XmlElement>,
-  relTargets: Map<string, string>,
+  rels: PartRels,
   mediaContentType: (part: string) => string,
+  charts: PartCharts,
+  missing: { drawings: number },
   signal?: AbortSignal,
 ): ParseContext {
   return {
@@ -529,30 +600,40 @@ function partContext(
     numbering: index.numbering,
     notes,
     theme: index.theme,
-    relTargets,
-    hyperlinks: index.hyperlinks,
+    relTargets: rels.relTargets,
+    hyperlinks: rels.hyperlinks,
     mediaContentType,
+    charts,
     footnoteLabels: new Map(),
     footnoteOrder: [],
     counters: new Map(),
+    startedNums: new Set(),
     justifyShrinks: index.justifyShrinks,
+    adjustLineHeightInTable: index.adjustLineHeightInTable,
+    missing,
     ...(signal === undefined ? {} : { signal }),
   };
 }
 
+/**
+ * The parts a section's own header or footer references name, by `w:type`
+ * (absent means `default`). Which one a page shows is decided at layout, from
+ * `w:titlePg` and `w:evenAndOddHeaders` (see `headerFooterFor` in pagination).
+ */
 function headerFooterParts(
   sectPr: XmlElement | undefined,
   local: "headerReference" | "footerReference",
   relTargets: Map<string, string>,
-): string[] {
-  if (sectPr === undefined) return [];
-  const refs = childElements(sectPr, local);
-  const rank = (type: string | undefined): number => (type === "default" ? 0 : type === "first" ? 1 : type === "even" ? 2 : 3);
-  return refs
-    .map((ref) => ({ type: attr(ref, "type"), target: relTargets.get(attr(ref, "id") ?? "") }))
-    .filter((ref): ref is { type: string | undefined; target: string } => ref.target !== undefined)
-    .sort((a, b) => rank(a.type) - rank(b.type))
-    .map((ref) => ref.target);
+): HeaderFooterParts | undefined {
+  if (sectPr === undefined) return undefined;
+  const parts: HeaderFooterParts = {};
+  for (const ref of childElements(sectPr, local)) {
+    const type = attr(ref, "type") ?? "default";
+    if (type !== "default" && type !== "first" && type !== "even") continue;
+    const target = relTargets.get(attr(ref, "id") ?? "");
+    if (target !== undefined && parts[type] === undefined) parts[type] = target;
+  }
+  return Object.keys(parts).length > 0 ? parts : undefined;
 }
 
 /**
@@ -599,9 +680,10 @@ export async function indexDocx(pkg: OpcPackage, signal?: AbortSignal): Promise<
   );
   const theme = await readDrawingTheme(pkg, signal);
   throwIfAborted(signal);
-  const justifyShrinks = wordLayoutShrinksSpaces(
-    settingsPart === undefined ? undefined : await pkg.readXmlIfPresent(settingsPart, signal),
-  );
+  const settings = settingsPart === undefined ? undefined : await pkg.readXmlIfPresent(settingsPart, signal);
+  const justifyShrinks = wordLayoutShrinksSpaces(settings);
+  const adjustLineHeightInTable = wordAdjustsLineHeightInTable(settings);
+  const evenAndOddHeaders = onOffElement(settings === undefined ? undefined : firstChild(settings, "evenAndOddHeaders")) === true;
   throwIfAborted(signal);
   const title = await pkg.coreTitle(signal);
   throwIfAborted(signal);
@@ -614,6 +696,8 @@ export async function indexDocx(pkg: OpcPackage, signal?: AbortSignal): Promise<
     relTargets,
     hyperlinks,
     justifyShrinks,
+    evenAndOddHeaders,
+    adjustLineHeightInTable,
     title: title === undefined ? undefined : ownString(title),
   };
 }
@@ -640,6 +724,12 @@ function wordLayoutShrinksSpaces(settings: XmlElement | undefined): boolean {
   return false;
 }
 
+/** `w:adjustLineHeightInTable` opts table cells into the section's line grid. */
+function wordAdjustsLineHeightInTable(settings: XmlElement | undefined): boolean {
+  const compat = settings === undefined ? undefined : firstChild(settings, "compat");
+  return compat !== undefined && onOffElement(firstChild(compat, "adjustLineHeightInTable")) === true;
+}
+
 /** Footnote and endnote entries by `f`/`e`-prefixed id (separators excluded), for one section parse. */
 async function readNotes(pkg: OpcPackage, index: DocxIndex, signal?: AbortSignal): Promise<Map<string, XmlElement>> {
   const notes = new Map<string, XmlElement>();
@@ -654,19 +744,19 @@ async function readNotes(pkg: OpcPackage, index: DocxIndex, signal?: AbortSignal
   return notes;
 }
 
-type BlockDraft = { node: FlowNode } | { listItem: { numId: string; ilvl: number; paragraph: DocxParagraphNode } };
+type BlockDraft = { node: FlowNode } | { listItem: { numId: string; item: DocxListItemNode } };
 
 interface RunDraft {
   runs: TextRunModel[];
-  blocks: Array<DocxImageNode | DocxUnsupportedNode>;
-  /** Pictures anchored (`wp:anchor`) in the run: they belong to the paragraph, not to a position in its text. */
-  floats: DocxImageNode[];
+  blocks: Array<DocxImageNode | DocxChartNode | DocxTextBoxNode | DocxUnsupportedNode>;
+  /** Pictures and charts anchored (`wp:anchor`) in the run: they belong to the paragraph, not to a position in its text. */
+  floats: DocxDrawingNode[];
   /**
-   * Pagination signals seen anywhere in the run. They split the paragraph at
-   * the run boundary (a break mid-run with text on both sides is vanishingly
-   * rare; the text stays together and the break lands after the run).
+   * Where an explicit page break (`w:br w:type="page"`) fell in the run: how
+   * many of `runs` came before it. The paragraph splits there, so text after
+   * the break in the same run lands on the new page. Absent: no break.
    */
-  pageBreak: boolean;
+  pageBreakAt?: number;
   softBreak: boolean;
 }
 
@@ -713,9 +803,16 @@ function finalizeRun(
 ): TextRunModel | undefined {
   if (text === "") return undefined;
   const run: TextRunModel = { text };
-  if (props.bold !== undefined) run.bold = props.bold;
-  if (props.italic !== undefined) run.italic = props.italic;
   const arabic = usesArabic(text);
+  // Word styles a complex-script run (Arabic text, or any run marked `w:rtl`)
+  // with `bCs`/`iCs` only and every other run with `b`/`i` only: a run with
+  // just `<w:b/>` is not bold in Arabic, and `bCs` alone never bolds Latin text
+  // (probe `docx-cs-bold`, Word 16: all eight b/bCs/i/iCs combinations, both scripts).
+  const complex = arabic || props.rtl === true;
+  const bold = complex ? props.boldCs : props.bold;
+  const italic = complex ? props.italicCs : props.italic;
+  if (bold !== undefined) run.bold = bold;
+  if (italic !== undefined) run.italic = italic;
   const size = arabic && props.fontSizeCsPt !== undefined ? props.fontSizeCsPt : props.fontSizePt;
   if (size !== undefined) run.fontSizePt = size;
   const language = props.languageBidi ?? props.language;
@@ -735,7 +832,36 @@ function finalizeRun(
   return run;
 }
 
-function parseDrawing(drawing: XmlElement, ctx: ParseContext): DocxImageNode | DocxUnsupportedNode | undefined {
+/** The `w:drawing` of an Office 2016 chart: inside `mc:AlternateContent/mc:Choice`, its graphic data a `cx:chart`. */
+function chartExDrawing(alternate: XmlElement): XmlElement | undefined {
+  for (const choice of alternate.children) {
+    if (choice.local !== "Choice") continue;
+    const drawing = firstChild(choice, "drawing");
+    const placement = drawing === undefined ? undefined : firstChild(drawing, "inline") ?? firstChild(drawing, "anchor");
+    const graphic = placement === undefined ? undefined : firstChild(placement, "graphic");
+    const data = graphic === undefined ? undefined : firstChild(graphic, "graphicData");
+    if (drawing !== undefined && data !== undefined && firstChild(data, "chart") !== undefined) return drawing;
+  }
+  return undefined;
+}
+
+/** One supported branch of `mc:AlternateContent`; never read Choice and Fallback together. */
+function alternateDrawing(alternate: XmlElement): { drawing?: XmlElement; pict?: XmlElement } | undefined {
+  for (const branch of alternate.children) {
+    if (branch.local === "Choice") {
+      const drawing = descendant(branch, "drawing");
+      if (drawing !== undefined) return { drawing };
+    }
+  }
+  const fallback = alternate.children.find((child) => child.local === "Fallback");
+  if (fallback === undefined) return undefined;
+  const drawing = descendant(fallback, "drawing");
+  if (drawing !== undefined) return { drawing };
+  const pict = descendant(fallback, "pict");
+  return pict === undefined ? undefined : { pict };
+}
+
+function parseDrawing(drawing: XmlElement, ctx: ParseContext): DocxImageNode | DocxChartNode | DocxTextBoxNode | DocxUnsupportedNode | undefined {
   throwIfAborted(ctx.signal);
   const inline = firstChild(drawing, "inline");
   const anchor = firstChild(drawing, "anchor");
@@ -746,7 +872,7 @@ function parseDrawing(drawing: XmlElement, ctx: ParseContext): DocxImageNode | D
   const heightEmu = extent === undefined ? undefined : numberAttr(extent, "cy", "wp:extent");
   // `a:graphic` nests inside `wp:inline`/`wp:anchor`, never directly under
   // `w:drawing` — a direct-child lookup misses every inline picture.
-  const graphic = firstChild(placement, "graphic") ?? firstChild(drawing, "graphic");
+  const graphic = firstChild(placement, "graphic");
   const graphicData = graphic === undefined ? undefined : firstChild(graphic, "graphicData");
   const uri = graphicData === undefined ? undefined : attr(graphicData, "uri");
   const pic = graphicData === undefined ? undefined : firstChild(graphicData, "pic");
@@ -754,15 +880,54 @@ function parseDrawing(drawing: XmlElement, ctx: ParseContext): DocxImageNode | D
     ? undefined
     : graphicData.children.find((child) => child.local === "chart");
   const docPr = firstChild(placement, "docPr");
+  // Word calls a drawing with no `wp:docPr/@id` damaged; nothing here uses the id, so it is only counted.
+  if (docPr === undefined || attr(docPr, "id") === undefined) ctx.missing.drawings++;
   const alt = docPr === undefined
     ? undefined
     : attr(docPr, "descr") || attr(docPr, "title") || undefined;
+  const textContent = descendant(placement, "txbxContent");
+  if (textContent !== undefined && widthEmu !== undefined && heightEmu !== undefined) {
+    const bodyPr = descendant(placement, "bodyPr");
+    const content = groupListItems(parseBlocks(textContent, ctx));
+    const bodyProperties = bodyPr === undefined ? undefined : bodyPr;
+    const fill = drawingFill(descendant(placement, "spPr"), ctx.theme);
+    const border = drawingBorder(descendant(placement, "spPr"), ctx.theme);
+    const verticalOverflow = bodyProperties === undefined ? undefined : attr(bodyProperties, "vertOverflow");
+    return {
+      type: "textBox",
+      content,
+      width: emuToInches(widthEmu),
+      height: emuToInches(heightEmu),
+      direction: footnoteDirection(content),
+      ...(bodyProperties === undefined ? {} : { insets: {
+        left: emuToInches(numberAttr(bodyProperties, "lIns", "wps:bodyPr") ?? 91440),
+        right: emuToInches(numberAttr(bodyProperties, "rIns", "wps:bodyPr") ?? 91440),
+        top: emuToInches(numberAttr(bodyProperties, "tIns", "wps:bodyPr") ?? 45720),
+        bottom: emuToInches(numberAttr(bodyProperties, "bIns", "wps:bodyPr") ?? 45720),
+      } }),
+      ...(fill === undefined ? {} : { fill }),
+      ...(border === undefined ? {} : { border }),
+      ...(verticalOverflow === "clip" ? { verticalOverflow: "clip" as const } : {}),
+      ...(anchor === undefined ? {} : { anchor: parseAnchor(anchor) }),
+    };
+  }
   if (chart !== undefined || (uri !== undefined && uri.endsWith("/chart"))) {
-    // Chart drawing is PPTX-owned (the shared chart-to-SVG engine); DOCX
-    // only adapts the reference into a marked fallback, never a duplicate
-    // chart engine.
-    const title = alt ?? "Chart";
-    return { type: "unsupported", source: "chart", label: title };
+    // The shared chart reader already read the part (`readPartCharts`); a
+    // chart it cannot draw, or one with no part or extent, is a marked fallback.
+    const rid = chart === undefined ? undefined : attr(chart, "id");
+    const target = rid === undefined ? undefined : ctx.relTargets.get(rid);
+    const read = target === undefined ? undefined : ctx.charts.get(target);
+    if (read === undefined || !("spec" in read) || widthEmu === undefined || heightEmu === undefined) {
+      return { type: "unsupported", source: "chart", label: alt ?? "Chart" };
+    }
+    return {
+      type: "chart",
+      spec: read.spec,
+      width: emuToInches(widthEmu),
+      height: emuToInches(heightEmu),
+      ...(alt === undefined ? {} : { alt }),
+      ...(anchor === undefined ? {} : { anchor: parseAnchor(anchor) }),
+    };
   }
   if (pic === undefined || widthEmu === undefined || heightEmu === undefined) {
     return { type: "unsupported", source: "drawing", label: alt ?? "Drawing" };
@@ -781,6 +946,39 @@ function parseDrawing(drawing: XmlElement, ctx: ParseContext): DocxImageNode | D
     ...(alt === undefined ? {} : { alt }),
     ...(anchor === undefined ? {} : { anchor: parseAnchor(anchor) }),
   };
+}
+
+/** First descendant with the requested local name, in XML order. */
+function descendant(root: XmlElement, local: string): XmlElement | undefined {
+  const stack = [...root.children].reverse();
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (node.local === local) return node;
+    for (let index = node.children.length - 1; index >= 0; index--) stack.push(node.children[index]!);
+  }
+  return undefined;
+}
+
+function drawingFill(properties: XmlElement | undefined, theme: DrawingTheme): string | undefined {
+  const fill = properties === undefined ? undefined : descendant(properties, "solidFill");
+  const resolved = resolveDrawingColor(fill, theme);
+  if (resolved !== undefined || fill === undefined) return resolved;
+  const preset = fill.children.find((child) => child.local === "prstClr");
+  const presetName = preset === undefined ? undefined : attr(preset, "val");
+  const basic: Record<string, string> = {
+    black: "#000000", white: "#FFFFFF", red: "#FF0000", green: "#008000",
+    blue: "#0000FF", yellow: "#FFFF00", gray: "#808080", grey: "#808080",
+    cyan: "#00FFFF", magenta: "#FF00FF", dkBlue: "#00008B", ltGray: "#D3D3D3",
+  };
+  return presetName === undefined ? undefined : basic[presetName];
+}
+
+function drawingBorder(properties: XmlElement | undefined, theme: DrawingTheme): DocxParagraphBorder | undefined {
+  const line = properties === undefined ? undefined : firstChild(properties, "ln");
+  if (line === undefined || descendant(line, "noFill") !== undefined) return undefined;
+  const color = drawingFill(line, theme);
+  const width = numberAttr(line, "w", "a:ln");
+  return { color: color ?? "currentColor", widthPt: width === undefined ? 0.75 : width / 12700, spacePt: 0, style: "solid" };
 }
 
 const ANCHOR_WRAPS = {
@@ -871,6 +1069,58 @@ function parseVmlPicture(pict: XmlElement, ctx: ParseContext): DocxImageNode | D
   };
 }
 
+function parseVmlTextBox(pict: XmlElement, ctx: ParseContext): DocxTextBoxNode | undefined {
+  const content = descendant(pict, "txbxContent");
+  if (content === undefined) return undefined;
+  const shape = descendant(pict, "shape") ?? descendant(pict, "rect");
+  const style = shape === undefined ? "" : attr(shape, "style") ?? "";
+  const cssLength = (name: string, fallbackPt: number): number => {
+    const match = new RegExp(`(?:^|;)\\s*${name}:\\s*(-?[\\d.]+)(pt|in|px)?`, "i").exec(style);
+    if (match === null) return ptToInches(fallbackPt);
+    const value = Number(match[1]);
+    return match[2]?.toLowerCase() === "in" ? value : match[2]?.toLowerCase() === "px" ? value / 96 : ptToInches(value);
+  };
+  const textbox = descendant(pict, "textbox");
+  const insets = (textbox === undefined ? undefined : attr(textbox, "inset") ?? "7.2pt,3.6pt,7.2pt,3.6pt")
+    ?? "7.2pt,3.6pt,7.2pt,3.6pt";
+  const insetValues = insets
+    .split(",").map((part) => Number.parseFloat(part));
+  const inches = (value: number | undefined, fallback: number): number => value === undefined || !Number.isFinite(value) ? fallback : ptToInches(value);
+  const nodes = groupListItems(parseBlocks(content, ctx));
+  const fill = hexColor(shape === undefined ? undefined : attr(shape, "fillcolor"));
+  const stroke = shape === undefined ? undefined : attr(shape, "stroked");
+  const borderColor = hexColor(shape === undefined ? undefined : attr(shape, "strokecolor"));
+  const weight = shape === undefined ? undefined : attr(shape, "strokeweight");
+  const borderWidth = weight === undefined ? 0.75 : Number.parseFloat(weight);
+  const left = /(?:^|;)\s*margin-left:\s*(-?[\d.]+)(pt|in|px)?/i.exec(style);
+  const top = /(?:^|;)\s*margin-top:\s*(-?[\d.]+)(pt|in|px)?/i.exec(style);
+  const coordInches = (match: RegExpExecArray | null): number | undefined => {
+    if (match === null) return undefined;
+    const value = Number(match[1]);
+    return match[2]?.toLowerCase() === "in" ? value : match[2]?.toLowerCase() === "px" ? value / 96 : ptToInches(value);
+  };
+  const absolute = /(?:^|;)\s*position:\s*absolute\b/i.test(style);
+  const leftOffset = absolute ? coordInches(left) : undefined;
+  const topOffset = absolute ? coordInches(top) : undefined;
+  return {
+    type: "textBox",
+    content: nodes,
+    width: cssLength("width", 216),
+    height: cssLength("height", 72),
+    direction: footnoteDirection(nodes),
+      insets: { left: inches(insetValues[0], 0.1), top: inches(insetValues[1], 0.05), right: inches(insetValues[2], 0.1), bottom: inches(insetValues[3], 0.05) },
+    ...(fill === undefined ? {} : { fill }),
+    ...(stroke === "f" || stroke === "false" || borderColor === undefined ? {} : { border: { color: borderColor, widthPt: Number.isFinite(borderWidth) ? borderWidth : 0.75, spacePt: 0, style: "solid" as const } }),
+    legacy: true,
+    ...(leftOffset === undefined && topOffset === undefined ? {} : { anchor: {
+      wrap: "square" as const, behind: false, wrapText: "bothSides" as const,
+      horizontal: { from: "column", ...(leftOffset === undefined ? {} : { offset: leftOffset }) },
+      vertical: { from: "paragraph", ...(topOffset === undefined ? {} : { offset: topOffset }) },
+      distance: { top: 0, bottom: 0, left: 0, right: 0 },
+    } }),
+  };
+}
+
 function parseOleObject(object: XmlElement): DocxUnsupportedNode {
   const progId = attr(object, "progId") ?? attr(object, "progID");
   return { type: "unsupported", source: "ole", label: progId ?? "Embedded object" };
@@ -919,7 +1169,7 @@ function parseRunContent(
         // in flow HTML.
         if (child.local === "br" && attr(child, "type") === "page") {
           flush();
-          draft.pageBreak = true;
+          draft.pageBreakAt ??= draft.runs.length;
         } else {
           pending += "\n";
         }
@@ -945,20 +1195,33 @@ function parseRunContent(
         }
         break;
       }
+      case "AlternateContent":
       case "drawing": {
+        // An Office 2016 chart is the Choice's `w:drawing`; every other alternate keeps being skipped.
+        const chosen = child.local === "drawing" ? { drawing: child } : alternateDrawing(child);
+        const drawing = child.local === "drawing" ? child : chartExDrawing(child) ?? chosen?.drawing;
+        const pict = child.local === "AlternateContent" && drawing === undefined ? chosen?.pict : undefined;
+        if (drawing === undefined && pict === undefined) break;
         flush();
-        const image = parseDrawing(child, ctx);
+        if (pict !== undefined) {
+          const textBox = parseVmlTextBox(pict, ctx);
+          if (textBox?.anchor !== undefined) draft.floats.push(textBox);
+          else if (textBox !== undefined) draft.blocks.push(textBox);
+          if (descendant(pict, "imagedata") !== undefined) draft.blocks.push(parseVmlPicture(pict, ctx) ?? { type: "unsupported", source: "drawing", label: "Picture" });
+          break;
+        }
+        const image = parseDrawing(drawing!, ctx);
         if (image === undefined) break;
-        // An anchored picture is placed relative to its paragraph and never
-        // splits the text it sits in.
-        if (image.type === "image" && image.anchor !== undefined) {
+        // An anchored picture or chart is placed relative to its paragraph and
+        // never splits the text it sits in.
+        if (image.type !== "unsupported" && image.anchor !== undefined) {
           draft.floats.push(image);
           break;
         }
         // A picture in a paragraph that also carries text stays on that line
         // (a header logo beside its wordmark); a picture-only paragraph keeps
         // the block image with its host alignment.
-        if (image.type === "image" && paragraphText.trim() !== "" && firstChild(child, "inline") !== undefined) {
+        if (image.type === "image" && drawing !== undefined && paragraphText.trim() !== "" && firstChild(drawing, "inline") !== undefined) {
           draft.runs.push({
             text: "",
             image: {
@@ -977,8 +1240,13 @@ function parseRunContent(
       }
       case "pict": {
         flush();
-        const picture = parseVmlPicture(child, ctx);
-        if (picture !== undefined) draft.blocks.push(picture);
+        const textBox = parseVmlTextBox(child, ctx);
+        if (textBox?.anchor !== undefined) draft.floats.push(textBox);
+        else if (textBox !== undefined) draft.blocks.push(textBox);
+        if (descendant(child, "imagedata") !== undefined) {
+          const picture = parseVmlPicture(child, ctx);
+          if (picture !== undefined) draft.blocks.push(picture);
+        }
         break;
       }
       case "object":
@@ -1062,7 +1330,7 @@ function paragraphTextOf(paragraph: XmlElement): string {
   const stack = [paragraph];
   while (stack.length > 0) {
     const current = stack.pop()!;
-    if (current.local === "del" || current.local === "moveFrom") continue;
+    if (current.local === "del" || current.local === "moveFrom" || current.local === "txbxContent") continue;
     if (current.local === "t") parts.push(current.text);
     for (let index = current.children.length - 1; index >= 0; index--) stack.push(current.children[index]!);
   }
@@ -1094,28 +1362,30 @@ function emitDraft(
   draft: RunDraft,
   runs: TextRunModel[],
   pieces: FlowNode[],
-  floats: DocxImageNode[],
+  floats: DocxDrawingNode[],
   flushRuns: () => void,
   align: TextAlign | undefined,
 ): void {
   // A rendered-page-break hint is a preferred break *before* the paragraph,
   // and only when no text of the paragraph precedes it: mid-paragraph it is
   // Word's line-level layout cache and must never split the text.
-  if (draft.softBreak && !draft.pageBreak && runs.length === 0 && pieces.length === 0) {
+  if (draft.softBreak && draft.pageBreakAt === undefined && runs.length === 0 && pieces.length === 0) {
     pieces.push(pageBreakNode("preferred"));
   }
-  runs.push(...draft.runs);
+  const breakAt = draft.pageBreakAt ?? draft.runs.length;
+  runs.push(...draft.runs.slice(0, breakAt));
   floats.push(...draft.floats);
   for (const block of draft.blocks) {
-    // Inline images inherit the host paragraph's alignment (a centered
-    // source paragraph centers its image); anchored ones never reach here.
-    if (block.type === "image" && align !== undefined) block.align = align;
+    // Inline images and charts inherit the host paragraph's alignment (a
+    // centered source paragraph centers its image); anchored ones never reach here.
+    if ((block.type === "image" || block.type === "chart") && align !== undefined) block.align = align;
     flushRuns();
     pieces.push(block);
   }
-  if (draft.pageBreak) {
+  if (draft.pageBreakAt !== undefined) {
     flushRuns();
     pieces.push(pageBreakNode("mandatory"));
+    runs.push(...draft.runs.slice(breakAt));
   }
 }
 
@@ -1154,6 +1424,9 @@ function layoutFor(props: ResolvedParaProps, direction: TextDirection, justifySh
   const spaceAfterPt = paragraphSpacePt(props.spaceAfterLines, props.spaceAfterPt);
   if (spaceBeforePt !== undefined) layout.spaceBeforePt = spaceBeforePt;
   if (spaceAfterPt !== undefined) layout.spaceAfterPt = spaceAfterPt;
+  if (props.spaceBeforeLines !== undefined) layout.spaceBeforeLines = props.spaceBeforeLines;
+  if (props.spaceAfterLines !== undefined) layout.spaceAfterLines = props.spaceAfterLines;
+  if (props.snapToGrid !== undefined) layout.snapToGrid = props.snapToGrid;
   if (props.leftIndent !== undefined) layout.leftIndent = props.leftIndent;
   if (props.rightIndent !== undefined) layout.rightIndent = props.rightIndent;
   if (props.firstLineIndent !== undefined) layout.firstLineIndent = props.firstLineIndent;
@@ -1162,37 +1435,6 @@ function layoutFor(props: ResolvedParaProps, direction: TextDirection, justifySh
   if (props.tabs !== undefined && props.tabs.length > 0) layout.tabStops = props.tabs;
   if (props.keepNext === true) layout.keepNext = true;
   return layout;
-}
-
-/**
- * Every field of `DocxParagraphLayout`. A record over the interface's keys, so
- * adding a layout field without listing it here fails to compile instead of
- * silently dropping it when a paragraph becomes a heading.
- */
-const LAYOUT_FIELDS: Record<keyof DocxParagraphLayout, true> = {
-  fontSizePt: true,
-  align: true,
-  justifyShrink: true,
-  tabStops: true,
-  lineSpacing: true,
-  lineSpacingPt: true,
-  lineSpacingAtLeast: true,
-  spaceBeforePt: true,
-  spaceAfterPt: true,
-  leftIndent: true,
-  rightIndent: true,
-  firstLineIndent: true,
-  shading: true,
-  borders: true,
-  keepNext: true,
-};
-const LAYOUT_KEYS = Object.keys(LAYOUT_FIELDS) as Array<keyof DocxParagraphLayout>;
-
-/** The layout a paragraph or heading node carries, present fields only. */
-function layoutOf(node: DocxParagraphLayout): DocxParagraphLayout {
-  const layout: Record<string, unknown> = {};
-  for (const key of LAYOUT_KEYS) if (node[key] !== undefined) layout[key] = node[key];
-  return layout as DocxParagraphLayout;
 }
 
 /**
@@ -1205,12 +1447,11 @@ function layoutOf(node: DocxParagraphLayout): DocxParagraphLayout {
 function resolveParaProps(
   styles: StyleData,
   directPPr: XmlElement | undefined,
-  defaultStyleId?: string,
 ): { merged: ResolvedParaProps; styleId: string | undefined } {
   const directStyle = directPPr === undefined ? undefined : firstChild(directPPr, "pStyle");
-  // A paragraph naming no style takes the caller's (a table style's), else the
-  // document's default paragraph style (`Normal`), as Word does.
-  const styleId = (directStyle === undefined ? undefined : attr(directStyle, "val")) ?? defaultStyleId ?? styles.defaultParagraphStyleId;
+  // A paragraph naming no style takes the document's default paragraph style
+  // (`Normal`), as Word does.
+  const styleId = (directStyle === undefined ? undefined : attr(directStyle, "val")) ?? styles.defaultParagraphStyleId;
   const merged: ResolvedParaProps = {};
   if (styles.defaultPPr !== undefined) readParaProps(styles.defaultPPr, merged);
   for (const style of paragraphAncestry(styles, styleId)) readParaProps(style.pPr, merged);
@@ -1229,39 +1470,48 @@ function outlineLevel(styleId: string | undefined, merged: ResolvedParaProps, st
     ?? (merged.outlineLvl !== undefined && merged.outlineLvl <= 8 ? merged.outlineLvl + 1 : undefined);
 }
 
-function parseParagraph(paragraph: XmlElement, ctx: ParseContext, defaultStyleId?: string): ParagraphDraft {
+function parseParagraph(paragraph: XmlElement, ctx: ParseContext): ParagraphDraft {
   throwIfAborted(ctx.signal);
-  const { merged, styleId } = resolveParaProps(ctx.styles, firstChild(paragraph, "pPr"), defaultStyleId);
+  const pPr = firstChild(paragraph, "pPr");
+  const { merged, styleId } = resolveParaProps(ctx.styles, pPr);
 
   const direction: TextDirection = merged.bidi === true ? "rtl" : "ltr";
   const text = paragraphTextOf(paragraph);
   const paraAlign = alignFor(merged.jc, direction);
-  const defaultSize = mergedFontSize(ctx, styleId);
-  if (defaultSize !== undefined && merged.fontSizePt === undefined) merged.fontSizePt = defaultSize;
+  // The paragraph's default run size (its style chain's), for lines whose runs state none.
+  const defaultRun = baseRunProps(ctx, styleId, undefined);
+  const defaultSize = defaultRun.fontSizePt ?? defaultRun.fontSizeCsPt;
+  if (defaultSize !== undefined) merged.fontSizePt = defaultSize;
 
+  const headingLevel = outlineLevel(styleId, merged, ctx.styles);
   const pieces: FlowNode[] = [];
-  const floats: DocxImageNode[] = [];
+  const floats: DocxDrawingNode[] = [];
   const fields: FieldFrame[] = [];
-  let runs: TextRunModel[] = [];
+  /** The open paragraph's runs; `flushRuns` moves them out into a node, so a holder of this array keeps filling the next one. */
+  const runs: TextRunModel[] = [];
   const flushRuns = (): void => {
     if (runs.length === 0) return;
-    const node: DocxParagraphNode = { type: "paragraph", runs, direction, ...layoutFor(merged, direction, ctx.justifyShrinks) };
-    if (styleId !== undefined) node.styleId = styleId;
-    pieces.push(node);
-    runs = [];
+    const taken = runs.splice(0);
+    const layout = layoutFor(merged, direction, ctx.justifyShrinks);
+    if (headingLevel === undefined) {
+      pieces.push({ type: "paragraph", runs: taken, direction, ...layout, ...(styleId === undefined ? {} : { styleId }) });
+    } else {
+      pieces.push({ type: "heading", level: headingLevel, text: runsText(taken), direction, runs: taken, ...layout });
+    }
   };
 
   /**
    * Read one `w:r` into the open paragraph. `styleOf` maps the run's own
-   * `rStyle` to the character style it takes: most runs keep it, a
-   * hyperlink's runs fall back to the Hyperlink style.
+   * `rStyle` to the character style it takes: a run keeps it unless the
+   * caller says otherwise (a hyperlink's runs fall back to the Hyperlink style).
    */
-  const readRun = (run: XmlElement, href: string | undefined, styleOf: (own: string | undefined) => string | undefined): void => {
+  const readRun = (run: XmlElement, href: string | undefined, styleOf?: (own: string | undefined) => string | undefined): void => {
     const direct = firstChild(run, "rPr");
     const rStyle = direct === undefined ? undefined : firstChild(direct, "rStyle");
-    const props = baseRunProps(ctx, styleId, styleOf(rStyle === undefined ? undefined : attr(rStyle, "val")));
+    const own = rStyle === undefined ? undefined : attr(rStyle, "val");
+    const props = baseRunProps(ctx, styleId, styleOf === undefined ? own : styleOf(own));
     readRunProps(direct, props, ctx.theme);
-    const draft: RunDraft = { runs: [], blocks: [], floats: [], pageBreak: false, softBreak: false };
+    const draft: RunDraft = { runs: [], blocks: [], floats: [], softBreak: false };
     parseRunContent(run, ctx, props, text, href, draft, fields);
     // Word orders a run without `w:rtl` left to right inside a right-to-left
     // paragraph (probe run-direction).
@@ -1270,13 +1520,11 @@ function parseParagraph(paragraph: XmlElement, ctx: ParseContext, defaultStyleId
     }
     emitDraft(draft, runs, pieces, floats, flushRuns, paraAlign);
   };
-  const ownStyle = (own: string | undefined): string | undefined => own;
-
   for (const child of contentChildren(paragraph)) {
     throwIfAborted(ctx.signal);
     if (child.local === "pPr") continue;
     if (child.local === "r") {
-      readRun(child, undefined, ownStyle);
+      readRun(child, undefined);
       continue;
     }
     if (child.local === "hyperlink") {
@@ -1301,7 +1549,7 @@ function parseParagraph(paragraph: XmlElement, ctx: ParseContext, defaultStyleId
       const content = firstChild(child, "sdtContent");
       if (content === undefined) continue;
       for (const nested of contentChildren(content)) {
-        if (nested.local === "r") readRun(nested, undefined, ownStyle);
+        if (nested.local === "r") readRun(nested, undefined);
       }
       continue;
     }
@@ -1314,7 +1562,7 @@ function parseParagraph(paragraph: XmlElement, ctx: ParseContext, defaultStyleId
       } else {
         // Any other simple field (DATE, TITLE, REF…) shows the result Word cached in it.
         for (const run of contentChildren(child)) {
-          if (run.local === "r") readRun(run, undefined, ownStyle);
+          if (run.local === "r") readRun(run, undefined);
         }
       }
       continue;
@@ -1322,25 +1570,35 @@ function parseParagraph(paragraph: XmlElement, ctx: ParseContext, defaultStyleId
   }
   flushRuns();
 
-  const headingLevel = outlineLevel(styleId, merged, ctx.styles);
-  const nodes: FlowNode[] = pieces.map((piece): FlowNode => {
-    if (piece.type !== "paragraph" || headingLevel === undefined) return piece;
-    return {
-      type: "heading",
-      level: headingLevel,
-      text: runsText(piece.runs),
-      direction: piece.direction,
-      runs: piece.runs,
-      ...layoutOf(piece),
-    };
-  });
-
-  const filtered = nodes.filter((node) => node.type !== "paragraph" || node.runs.length > 0);
+  const emptyParagraph = pieces.length === 0 && floats.length === 0;
+  const sectionBreak = pPr === undefined ? undefined : firstChild(pPr, "sectPr");
+  // In Word 16, this empty paragraph with both properties adds no standalone
+  // body line or page; the following section transition owns the page change.
+  // The coverage fixture's Word export and paired captures verify the result.
+  const emptySectionEndingParagraph = sectionBreak !== undefined && merged.pageBreakBefore === true && emptyParagraph;
+  const filtered = pieces;
+  if (emptyParagraph && !emptySectionEndingParagraph) {
+    // An empty paragraph is a full line tall, at the size of its paragraph mark
+    // (`w:pPr/w:rPr`), plus its own spacing (probe `docx-empty-paragraph`, Word
+    // 16: one empty paragraph moves the next text down by exactly one line, a
+    // 24pt mark by one 24pt line, 12pt before and after by those 24pt more). A
+    // table cell's lone empty paragraph likewise gives the row its line.
+    const markProps = baseRunProps(ctx, styleId, undefined);
+    readRunProps(pPr === undefined ? undefined : firstChild(pPr, "rPr"), markProps, ctx.theme);
+    const markSize = markProps.rtl === true ? markProps.fontSizeCsPt ?? markProps.fontSizePt : markProps.fontSizePt;
+    if (markSize !== undefined) merged.fontSizePt = markSize;
+    // Never a heading: an empty one would be an empty entry in the outline.
+    filtered.push({ type: "paragraph", runs: [], direction, ...layoutFor(merged, direction, ctx.justifyShrinks), ...(styleId === undefined ? {} : { styleId }) });
+  }
   if (floats.length > 0) {
     if (merged.numId !== undefined) {
       // A list item is not a paragraph node and cannot carry them: its pictures
-      // fall back to plain block images ahead of the item.
-      filtered.unshift(...floats.map(({ anchor: _anchor, ...image }): DocxImageNode => image));
+      // and charts fall back to plain blocks ahead of the item.
+      filtered.unshift(...floats.map((float): DocxDrawingNode => {
+        const block = { ...float };
+        delete block.anchor;
+        return block;
+      }));
     } else {
       const host = filtered.find((node) => node.type === "paragraph" || node.type === "heading");
       if (host?.type === "paragraph" || host?.type === "heading") host.floats = floats;
@@ -1348,9 +1606,11 @@ function parseParagraph(paragraph: XmlElement, ctx: ParseContext, defaultStyleId
       else filtered.push({ type: "paragraph", runs: [], direction, ...layoutFor(merged, direction, ctx.justifyShrinks), floats });
     }
   }
-  if (merged.pageBreakBefore === true) {
+  if (merged.pageBreakBefore === true && !emptySectionEndingParagraph) {
     // Inherited `w:pageBreakBefore` (direct or via the style chain) forces
-    // the paragraph onto a new page in layout mode.
+    // the paragraph onto a new page in layout mode. Word ignores that hint on
+    // an empty section-ending paragraph: the section transition itself starts
+    // the next section on its authored page.
     filtered.unshift(pageBreakNode("mandatory"));
   }
   return {
@@ -1360,67 +1620,83 @@ function parseParagraph(paragraph: XmlElement, ctx: ParseContext, defaultStyleId
   };
 }
 
-function mergedFontSize(ctx: ParseContext, styleId: string | undefined): number | undefined {
-  const props: ResolvedRunProps = {};
-  readRunProps(ctx.styles.defaultRPr, props, ctx.theme);
-  for (const style of paragraphAncestry(ctx.styles, styleId)) readRunProps(style.rPr, props, ctx.theme);
-  return props.fontSizePt ?? props.fontSizeCsPt;
+/**
+ * Count one numbered paragraph. Word counts per list definition (`w:abstractNum`), not per
+ * `w:numId`: numbering ids that share a definition continue one sequence, and a `w:num` with a
+ * `w:startOverride` starts its level over the first time it is used (probe `docx-list-counters`,
+ * Word 16, which also showed an empty numbered paragraph and a numbered heading take a number).
+ */
+function advanceCounters(ctx: ParseContext, numId: string, ilvl: number): { level: NumberingLevel; knownLevels: Map<number, NumberingLevel>; counters: number[] } {
+  const abstractId = ctx.numbering.nums.get(numId);
+  const levels = abstractId === undefined ? undefined : ctx.numbering.abstracts.get(abstractId);
+  const fallback: NumberingLevel = { numFmt: "bullet", lvlText: BULLET, start: 1 };
+  const level = levels?.get(ilvl) ?? fallback;
+  const knownLevels = levels ?? new Map<number, NumberingLevel>([[ilvl, level]]);
+  const key = abstractId ?? `num:${numId}`;
+  let counters = ctx.counters.get(key);
+  if (counters === undefined) {
+    counters = [];
+    ctx.counters.set(key, counters);
+  }
+  if (!ctx.startedNums.has(numId)) {
+    ctx.startedNums.add(numId);
+    for (const overridden of ctx.numbering.startOverrides.keys()) {
+      if (!overridden.startsWith(`${numId}:`)) continue;
+      const from = Number(overridden.slice(numId.length + 1));
+      if (Number.isInteger(from)) counters.length = Math.min(counters.length, from);
+    }
+  }
+  counters[ilvl] = (counters[ilvl] ?? (startFor(ctx.numbering, numId, ilvl, level) - 1)) + 1;
+  // Deeper levels start over, at their own start value.
+  counters.length = ilvl + 1;
+  return { level, knownLevels, counters };
 }
 
-function groupListItems(drafts: BlockDraft[], ctx: ParseContext): FlowNode[] {
-  throwIfAborted(ctx.signal);
+/**
+ * One list paragraph as a numbered item. Counters advance as the paragraph is
+ * parsed, so ordinals follow document order across the body, table cells and
+ * every other place a numbering id is used.
+ */
+function listItemFor(ctx: ParseContext, numId: string, ilvl: number, paragraph: DocxParagraphNode): DocxListItemNode {
+  const { level, knownLevels, counters } = advanceCounters(ctx, numId, ilvl);
+  const authored = markerFor(level, knownLevels, ilvl, counters);
+  const { marker, markerRun } = symbolMarker(authored, markerRunFor(ctx, level, paragraph, authored));
+  const item: DocxListItemNode = {
+    level: ilvl,
+    ordered: isOrderedFormat(level.numFmt),
+    marker,
+    ...(markerRun === undefined ? {} : { markerRun }),
+    ...(level.suffix === undefined || level.suffix === "tab" ? {} : { markerSuffix: level.suffix }),
+    paragraph,
+  };
+  // Numbering indents apply only when the paragraph sets none of its own:
+  // direct `w:ind` always wins over the level default.
+  if (paragraph.leftIndent === undefined && level.indentLeft !== undefined) {
+    paragraph.leftIndent = level.indentLeft;
+  }
+  if (paragraph.firstLineIndent === undefined && level.indentHanging !== undefined) {
+    paragraph.firstLineIndent = -level.indentHanging;
+  }
+  return item;
+}
+
+/** Runs of consecutive items of one numbering id become one `list` block. */
+function groupListItems(drafts: BlockDraft[]): FlowNode[] {
   const out: FlowNode[] = [];
   let open: { numId: string; items: DocxListItemNode[] } | undefined;
-  const close = (): void => {
-    if (open !== undefined && open.items.length > 0) out.push({ type: "list", items: open.items });
-    open = undefined;
-  };
   for (const draft of drafts) {
-    throwIfAborted(ctx.signal);
     if (!("listItem" in draft)) {
-      close();
+      open = undefined;
       out.push(draft.node);
       continue;
     }
-    const { numId, ilvl, paragraph } = draft.listItem;
-    const abstractId = ctx.numbering.nums.get(numId);
-    const levels = abstractId === undefined ? undefined : ctx.numbering.abstracts.get(abstractId);
-    const fallback: NumberingLevel = { numFmt: "bullet", lvlText: BULLET, start: 1 };
-    const level = levels?.get(ilvl) ?? fallback;
-    const knownLevels = levels ?? new Map<number, NumberingLevel>([[ilvl, level]]);
+    const { numId, item } = draft.listItem;
     if (open === undefined || open.numId !== numId) {
-      close();
       open = { numId, items: [] };
-    }
-    let counters = ctx.counters.get(numId);
-    if (counters === undefined) {
-      counters = [];
-      ctx.counters.set(numId, counters);
-    }
-    counters[ilvl] = (counters[ilvl] ?? (startFor(ctx.numbering, numId, ilvl, level) - 1)) + 1;
-    for (let depth = ilvl + 1; depth < counters.length; depth++) counters[depth] = 0;
-    const ordered = isOrderedFormat(level.numFmt);
-    const authored = markerFor(level, knownLevels, ilvl, counters);
-    const { marker, markerRun } = symbolMarker(authored, markerRunFor(ctx, level, paragraph, authored));
-    const item: DocxListItemNode = {
-      level: ilvl,
-      ordered,
-      marker,
-      ...(markerRun === undefined ? {} : { markerRun }),
-      ...(level.suffix === undefined || level.suffix === "tab" ? {} : { markerSuffix: level.suffix }),
-      paragraph,
-    };
-    // Numbering indents apply only when the paragraph sets none of its own:
-    // direct `w:ind` always wins over the level default.
-    if (item.paragraph.leftIndent === undefined && level.indentLeft !== undefined) {
-      item.paragraph.leftIndent = level.indentLeft;
-    }
-    if (item.paragraph.firstLineIndent === undefined && level.indentHanging !== undefined) {
-      item.paragraph.firstLineIndent = -level.indentHanging;
+      out.push({ type: "list", items: open.items });
     }
     open.items.push(item);
   }
-  close();
   return out;
 }
 
@@ -1486,20 +1762,31 @@ function symbolMarker(marker: string, markerRun: TextRunModel | undefined): { ma
   return { marker: standIn, markerRun: run };
 }
 
-/** A cell's parse result plus whether Word's own saved layout put a page break right before its first paragraph. */
+/**
+ * A cell's parse result: the cell (absent for a vertical-merge continuation),
+ * the grid columns it covers, and whether Word's own saved layout put a page
+ * break right before its first paragraph.
+ */
 interface TableCellParse {
   cell: DocxTableCellNode | undefined;
+  columnSpan: number;
   leadingPageBreak: boolean;
 }
 
-function parseTableCell(cell: XmlElement, ctx: ParseContext, origins: Array<DocxTableCellNode | undefined>, column: number): TableCellParse {
+function parseTableCell(
+  cell: XmlElement,
+  ctx: ParseContext,
+  origins: Array<DocxTableCellNode | undefined>,
+  column: number,
+  gridColumns: number,
+): TableCellParse {
   throwIfAborted(ctx.signal);
   const tcPr = firstChild(cell, "tcPr");
   const width = tcPr === undefined ? undefined : firstChild(tcPr, "tcW");
   const widthValue = width === undefined ? undefined : numberAttr(width, "w", "w:tcW");
   const span = tcPr === undefined ? undefined : firstChild(tcPr, "gridSpan");
-  const spanValue = span === undefined ? undefined : numberAttr(span, "val", "w:gridSpan");
-  const columnSpan = spanValue === undefined || spanValue < 1 ? 1 : Math.floor(spanValue);
+  // Cut to the columns left in the table: the renderers loop over the span.
+  const columnSpan = clampSpan(span === undefined ? undefined : numberAttr(span, "val", "w:gridSpan"), gridColumns - column) ?? 1;
   const merge = tcPr === undefined ? undefined : firstChild(tcPr, "vMerge");
   const mergeValue = merge === undefined ? undefined : (attr(merge, "val") ?? "continue");
   if (mergeValue === "continue") {
@@ -1509,7 +1796,7 @@ function parseTableCell(cell: XmlElement, ctx: ParseContext, origins: Array<Docx
     const origin = origins[column];
     if (origin !== undefined) {
       origin.rowSpan = (origin.rowSpan ?? 1) + 1;
-      return { cell: undefined, leadingPageBreak: false };
+      return { cell: undefined, columnSpan, leadingPageBreak: false };
     }
   }
   const vAlign = tcPr === undefined ? undefined : firstChild(tcPr, "vAlign");
@@ -1518,40 +1805,16 @@ function parseTableCell(cell: XmlElement, ctx: ParseContext, origins: Array<Docx
   const fill = shading === undefined ? undefined : hexColor(attr(shading, "fill"));
   const cellMargins = readMargins(tcPr === undefined ? undefined : firstChild(tcPr, "tcMar"));
   const cellBorders = readEdges(tcPr === undefined ? undefined : firstChild(tcPr, "tcBorders"), ["top", "right", "bottom", "left"] as const);
-  const drafts: BlockDraft[] = [];
   // Tables break between rows, never inside a cell, so a rendered-page-break
   // hint in a cell's own content has nowhere to go and is dropped — except
-  // one that leads the cell's very first paragraph, before anything else:
+  // one that leads the cell's very first block, before anything else:
   // that is Word's own signal that the row itself started a fresh page
   // (`DocxTableRowNode.pageBreakBefore`, set by the caller for column 0).
-  let leadingPageBreak = false;
-  for (const child of cell.children) {
-    throwIfAborted(ctx.signal);
-    if (child.local === "tcPr") continue;
-    if (child.local === "p") {
-      const parsed = parseParagraph(child, ctx);
-      for (const [index, node] of parsed.nodes.entries()) {
-        if (node.type === "pageBreak" && node.strength === "preferred") {
-          if (drafts.length === 0 && index === 0) leadingPageBreak = true;
-          continue;
-        }
-        drafts.push({ node });
-      }
-      if (parsed.numId !== undefined) {
-        const last = drafts[drafts.length - 1];
-        if (last !== undefined && "node" in last && last.node.type === "paragraph") {
-          drafts[drafts.length - 1] = { listItem: { numId: parsed.numId, ilvl: parsed.ilvl ?? 0, paragraph: last.node } };
-        }
-      }
-      continue;
-    }
-    if (child.local === "tbl") {
-      const table = parseTable(child, ctx);
-      if (table !== undefined) drafts.push({ node: table });
-    }
-  }
+  const isHint = (draft: BlockDraft): boolean => "node" in draft && draft.node.type === "pageBreak" && draft.node.strength === "preferred";
+  const blocks = parseBlocks(cell, ctx);
+  const leadingPageBreak = blocks.length > 0 && isHint(blocks[0]!);
   const cellNode: DocxTableCellNode = {
-    nodes: groupListItems(drafts, ctx),
+    nodes: groupListItems(blocks.filter((draft) => !isHint(draft))),
     ...(vAlignValue === "center"
       ? { verticalAlign: "middle" as const }
       : vAlignValue === "bottom"
@@ -1565,7 +1828,7 @@ function parseTableCell(cell: XmlElement, ctx: ParseContext, origins: Array<Docx
   };
   origins[column] = cellNode;
   for (let index = 1; index < columnSpan; index++) origins[column + index] = undefined;
-  return { cell: cellNode, leadingPageBreak };
+  return { cell: cellNode, columnSpan, leadingPageBreak };
 }
 
 function parseTable(table: XmlElement, ctx: ParseContext): FlowNode | undefined {
@@ -1595,13 +1858,14 @@ function parseTable(table: XmlElement, ctx: ParseContext): FlowNode | undefined 
     // row's cells share its page), but only the first is checked — the
     // common, unambiguous case parsed so far.
     let pageBreakBefore = false;
-    for (const cell of childElements(row, "tc")) {
+    const rowCells = childElements(row, "tc");
+    const gridColumns = Math.max(columns.length, rowCells.length);
+    for (const cell of rowCells) {
       throwIfAborted(ctx.signal);
-      const { cell: parsed, leadingPageBreak } = parseTableCell(cell, ctx, origins, column);
+      const { cell: parsed, columnSpan, leadingPageBreak } = parseTableCell(cell, ctx, origins, column, gridColumns);
       if (column === 0 && leadingPageBreak) pageBreakBefore = true;
-      const span = parsed?.columnSpan ?? 1;
       if (parsed !== undefined) cells.push(parsed);
-      column += span;
+      column += columnSpan;
     }
     rows.push({
       ...(heightValue === undefined ? {} : { height: twipsToInches(heightValue) }),
@@ -1636,7 +1900,7 @@ function parseBlocks(parent: XmlElement, ctx: ParseContext): BlockDraft[] {
   for (const child of parent.children) {
     throwIfAborted(ctx.signal);
     if (child.local === "p") {
-      pushParagraphDrafts(drafts, parseParagraph(child, ctx));
+      pushParagraphDrafts(drafts, parseParagraph(child, ctx), ctx);
       continue;
     }
     if (child.local === "tbl") {
@@ -1647,19 +1911,23 @@ function parseBlocks(parent: XmlElement, ctx: ParseContext): BlockDraft[] {
     if (child.local === "sdt") {
       const content = firstChild(child, "sdtContent");
       if (content !== undefined) drafts.push(...parseBlocks(content, ctx));
-      continue;
     }
-    if (child.local === "sectPr" || child.local === "bookmarkStart" || child.local === "bookmarkEnd") continue;
   }
   return drafts;
 }
 
-function pushParagraphDrafts(drafts: BlockDraft[], parsed: ParagraphDraft): void {
+/** A parsed paragraph's nodes as drafts: the first paragraph of a numbered one is the list item. */
+function pushParagraphDrafts(drafts: BlockDraft[], parsed: ParagraphDraft, ctx: ParseContext): void {
   let listed = false;
   for (const node of parsed.nodes) {
     if (!listed && parsed.numId !== undefined && node.type === "paragraph") {
-      drafts.push({ listItem: { numId: parsed.numId, ilvl: parsed.ilvl ?? 0, paragraph: node } });
+      drafts.push({ listItem: { numId: parsed.numId, item: listItemFor(ctx, parsed.numId, parsed.ilvl ?? 0, node) } });
       listed = true;
+    } else if (!listed && parsed.numId !== undefined && node.type === "heading") {
+      // A numbered heading takes a number in Word's sequence (it is no list item here: its marker is not painted).
+      advanceCounters(ctx, parsed.numId, parsed.ilvl ?? 0);
+      listed = true;
+      drafts.push({ node });
     } else {
       drafts.push({ node });
     }
@@ -1690,7 +1958,9 @@ export async function parseDocxSections(
   const mediaContentType = (part: string): string => pkg.mediaContentType(part);
   // Notes first: a footnote reference in the body becomes a marker only when its note exists.
   const notes = await readNotes(pkg, index, signal);
-  const ctx = partContext(index, notes, new Map(index.relTargets), mediaContentType, signal);
+  const charts = await readPartCharts(pkg, index.documentPart, index.theme, signal);
+  const missing = { drawings: 0 };
+  const ctx = partContext(index, notes, index, mediaContentType, charts, missing, signal);
   const drafts = await parseBodySections(pkg, index.documentPart, ctx);
   const sections: DocumentSection[] = [];
   // Sections usually inherit the same header/footer parts: parse each once
@@ -1699,40 +1969,57 @@ export async function parseDocxSections(
   const headerFooter = async (part: string): Promise<FlowNode[]> => {
     let nodes = headerFooters.get(part);
     if (nodes === undefined) {
-      nodes = await parseHeaderFooterPart(pkg, index, notes, part, mediaContentType, signal);
+      nodes = await parseHeaderFooterPart(pkg, index, notes, part, mediaContentType, missing, signal);
       headerFooters.set(part, nodes);
     }
     return nodes;
   };
+  // A section that names no header or footer of a kind is linked to the
+  // previous one and shows the same, each kind (default, first, even) on its
+  // own (ECMA-376 17.10.5; probe `docx-first-header`: a section with its own
+  // default but no first header showed the earlier section's first header).
+  const headerParts: HeaderFooterParts = {};
+  const footerParts: HeaderFooterParts = {};
   for (const draft of drafts) {
     throwIfAborted(signal);
-    const root = groupListItems(draft.drafts, ctx);
-    const section: DocumentSection = { properties: draft.properties, root };
-    // Headers/footers render from the section's own references: first
-    // referenced part wins, the rest are first/even-page alternates.
-    const headerPart = draft.properties.headerRefs[0];
-    if (headerPart !== undefined) {
-      const header = await headerFooter(headerPart);
-      if (header.length > 0) section.header = header;
-    }
-    const footerPart = draft.properties.footerRefs[0];
-    if (footerPart !== undefined) {
-      const footer = await headerFooter(footerPart);
-      if (footer.length > 0) section.footer = footer;
+    const root = groupListItems(draft.drafts);
+    const properties: SectionProperties = index.evenAndOddHeaders ? { ...draft.properties, evenAndOddPages: true } : draft.properties;
+    const section: DocumentSection = { properties, root };
+    for (const kind of ["default", "first", "even"] as const) {
+      const ownHeader = draft.properties.headerParts?.[kind];
+      const ownFooter = draft.properties.footerParts?.[kind];
+      if (ownHeader !== undefined) headerParts[kind] = ownHeader;
+      if (ownFooter !== undefined) footerParts[kind] = ownFooter;
+      const headerPart = headerParts[kind];
+      const footerPart = footerParts[kind];
+      const header = headerPart === undefined ? undefined : await headerFooter(headerPart);
+      const footer = footerPart === undefined ? undefined : await headerFooter(footerPart);
+      if (header !== undefined && header.length > 0) section[kind === "default" ? "header" : kind === "first" ? "firstHeader" : "evenHeader"] = header;
+      if (footer !== undefined && footer.length > 0) section[kind === "default" ? "footer" : kind === "first" ? "firstFooter" : "evenFooter"] = footer;
     }
     const firstHeading = root.find((node): node is DocxHeadingNode => node.type === "heading");
     if (firstHeading !== undefined) section.title = firstHeading.text;
     sections.push(section);
   }
   const last = sections[sections.length - 1]!;
+  // Counted after the notes below are parsed too: the document's total sits on its first section.
+  // A note's relationships live with its own part (`footnotes.xml`, `endnotes.xml`), not the body's.
+  const noteContexts = new Map<string, ParseContext>();
   for (const key of ctx.footnoteOrder) {
     throwIfAborted(signal);
     const note = ctx.notes.get(key);
     if (note === undefined) continue;
-    const noteCtx = partContext(index, notes, new Map(index.relTargets), mediaContentType, signal);
-    noteCtx.footnoteLabels = ctx.footnoteLabels;
-    noteCtx.footnoteOrder = ctx.footnoteOrder;
-    const nodes = groupListItems(parseBlocks(note, noteCtx), noteCtx);
+    const notesPart = key.startsWith("f") ? index.notesParts.footnotes : index.notesParts.endnotes;
+    let noteCtx = noteContexts.get(notesPart ?? "");
+    if (noteCtx === undefined) {
+      const rels = notesPart === undefined ? index : await readPartRels(pkg, notesPart, signal);
+      const noteCharts = notesPart === undefined ? charts : await readPartCharts(pkg, notesPart, index.theme, signal);
+      noteCtx = partContext(index, notes, rels, mediaContentType, noteCharts, missing, signal);
+      noteCtx.footnoteLabels = ctx.footnoteLabels;
+      noteCtx.footnoteOrder = ctx.footnoteOrder;
+      noteContexts.set(notesPart ?? "", noteCtx);
+    }
+    const nodes = groupListItems(parseBlocks(note, noteCtx));
     last.root.push({
       type: "footnote",
       id: key,
@@ -1742,6 +2029,7 @@ export async function parseDocxSections(
     });
   }
   throwIfAborted(signal);
+  if (missing.drawings > 0) sections[0]!.missingIds = missing.drawings;
   return sections;
 }
 
@@ -1751,27 +2039,28 @@ async function parseHeaderFooterPart(
   notes: Map<string, XmlElement>,
   part: string,
   mediaContentType: (part: string) => string,
+  missing: { drawings: number },
   signal?: AbortSignal,
 ): Promise<FlowNode[]> {
   const partRoot = await pkg.readXmlIfPresent(part, signal);
   throwIfAborted(signal);
   if (partRoot === undefined) return [];
-  const partRels = await pkg.relationships(part, signal);
+  const rels = await readPartRels(pkg, part, signal);
   throwIfAborted(signal);
-  const targets = new Map<string, string>();
-  for (const relationship of partRels) {
-    if (relationship.targetMode !== "Internal") continue;
-    targets.set(relationship.id, relationship.target);
-  }
-  const partCtx = partContext(index, notes, targets, mediaContentType, signal);
-  return groupListItems(parseBlocks(partRoot, partCtx), partCtx);
+  const charts = await readPartCharts(pkg, part, index.theme, signal);
+  const partCtx = partContext(index, notes, rels, mediaContentType, charts, missing, signal);
+  return groupListItems(parseBlocks(partRoot, partCtx));
 }
 
 /** Word default page geometry (Letter) used when `w:sectPr` omits a value. */
 const DEFAULT_PAGE_TWIPS = { width: 12240, height: 15840 };
 const DEFAULT_MARGINS_TWIPS = { top: 1440, right: 1800, bottom: 1440, left: 1800, header: 720, footer: 720, gutter: 0 };
 
-function sectionPropertiesFrom(sectPr: XmlElement | undefined, relTargets: Map<string, string>): SectionProperties {
+function sectionPropertiesFrom(
+  sectPr: XmlElement | undefined,
+  relTargets: Map<string, string>,
+  adjustLineHeightInTable: boolean,
+): SectionProperties {
   const typeChild = sectPr === undefined ? undefined : firstChild(sectPr, "type");
   const typeValue = typeChild === undefined ? undefined : attr(typeChild, "val");
   // An absent type means `nextPage` for an embedded break. `nextColumn` has
@@ -1797,6 +2086,13 @@ function sectionPropertiesFrom(sectPr: XmlElement | undefined, relTargets: Map<s
   const marChild = sectPr === undefined ? undefined : firstChild(sectPr, "pgMar");
   const mar = (name: string, fallback: number): number =>
     marChild === undefined ? fallback : numberAttr(marChild, name, "w:pgMar") ?? fallback;
+  const headerParts = headerFooterParts(sectPr, "headerReference", relTargets);
+  const footerParts = headerFooterParts(sectPr, "footerReference", relTargets);
+  const numType = sectPr === undefined ? undefined : firstChild(sectPr, "pgNumType");
+  const pageNumberStart = numType === undefined ? undefined : numberAttr(numType, "start", "w:pgNumType");
+  const docGrid = sectPr === undefined ? undefined : firstChild(sectPr, "docGrid");
+  const gridType = docGrid === undefined ? undefined : attr(docGrid, "type");
+  const gridLinePitch = docGrid === undefined ? undefined : numberAttr(docGrid, "linePitch", "w:docGrid");
   return {
     breakType,
     page: {
@@ -1813,8 +2109,17 @@ function sectionPropertiesFrom(sectPr: XmlElement | undefined, relTargets: Map<s
         gutter: mar("gutter", DEFAULT_MARGINS_TWIPS.gutter),
       },
     },
-    headerRefs: headerFooterParts(sectPr, "headerReference", relTargets),
-    footerRefs: headerFooterParts(sectPr, "footerReference", relTargets),
+    ...(docGrid === undefined ? {} : {
+      docGrid: {
+        type: gridType ?? "default",
+        ...(gridLinePitch !== undefined ? { linePitch: gridLinePitch } : gridType === "lines" ? { linePitch: 360 } : {}),
+        ...(adjustLineHeightInTable ? { adjustLineHeightInTable: true as const } : {}),
+      },
+    }),
+    ...(headerParts === undefined ? {} : { headerParts }),
+    ...(footerParts === undefined ? {} : { footerParts }),
+    ...(sectPr !== undefined && onOffElement(firstChild(sectPr, "titlePg")) === true ? { titlePage: true as const } : {}),
+    ...(pageNumberStart === undefined ? {} : { pageNumberStart }),
   };
 }
 
@@ -1841,11 +2146,11 @@ async function parseBodySections(pkg: OpcPackage, documentPart: string, ctx: Par
       throwIfAborted(ctx.signal);
       switch (child.local) {
         case "p": {
-          pushParagraphDrafts(current, parseParagraph(child, ctx));
+          pushParagraphDrafts(current, parseParagraph(child, ctx), ctx);
           const pPr = firstChild(child, "pPr");
           const embedded = pPr === undefined ? undefined : firstChild(pPr, "sectPr");
           if (embedded !== undefined) {
-            sections.push({ drafts: current, properties: sectionPropertiesFrom(embedded, ctx.relTargets) });
+            sections.push({ drafts: current, properties: sectionPropertiesFrom(embedded, ctx.relTargets, ctx.adjustLineHeightInTable) });
             current = [];
           }
           return;
@@ -1861,7 +2166,7 @@ async function parseBodySections(pkg: OpcPackage, documentPart: string, ctx: Par
           return;
         }
         case "sectPr":
-          trailing = sectionPropertiesFrom(child, ctx.relTargets);
+          trailing = sectionPropertiesFrom(child, ctx.relTargets, ctx.adjustLineHeightInTable);
           return;
         default:
           // bookmarkStart/End and anything else at body level: skipped.
@@ -1872,6 +2177,6 @@ async function parseBodySections(pkg: OpcPackage, documentPart: string, ctx: Par
   if (root === undefined || firstChild(root, "body") === undefined) {
     throw damagedDocument(`document "${documentPart}" is missing w:body`);
   }
-  sections.push({ drafts: current, properties: trailing ?? sectionPropertiesFrom(undefined, ctx.relTargets) });
+  sections.push({ drafts: current, properties: trailing ?? sectionPropertiesFrom(undefined, ctx.relTargets, ctx.adjustLineHeightInTable) });
   return sections;
 }

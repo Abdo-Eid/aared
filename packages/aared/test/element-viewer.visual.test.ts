@@ -78,40 +78,45 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
     // --- Load: the starting state is `load`, never an indexchange -----------
     const pptxLoad = await view.evaluate(`openSource("/arabic.pptx")`) as { format: string; count: number };
     expect(pptxLoad.format).toBe("pptx");
-    expect(pptxLoad.count).toBe(12);
+    expect(pptxLoad.count).toBe(18);
     const firstSlide = await view.evaluate(`(async () => {
       await frame();
       const viewer = document.querySelector("#viewer");
       return {
         title: viewer.shadowRoot.querySelector('[part="page"]')?.textContent,
-        format: viewer.format,
-        count: viewer.info?.count,
+        format: viewer.viewer?.format,
+        count: viewer.viewer?.info.count,
         canvasCount: viewer.shadowRoot.querySelectorAll("canvas").length,
+        progress: window.events.filter((event) => event.type === "progress").length,
         events: take().map((event) => event.type),
       };
-    })()`) as { title?: string; format: string; count: number; canvasCount: number; events: string[] };
+    })()`) as { title?: string; format: string; count: number; canvasCount: number; progress: number; events: string[] };
     expect(firstSlide.title).toContain("تقرير الإنتاج الأسبوعي");
     expect(firstSlide.format).toBe("pptx");
-    expect(firstSlide.count).toBe(12);
+    expect(firstSlide.count).toBe(18);
     expect(firstSlide.canvasCount).toBe(0);
+    expect(firstSlide.progress).toBeGreaterThan(0);
     expect(firstSlide.events).toEqual(["load"]);
 
-    // --- goTo(): a promise, one announcement, and going nowhere is silent ---
+    // --- viewer.goTo(): a promise, one announcement, the attribute follows, going nowhere is silent ---
     const navigation = await view.evaluate(`(async () => {
       const viewer = document.querySelector("#viewer");
-      await viewer.goTo(1);
+      await viewer.viewer.goTo(1);
+      const attribute = viewer.getAttribute("index");
       const moved = take();
-      await viewer.goTo(1);
+      await viewer.viewer.goTo(1);
       viewer.index = 1;
       await frame();
       return {
         index: viewer.index,
+        attribute,
         table: viewer.shadowRoot.querySelector('[data-aared-element="table"]')?.textContent,
         moved,
         repeated: take(),
       };
-    })()`) as { index: number; table?: string; moved: Array<{ type: string; detail: unknown }>; repeated: unknown[] };
+    })()`) as { index: number; attribute: string; table?: string; moved: Array<{ type: string; detail: unknown }>; repeated: unknown[] };
     expect(navigation.index).toBe(1);
+    expect(navigation.attribute).toBe("1");
     expect(navigation.table).toContain("الاسم");
     expect(navigation.moved).toEqual([
       { type: "indexchange", detail: { index: 1 } },
@@ -128,7 +133,7 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
       await frame();
       const zoomed = { scale: slideScale(), label: label(), events: take() };
       viewer.zoom = 1.5;
-      await viewer.goTo(2);
+      await viewer.viewer.goTo(2);
       await frame();
       const kept = { scale: slideScale(), events: take().map((event) => event.type) };
       viewer.removeAttribute("zoom");
@@ -165,20 +170,83 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
     // Same value again, then navigation: zoom survives, and nothing is announced but the unit.
     expect(zoom.kept.scale).toBeCloseTo(1.5, 2);
     expect(zoom.kept.events).toEqual(["indexchange", "slidechange"]);
-    // "+" from a fit mode steps from the scale it actually painted, not from 100%.
+    // "+" from a fit mode steps from the scale it actually painted, not from 100%: 10 points on.
     expect(zoom.fitScale).toBeLessThan(1);
-    expect(zoom.stepped).toBeCloseTo(Math.round(zoom.fitScale * 1.25 * 100) / 100, 2);
+    expect(zoom.stepped).toBeCloseTo(Math.round((zoom.fitScale + 0.1) * 100) / 100, 2);
     expect(zoom.controlsHidden).toBe(false);
     // `toolbar` is the documented alias of `controls`, so the element carries both parts.
     expect(zoom.controlsParts).toEqual(["controls", "toolbar"]);
+
+    // --- The attributes and the viewer are one state ---
+    const sync = await view.evaluate(`(async () => {
+      const viewer = document.querySelector("#viewer");
+      take();
+      viewer.viewer.setZoom(2);
+      await frame();
+      const zoomAttribute = viewer.getAttribute("zoom");
+      // Removing the attribute goes back to the default, and it stays absent.
+      viewer.removeAttribute("zoom");
+      await frame();
+      const cleared = { attribute: viewer.getAttribute("zoom"), zoom: viewer.viewer.zoom };
+      await viewer.viewer.goTo(3);
+      const indexAttribute = viewer.getAttribute("index");
+      take();
+      // A unit that cannot be shown: reported once, and the attribute goes back to the unit on screen.
+      viewer.index = 99;
+      await frame();
+      const restored = { attribute: viewer.getAttribute("index"), shown: viewer.viewer.index };
+      const errors = take().filter((event) => event.type === "error").map((event) => event.detail.cause.code);
+      // The bar's buttons are the viewer's toolbar methods; the attributes follow.
+      const button = (text) => [...viewer.shadowRoot.querySelectorAll('[part~="button"]')].find((element) => element.textContent === text);
+      button("Next").click();
+      await new Promise((resolve) => viewer.addEventListener("indexchange", resolve, { once: true }));
+      const nextAttribute = viewer.getAttribute("index");
+      viewer.viewer.zoomIn(0.5);
+      await frame();
+      const zoomedIn = viewer.getAttribute("zoom");
+      viewer.viewer.resetZoom();
+      await frame();
+      const reset = viewer.getAttribute("zoom");
+      viewer.removeAttribute("zoom");
+      // The element's viewer searches the deck it has open.
+      const searched = (await viewer.viewer.search("الاسم")).map((match) => match.slide.index);
+      take();
+      return { zoomAttribute, cleared, indexAttribute, restored, errors, nextAttribute, zoomedIn, reset, searched };
+    })()`) as {
+      zoomAttribute: string;
+      cleared: { attribute: string | null; zoom: unknown };
+      indexAttribute: string;
+      restored: { attribute: string; shown: number };
+      errors: string[];
+      nextAttribute: string;
+      zoomedIn: string;
+      reset: string;
+      searched: number[];
+    };
+    expect(sync.zoomAttribute).toBe("2");
+    expect(sync.cleared).toEqual({ attribute: null, zoom: "fit-page" });
+    expect(sync.indexAttribute).toBe("3");
+    expect(sync.restored).toEqual({ attribute: "3", shown: 3 });
+    expect(sync.errors).toEqual(["not-found"]);
+    expect(sync.nextAttribute).toBe("4");
+    expect(Number(sync.zoomedIn)).toBeGreaterThan(0);
+    // Back at the format's own default: an attribute that was set says so.
+    expect(sync.reset).toBe("fit-page");
+    expect(sync.searched).toContain(1);
 
     // --- Errors: AaredError, same codes as preview(), reported once, rethrown ---
     const errors = await view.evaluate(`(async () => {
       const viewer = document.querySelector("#viewer");
       take();
       let thrown = null;
-      try { await viewer.goTo(19); } catch (error) { thrown = error; }
+      try { await viewer.viewer.goTo(19); } catch (error) { thrown = error; }
       const reported = take().filter((event) => event.type === "error");
+      // Same split as preview(): a whole number outside is not-found, below 0 too.
+      let negative = null;
+      try { await viewer.viewer.goTo(-1); } catch (error) { negative = error.code; }
+      let fractional = null;
+      try { await viewer.viewer.goTo(1.5); } catch (error) { fractional = error.code; }
+      take();
       viewer.setAttribute("type", "xlsx");
       await frame();
       const mismatch = take().filter((event) => event.type === "error");
@@ -186,13 +254,17 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
         thrown: { name: thrown?.name, code: thrown?.code, message: thrown?.message },
         reportedCount: reported.length,
         sameInstance: reported[0]?.detail.cause === thrown,
+        negative,
+        fractional,
         mismatch: mismatch.map((event) => event.detail.cause?.code),
       };
-    })()`) as { thrown: { name: string; code: string; message: string }; reportedCount: number; sameInstance: boolean; mismatch: string[] };
+    })()`) as { thrown: { name: string; code: string; message: string }; reportedCount: number; sameInstance: boolean; negative: string; fractional: string; mismatch: string[] };
     expect(errors.thrown).toMatchObject({ name: "AaredError", code: "not-found" });
     expect(errors.thrown.message).toContain(`outside this ${pptxLoad.count}-unit document`);
     expect(errors.reportedCount).toBe(1);
     expect(errors.sameInstance).toBe(true);
+    expect(errors.negative).toBe("not-found");
+    expect(errors.fractional).toBe("invalid-argument");
     expect(errors.mismatch).toEqual(["unsupported-format"]);
 
     const loadErrors = await view.evaluate(`(async () => {
@@ -242,6 +314,45 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
       return { outcome, errors: take().filter((event) => event.type === "error").length };
     })()`) as { outcome: unknown; errors: number };
     expect(superseded).toEqual({ outcome: "aborted", errors: 0 });
+
+    // --- index and zoom set while the file loads: the open has already read
+    // the old values, so they are applied before `load`, and no change event
+    // comes ahead of it.
+    const caughtUp = await view.evaluate(`(async () => {
+      const viewer = document.querySelector("#viewer");
+      take();
+      const loaded = new Promise((resolve) => viewer.addEventListener("load", () => resolve(take().map((event) => event.type)), { once: true }));
+      viewer.src = "/slow.pptx";
+      viewer.index = 2;
+      viewer.zoom = 1.5;
+      const beforeLoad = await loaded;
+      await frame();
+      const result = { beforeLoad, shown: viewer.viewer.index, attribute: viewer.getAttribute("index"), scale: slideScale() };
+      viewer.removeAttribute("zoom");
+      const back = new Promise((resolve) => viewer.addEventListener("indexchange", resolve, { once: true }));
+      viewer.index = 0;
+      await back;
+      take();
+      return result;
+    })()`) as { beforeLoad: string[]; shown: number; attribute: string; scale: number };
+    expect(caughtUp.beforeLoad).toEqual(["load"]);
+    expect(caughtUp.shown).toBe(2);
+    expect(caughtUp.attribute).toBe("2");
+    expect(caughtUp.scale).toBeCloseTo(1.5, 2);
+
+    // --- type on an open document: the same type, or removing it, needs no
+    // download and changes nothing (no load, progress or error; same viewer).
+    const typed = await view.evaluate(`(async () => {
+      const viewer = document.querySelector("#viewer");
+      await frame();
+      take();
+      const before = viewer.viewer;
+      viewer.setAttribute("type", "pptx");
+      viewer.removeAttribute("type");
+      await frame();
+      return { events: window.events.map((event) => event.type), same: viewer.viewer === before };
+    })()`) as { events: string[]; same: boolean };
+    expect(typed).toEqual({ events: [], same: true });
 
     // --- Theme: set before load, it reaches the slide's marker -----------------
     const darkSlide = await view.evaluate(`(async () => {
@@ -293,6 +404,11 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
       viewer.theme = "light";
       await frame();
       const light = { tabs: tabs() };
+      // A sheet-tab click moves the viewer itself; the index attribute follows.
+      take();
+      shadow.querySelectorAll('[data-aared-element="sheet-tab"]')[1].click();
+      await new Promise((resolve) => viewer.addEventListener("indexchange", resolve, { once: true }));
+      const tabbed = { index: viewer.getAttribute("index"), shown: viewer.viewer.index, events: take().map((event) => event.type) };
       viewer.zoom = "fit-width";
       await frame();
       const scroller = shadow.querySelector('[data-aared-element="sheet-scroll"]');
@@ -302,27 +418,77 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
         fillColumns: shadow.querySelectorAll('[data-aared-element="fill-column-header"]').length,
       };
       viewer.removeAttribute("zoom");
-      return { initial, dark, light, fitted, canvasCount: shadow.querySelectorAll("canvas").length };
+      return { initial, dark, light, tabbed, fitted, canvasCount: shadow.querySelectorAll("canvas").length };
     })()`) as {
       initial: { label: string; tabs: number; cells: number; classSheets: number; cellLine: string; headingFill: string };
       dark: { tabs: number; surface?: string };
       light: { tabs: number };
+      tabbed: { index: string; shown: number; events: string[] };
       fitted: { label: string; overflow: number; fillColumns: number };
       canvasCount: number;
     };
     expect(xlsx.initial.label).toBe("100%");
     expect(xlsx.initial.tabs).toBeGreaterThan(0);
     expect(xlsx.initial.cells).toBeGreaterThan(0);
-    expect(xlsx.initial.classSheets).toBe(1);
+    // The element's own chrome sheet, plus the grid's class rules beside it.
+    expect(xlsx.initial.classSheets).toBe(2);
     expect(xlsx.initial.cellLine).toBe("rgb(231, 233, 238)");
     expect(xlsx.initial.headingFill).toBe("rgb(244, 244, 247)");
     expect(xlsx.dark.tabs).toBe(xlsx.initial.tabs);
     expect(xlsx.dark.surface?.toLowerCase()).toBe("#1a1a1a");
     expect(xlsx.light.tabs).toBe(xlsx.initial.tabs);
+    expect(xlsx.tabbed).toEqual({ index: "1", shown: 1, events: ["indexchange", "sheetchange"] });
     expect(xlsx.fitted.label).toBe("Fit width");
     expect(xlsx.fitted.overflow).toBeLessThanOrEqual(1);
     expect(xlsx.fitted.fillColumns).toBe(0);
     expect(xlsx.canvasCount).toBe(0);
+
+    // --- Whichever of file and src was set last is what opens ---------------
+    const lastSet = await view.evaluate(`(async () => {
+      const viewer = document.querySelector("#viewer");
+      viewer.index = 0;
+      const loaded = () => new Promise((resolve) => viewer.addEventListener("load", (event) => resolve(event.detail.format), { once: true }));
+      const file = new File([await (await fetch("/arabic.pptx")).arrayBuffer()], "deck.pptx");
+      let next = loaded();
+      viewer.file = file;
+      const fileAfterSrc = await next;
+      next = loaded();
+      viewer.src = "/arabic.xlsx";
+      const srcAfterFile = await next;
+      next = loaded();
+      viewer.file = null;
+      await next;
+      // Clearing both empties the viewer quietly: nothing on the page, no event.
+      take();
+      viewer.removeAttribute("src");
+      await frame();
+      const page = () => viewer.shadowRoot.querySelector('[part="page"]').childElementCount;
+      const emptied = { viewer: viewer.viewer, children: page(), events: take().map((event) => event.type) };
+      // Cleared while it loads: the open stops, and still nothing fires.
+      viewer.src = "/arabic.pptx";
+      viewer.src = null;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const cancelled = { viewer: viewer.viewer, children: page(), events: take().map((event) => event.type) };
+      // Asking to open with nothing to open is a mistake: it rejects and is reported once.
+      const asked = await viewer.open().then(() => "resolved", (error) => error.code);
+      const reported = take().map((event) => event.type);
+      return { fileAfterSrc, srcAfterFile, emptied, cancelled, asked, reported };
+    })()`) as {
+      fileAfterSrc: string;
+      srcAfterFile: string;
+      emptied: { viewer: unknown; children: number; events: string[] };
+      cancelled: { viewer: unknown; children: number; events: string[] };
+      asked: string;
+      reported: string[];
+    };
+    expect(lastSet).toEqual({
+      fileAfterSrc: "pptx",
+      srcAfterFile: "xlsx",
+      emptied: { viewer: null, children: 0, events: [] },
+      cancelled: { viewer: null, children: 0, events: [] },
+      asked: "invalid-state",
+      reported: ["error"],
+    });
 
     // --- DOCX through the type property; dark theme reaches its marker -------
     const docx = await view.evaluate(`(async () => {
@@ -348,6 +514,47 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
     expect(docx.paragraphs).toBeGreaterThan(0);
     expect(docx.canvasCount).toBe(0);
     expect(docx.typeCleared).toBe(true);
+
+    // --- DOCX physical pages through the pagination attribute ---------------
+    const layout = await view.evaluate(`(async () => {
+      const viewer = document.querySelector("#viewer");
+      const shadow = viewer.shadowRoot;
+      const loaded = () => new Promise((resolve) => viewer.addEventListener("load", resolve, { once: true }));
+      const pageCount = () => shadow.querySelectorAll('section[data-aared-element="page"]').length;
+      let next = loaded();
+      viewer.pagination = "layout";
+      await next;
+      await frame();
+      const paged = {
+        pages: pageCount(),
+        pageCount: viewer.viewer.docx.pageCount,
+        marker: viewer.dataset.aaredPagination,
+        // Each page carries the element's page shadow; the box around them none.
+        partShadow: getComputedStyle(shadow.querySelector('[part="page"]')).boxShadow,
+        pageShadow: getComputedStyle(shadow.querySelector('section[data-aared-element="page"]')).boxShadow,
+      };
+      // The same mode again re-opens nothing.
+      const same = viewer.viewer;
+      viewer.pagination = "layout";
+      await frame();
+      const kept = viewer.viewer === same;
+      next = loaded();
+      viewer.removeAttribute("pagination");
+      await next;
+      await frame();
+      return { paged, kept, flow: { pages: pageCount(), marker: viewer.dataset.aaredPagination ?? null } };
+    })()`) as {
+      paged: { pages: number; pageCount: number; marker: string; partShadow: string; pageShadow: string };
+      kept: boolean;
+      flow: { pages: number; marker: string | null };
+    };
+    expect(layout.paged.pages).toBeGreaterThan(1);
+    expect(layout.paged.pageCount).toBe(layout.paged.pages);
+    expect(layout.paged.marker).toBe("layout");
+    expect(layout.paged.partShadow).toBe("none");
+    expect(layout.paged.pageShadow).toContain("0px 1px 5px");
+    expect(layout.kept).toBe(true);
+    expect(layout.flow).toEqual({ pages: 0, marker: null });
   } finally {
     server.stop();
   }

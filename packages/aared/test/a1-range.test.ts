@@ -1,8 +1,7 @@
 import { expect, test } from "bun:test";
 import { AaredError } from "../src/core/index.js";
 import { MAX_COLUMNS, MAX_ROWS, isInsideGrid } from "../src/core/xlsx/limits.js";
-import { cellAddress, columnName, parseA1Range, parseCell, spanRange } from "../src/core/xlsx/range.js";
-import { parseCellRange, parseCellReference } from "../src/core/xlsx/sheet.js";
+import { cellAddress, columnName, parseA1Range, parseCell, parseRef, spanRange } from "../src/core/xlsx/range.js";
 
 function invalidRange(reference: string): AaredError {
   try {
@@ -58,10 +57,11 @@ test("the cell scanner is the one grammar behind both readers", () => {
   }
 });
 
-test("the XML-side readers reject what the API-side one rejects, and normalize corners the same way", () => {
-  expect(parseCellReference("H34")).toEqual({ row: 33, col: 7 });
-  expect(() => parseCellReference("XFE1")).toThrow(/invalid cell reference "XFE1"/);
-  expect(parseCellRange("H34:A1")).toEqual(parseA1Range("A1:H34"));
+test("the worksheet readers' parseRef is the grammar behind the API's parseA1Range", () => {
+  expect(parseRef("H34")).toEqual({ start: { row: 33, col: 7 }, end: { row: 33, col: 7 } });
+  expect(parseRef("A1:H1")).toEqual({ start: { row: 0, col: 0 }, end: { row: 0, col: 7 } });
+  expect(parseRef("H34:A1")).toEqual(parseA1Range("A1:H34"));
+  for (const reference of ["", "nope", "XFE1", "A:A", "A1:M200:Z9"]) expect(parseRef(reference)).toBeUndefined();
   expect(spanRange({ row: 5, col: 1 }, { row: 2, col: 4 })).toEqual({ start: { row: 2, col: 1 }, end: { row: 5, col: 4 } });
 });
 

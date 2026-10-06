@@ -3,28 +3,32 @@
  *
  * View-only throughout: formulas are never evaluated (the file's cached
  * `<v>` is formatted and shown), conditional formatting is a one-time
- * snapshot computed from cached values, and charts are drawn by the shared
+ * snapshot computed from cached values, and charts are read by the shared
  * `core/chart.ts` module, exactly as PPTX charts are.
  */
 
-import { attr, childElements, firstChild, numberAttr, textContent } from "../xml.js";
+import { attr, childElements, firstChild, numberAttr, onOff, textContent } from "../xml.js";
 import type { XmlElement } from "../xml.js";
 import type { OpcPackage } from "../opc.js";
 import { mixColors } from "../color.js";
 import { AaredError, damagedDocument, throwIfAborted } from "../errors.js";
 import { PX_PER_INCH, emuToInches, inchesToEmu, ptToInches } from "../units.js";
-import { MAX_COLUMNS } from "./limits.js";
-import { parseCell, spanRange } from "./range.js";
+import { MAX_COLUMNS, MAX_MERGED_CELLS, MAX_MERGED_CELLS_PER_SHEET, MAX_ROWS } from "./limits.js";
+import { parseCell, parseRef } from "./range.js";
 import { formatNumberValue } from "./numberfmt.js";
 import type { XlsxStyles } from "./styles.js";
+import { stringItemText } from "./workbook.js";
 import type { XlsxWorkbook } from "./workbook.js";
-import { chartUnsupportedReason, parseChartGraphic } from "../chart.js";
+import { chartFillOwner, chartexFormulas, readChartModel } from "../chart.js";
+import { chartText } from "../chart/text.js";
+import type { SheetText } from "../rpc.js";
+import { resolveChartexData } from "./chart-data.js";
+import { themeForColorMap } from "../theme.js";
 import type { DrawingTheme } from "../theme.js";
 import type {
   BoundsModel,
   CellModel,
   CellRange,
-  ChartGraphicModel,
   RowModel,
   SheetChartModel,
   SheetDrawingModel,
@@ -35,56 +39,87 @@ import type {
   XlsxCellType,
 } from "../model.js";
 
-/** Excel column-width units (characters) to pixels at the default font. */
+/** The widest digit of Excel's default font (Calibri 11, Aptos Narrow 11) at 96 dpi. */
 const PIXELS_PER_COLUMN_CHAR = 7;
-const COLUMN_PADDING_PIXELS = 5;
+/** The width Excel gives a column no `<col>` or `defaultColWidth` sizes (8.43 characters plus padding). */
+const DEFAULT_COLUMN_PIXELS = 64;
 
-function columnCharsToInches(width: number): number {
-  return (width * PIXELS_PER_COLUMN_CHAR + COLUMN_PADDING_PIXELS) / PX_PER_INCH;
+/**
+ * A stored column width (`col/@width`, `defaultColWidth`) in inches. Excel
+ * stores it with the cell padding already included (ECMA-376 18.3.1.13:
+ * `Truncate((chars * 7 + 5) / 7 * 256) / 256`), so the pixels are the stored
+ * number times the digit width, truncated: width 26 is 182 px, 16 is 112 px
+ * (read back from Excel; DECISION_LOG §72). Adding the padding again made every
+ * column 5 px too wide.
+ */
+export function columnCharsToInches(width: number): number {
+  return Math.trunc(((256 * width + Math.trunc(128 / PIXELS_PER_COLUMN_CHAR)) / 256) * PIXELS_PER_COLUMN_CHAR) / PX_PER_INCH;
+}
+
+function mergedCellCount(range: CellRange): number {
+  return (range.end.row - range.start.row + 1) * (range.end.col - range.start.col + 1);
+}
+
+/**
+ * Cut every merge to the sheet's extent (cells past it are never shown) and
+ * refuse the ones still past the budgets: the page indexes each covered cell.
+ */
+function boundMerges(merges: readonly CellRange[], extentRows: number, extentCols: number, skip: SkipDamaged): CellRange[] {
+  const kept: CellRange[] = [];
+  let total = 0;
+  for (const merge of merges) {
+    const cut: CellRange = {
+      start: merge.start,
+      end: {
+        row: Math.min(merge.end.row, Math.max(extentRows - 1, merge.start.row)),
+        col: Math.min(merge.end.col, Math.max(extentCols - 1, merge.start.col)),
+      },
+    };
+    const cells = mergedCellCount(cut);
+    if (cells > MAX_MERGED_CELLS || total + cells > MAX_MERGED_CELLS_PER_SHEET) {
+      skip("merged range");
+      continue;
+    }
+    total += cells;
+    kept.push(cut);
+  }
+  return kept;
+}
+
+/**
+ * EMU from the grid's edge to the start of track `index`: every track before
+ * it at `fallback` inches, corrected by the ones `authored` sizes otherwise.
+ */
+function gridOffset(index: number, fallback: number, authored: ReadonlyMap<number, number>): number {
+  let inches = index * fallback;
+  for (const [track, size] of authored) if (track < index) inches += size - fallback;
+  return inchesToEmu(inches);
+}
+
+/**
+ * The track whose span holds `emu`, at or after `from` (a drawing's first
+ * track) and at most `limit - 1`. Offsets only grow, so a binary search: a
+ * drawing claiming to be a million rows tall costs twenty lookups.
+ */
+function trackAt(emu: number, from: number, limit: number, offset: (index: number) => number): number {
+  let lo = Math.min(Math.max(from, 0), limit - 1);
+  let hi = limit - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (offset(mid + 1) < emu) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
 }
 
 function booleanAttribute(element: XmlElement, name: string): boolean {
-  const value = attr(element, name);
-  return value === "1" || value === "true";
-}
-
-/** Parse an A1 cell reference into zero-based coordinates. */
-export function parseCellReference(reference: string): { row: number; col: number } {
-  const cell = parseCell(reference);
-  if (cell === undefined) throw damagedDocument(`invalid cell reference "${reference}"`);
-  return cell;
-}
-
-/** Parse an A1 range (`A1:H1`) into an inclusive zero-based `CellRange`. */
-export function parseCellRange(reference: string): CellRange {
-  const parts = reference.split(":");
-  const start = parseCellReference(parts[0]!);
-  return spanRange(start, parts.length === 1 ? start : parseCellReference(parts[1]!));
+  return onOff(element, name) === true;
 }
 
 /** Parse a `dimension` ref (`A1:H34`); single cells yield a 1x1 extent. */
 function parseDimension(reference: string | undefined): { cols: number; rows: number } | undefined {
-  if (reference === undefined) return undefined;
-  try {
-    const range = parseCellRange(reference);
-    return { cols: range.end.col + 1, rows: range.end.row + 1 };
-  } catch {
-    return undefined;
-  }
-}
-
-function inlineStringText(cell: XmlElement): string {
-  const inline = firstChild(cell, "is");
-  if (inline === undefined) return "";
-  let out = "";
-  for (const child of inline.children) {
-    if (child.local === "t") out += textContent(child);
-    else if (child.local === "r") {
-      const run = firstChild(child, "t");
-      if (run !== undefined) out += textContent(run);
-    }
-  }
-  return out;
+  const range = reference === undefined ? undefined : parseRef(reference);
+  return range === undefined ? undefined : { cols: range.end.col + 1, rows: range.end.row + 1 };
 }
 
 interface CachedValue {
@@ -109,7 +144,8 @@ function cachedValue(
       return { value: text, formatted: text, type: "shared" };
     }
     case "inlineStr": {
-      const text = inlineStringText(cell);
+      const inline = firstChild(cell, "is");
+      const text = inline === undefined ? "" : stringItemText(inline);
       return { value: text, formatted: text, type: "inline" };
     }
     case "b": {
@@ -219,10 +255,8 @@ function applyHyperlinks(sheet: XmlElement, relationships: readonly { id: string
       ? location === undefined ? undefined : `#${location}`
       : relationships.find((relationship) => relationship.id === id)?.target;
     if (target === undefined) continue;
-    let range: CellRange;
-    try {
-      range = parseCellRange(ref);
-    } catch {
+    const range = parseRef(ref);
+    if (range === undefined) {
       skip("hyperlink");
       continue;
     }
@@ -236,8 +270,14 @@ function applyHyperlinks(sheet: XmlElement, relationships: readonly { id: string
 
 interface ConditionalRule {
   priority: number;
+  /** `cfRule/@type`: `cellIs`, `colorScale`, `duplicateValues`, `expression`, ... */
+  type?: string;
+  /** Lower-priority rules no longer apply to a cell this rule matched. */
+  stopIfTrue: boolean;
   dxfId?: number;
   operator?: string;
+  /** `cfRule/@text`: what a `containsText`, `notContainsText`, `beginsWith` or `endsWith` rule looks for. */
+  text?: string;
   formulas: string[];
   colorScale?: { values: Array<{ type: string; value: number }>; colors: string[] };
   dataBar?: { min: { type: string; value: number }; max: { type: string; value: number }; color: string };
@@ -255,21 +295,24 @@ function conditionalRules(sheet: XmlElement, skip: SkipDamaged): Array<{ ranges:
     const refs = attr(formatting, "sqref")?.split(/\s+/).filter((part) => part !== "") ?? [];
     const ranges: CellRange[] = [];
     for (const ref of refs) {
-      try {
-        ranges.push(parseCellRange(ref));
-      } catch {
-        skip("conditional-format range");
-      }
+      const range = parseRef(ref);
+      if (range === undefined) skip("conditional-format range");
+      else ranges.push(range);
     }
     if (ranges.length === 0) continue;
     for (const element of childElements(formatting, "cfRule")) {
-      const priority = numberAttr(element, "priority", "c:cfRule") ?? 0;
-      const dxfId = numberAttr(element, "dxfId", "c:cfRule");
+      const priority = numberAttr(element, "priority", "cfRule") ?? 0;
+      const dxfId = numberAttr(element, "dxfId", "cfRule");
       const operator = attr(element, "operator");
+      const type = attr(element, "type");
+      const text = attr(element, "text");
       const rule: ConditionalRule = {
         priority,
+        stopIfTrue: booleanAttribute(element, "stopIfTrue"),
+        ...(type === undefined ? {} : { type }),
         ...(dxfId === undefined ? {} : { dxfId }),
         ...(operator === undefined ? {} : { operator }),
+        ...(text === undefined ? {} : { text }),
         formulas: childElements(element, "formula").map((formula) => textContent(formula)),
       };
       const scale = firstChild(element, "colorScale");
@@ -320,34 +363,73 @@ function matchesCellIs(cell: CellModel, operator: string | undefined, formulas: 
     case "lessThanOrEqual": return numeric <= Number(first);
     case "between": return numeric >= Number(first) && numeric <= Number(second);
     case "notBetween": return numeric < Number(first) || numeric > Number(second);
-    case "containsText": return first !== "" && text.includes(first);
-    case "notContainsText": return first !== "" && !text.includes(first);
-    case "beginsWith": return first !== "" && text.startsWith(first);
-    case "endsWith": return first !== "" && text.endsWith(first);
     default: return false;
   }
 }
 
-/** Min and max of `values` without spreading them into `Math.min` (which overflows the stack on big ranges). */
-function extremes(values: readonly number[]): { min: number; max: number } | undefined {
-  if (values.length === 0) return undefined;
-  let min = values[0]!;
-  let max = min;
-  for (const value of values) {
-    if (value < min) min = value;
-    if (value > max) max = value;
+/**
+ * The four text rules. Excel stores what to look for in `cfRule/@text` (the
+ * `<formula>` only repeats it as a worksheet formula) and compares without
+ * regard to case, as its own SEARCH and `=` do.
+ */
+function matchesText(cell: CellModel, type: string, wanted: string | undefined): boolean {
+  if (wanted === undefined || wanted === "") return false;
+  const text = cell.formatted.toLowerCase();
+  const needle = wanted.toLowerCase();
+  switch (type) {
+    case "containsText": return text.includes(needle);
+    case "notContainsText": return !text.includes(needle);
+    case "beginsWith": return text.startsWith(needle);
+    default: return text.endsWith(needle);
   }
-  return { min, max };
 }
 
-function scaleBound(bound: { type: string; value: number }, values: readonly number[], edge: "min" | "max"): number | undefined {
-  if (bound.type === "num" && Number.isFinite(bound.value)) return bound.value;
-  if (bound.type === "min" || bound.type === "max") {
-    const found = extremes(values);
-    return found === undefined ? undefined : found[edge];
+/**
+ * The number a `cfvo` bound stands for, over the range's values in ascending
+ * order. `percent` is a share of the min-to-max span; `percentile` is Excel's
+ * PERCENTILE (linear between ranks). A `formula` bound is not evaluated
+ * (view-only), so it resolves to nothing.
+ */
+function scaleBound(bound: { type: string; value: number }, sorted: readonly number[]): number | undefined {
+  if (bound.type === "num") return Number.isFinite(bound.value) ? bound.value : undefined;
+  if (sorted.length === 0) return undefined;
+  const min = sorted[0]!;
+  const max = sorted[sorted.length - 1]!;
+  switch (bound.type) {
+    case "min": return min;
+    case "max": return max;
+    case "percent": return Number.isFinite(bound.value) ? min + ((max - min) * bound.value) / 100 : undefined;
+    case "percentile": {
+      if (!Number.isFinite(bound.value)) return undefined;
+      const rank = ((sorted.length - 1) * Math.min(Math.max(bound.value, 0), 100)) / 100;
+      const below = Math.floor(rank);
+      const above = Math.ceil(rank);
+      return sorted[below]! + (sorted[above]! - sorted[below]!) * (rank - below);
+    }
+    default: return undefined;
   }
-  return undefined;
 }
+
+/** The colour a value takes on a 2- or 3-stop scale: the end colours past the ends, a blend between the two stops it falls between. */
+function scaleColor(value: number, stops: readonly number[], colors: readonly string[]): string {
+  const last = stops.length - 1;
+  if (value <= stops[0]!) return colors[0]!;
+  if (value >= stops[last]!) return colors[last]!;
+  let segment = 0;
+  while (segment < last - 1 && value >= stops[segment + 1]!) segment++;
+  const span = stops[segment + 1]! - stops[segment]!;
+  return mixColors(colors[segment]!, colors[segment + 1]!, span === 0 ? 0 : (value - stops[segment]!) / span);
+}
+
+/** What Excel compares for Duplicate/Unique Values: numbers by value, text without regard to case. */
+function duplicateKey(cell: CellModel): string | undefined {
+  const value = cell.value;
+  if (value === null || value === undefined) return undefined;
+  return typeof value === "string" ? `s${value.toLowerCase()}` : `${typeof value}${String(value)}`;
+}
+
+/** Rule types the viewer evaluates from cached values; anything else is reported, not guessed. */
+const EVALUATED_RULES = new Set(["cellIs", "containsText", "notContainsText", "beginsWith", "endsWith", "duplicateValues", "uniqueValues"]);
 
 function numericValuesIn(grid: CellGrid, ranges: readonly CellRange[]): number[] {
   const values: number[] = [];
@@ -372,36 +454,35 @@ function applyConditionalFormatting(
     reportedUnsupported = true;
     unsupported.push({ kind: "conditional-format", detail });
   };
+  // Cells a `stopIfTrue` rule has matched: no later (lower-priority) rule touches them.
+  const stopped = new WeakSet<CellModel>();
   for (const { ranges, rule } of formats) {
     if (rule.colorScale !== undefined) {
       const { values, colors } = rule.colorScale;
-      if (values.length < 2 || colors.length < 2) {
-        reportOnce("a color-scale rule needs numeric bounds; it is shown without its gradient");
+      if (values.length < 2 || values.length !== colors.length) {
+        reportOnce("a color-scale rule is malformed; it is shown without its gradient");
         continue;
       }
-      const numericValues = numericValuesIn(grid, ranges);
-      const low = scaleBound(values[0]!, numericValues, "min");
-      const high = scaleBound(values[values.length - 1]!, numericValues, "max");
-      if (low === undefined || high === undefined) {
-        reportOnce("a color-scale rule uses percentile bounds; it is shown without its gradient");
+      const sorted = numericValuesIn(grid, ranges).sort((a, b) => a - b);
+      const stops = values.map((bound) => scaleBound(bound, sorted));
+      if (stops.some((stop) => stop === undefined)) {
+        reportOnce("a color-scale rule uses a formula bound; it is shown without its gradient");
         continue;
       }
-      const span = high - low === 0 ? 1 : high - low;
-      const from = colors[0]!;
-      const to = colors[colors.length - 1]!;
       for (const range of ranges) {
         forEachCellInRange(grid, range, (cell) => {
-          if (typeof cell.value !== "number" || cell.conditional?.fill !== undefined) return;
-          cell.conditional = { ...(cell.conditional ?? {}), fill: mixColors(from, to, (cell.value - low) / span) };
+          if (typeof cell.value !== "number" || stopped.has(cell) || cell.conditional?.fill !== undefined) return;
+          cell.conditional = { ...(cell.conditional ?? {}), fill: scaleColor(cell.value, stops as number[], colors) };
+          if (rule.stopIfTrue) stopped.add(cell);
         });
       }
       continue;
     }
     if (rule.dataBar !== undefined) {
       const bar = rule.dataBar;
-      const numericValues = numericValuesIn(grid, ranges);
-      const low = scaleBound(bar.min, numericValues, "min");
-      const high = scaleBound(bar.max, numericValues, "max");
+      const sorted = numericValuesIn(grid, ranges).sort((a, b) => a - b);
+      const low = scaleBound(bar.min, sorted);
+      const high = scaleBound(bar.max, sorted);
       if (low === undefined || high === undefined) {
         reportOnce("a data-bar rule uses unsupported bounds; its bars are not drawn");
         continue;
@@ -409,13 +490,18 @@ function applyConditionalFormatting(
       const span = high - low === 0 ? 1 : high - low;
       for (const range of ranges) {
         forEachCellInRange(grid, range, (cell) => {
-          if (typeof cell.value !== "number" || cell.conditional?.dataBar !== undefined) return;
+          if (typeof cell.value !== "number" || stopped.has(cell) || cell.conditional?.dataBar !== undefined) return;
           cell.conditional = {
             ...(cell.conditional ?? {}),
             dataBar: { ratio: Math.min(Math.max((cell.value - low) / span, 0), 1), color: bar.color },
           };
+          if (rule.stopIfTrue) stopped.add(cell);
         });
       }
+      continue;
+    }
+    if (rule.type !== undefined && !EVALUATED_RULES.has(rule.type)) {
+      reportOnce(`a "${rule.type}" conditional rule is not evaluated; its highlighting is not shown`);
       continue;
     }
     if (rule.dxfId === undefined) {
@@ -424,16 +510,36 @@ function applyConditionalFormatting(
     }
     const differential = styles.differential(rule.dxfId);
     if (differential.fill === undefined && differential.font === undefined) continue;
+    // Duplicate/Unique Values compare a cell with every other cell the rule covers.
+    let occurrences: Map<string, number> | undefined;
+    if (rule.type === "duplicateValues" || rule.type === "uniqueValues") {
+      occurrences = new Map();
+      for (const range of ranges) {
+        forEachCellInRange(grid, range, (cell) => {
+          const key = duplicateKey(cell);
+          if (key !== undefined) occurrences!.set(key, (occurrences!.get(key) ?? 0) + 1);
+        });
+      }
+    }
+    const textRule = rule.type === "containsText" || rule.type === "notContainsText" || rule.type === "beginsWith" || rule.type === "endsWith";
+    const matches = (cell: CellModel): boolean => {
+      if (textRule) return matchesText(cell, rule.type!, rule.text);
+      if (occurrences === undefined) return matchesCellIs(cell, rule.operator, rule.formulas);
+      const key = duplicateKey(cell);
+      if (key === undefined) return false;
+      return rule.type === "duplicateValues" ? occurrences.get(key)! > 1 : occurrences.get(key) === 1;
+    };
     for (const range of ranges) {
       forEachCellInRange(grid, range, (cell) => {
-        if (cell.conditional?.fill !== undefined) return;
-        if (!matchesCellIs(cell, rule.operator, rule.formulas)) return;
+        if (stopped.has(cell) || cell.conditional?.fill !== undefined) return;
+        if (!matches(cell)) return;
         cell.conditional = {
           ...(cell.conditional ?? {}),
           ...(differential.fill === undefined ? {} : { fill: differential.fill }),
           ...(differential.font?.color === undefined ? {} : { color: differential.font.color }),
           ...(differential.font?.bold === undefined ? {} : { bold: differential.font.bold }),
         };
+        if (rule.stopIfTrue) stopped.add(cell);
       });
     }
   }
@@ -465,20 +571,6 @@ function anchorFrom(element: XmlElement, context: string): DrawingAnchor["from"]
 }
 
 /**
- * Spreadsheet charts go through the shared chart module (`core/chart.ts`),
- * so XLSX and PPTX draw the same chart the same way. Any chart the shared
- * module cannot draw is reported through `unsupportedReason` instead of
- * guessed at; the drawing keeps its frame either way.
- */
-export function adaptChartGraphic(chart: XmlElement, theme: DrawingTheme): { graphic?: ChartGraphicModel; unsupportedReason?: string } {
-  const space = chart.local === "chartSpace" ? chart : firstChild(chart, "chartSpace");
-  const graphic = parseChartGraphic(space ?? chart, theme);
-  // A chart with series but no cached points draws nothing: say so instead of an empty frame.
-  if (graphic !== undefined && graphic.primitives.length > 0) return { graphic };
-  return { unsupportedReason: chartUnsupportedReason(space ?? chart) };
-}
-
-/**
  * Absolute EMU offset of a grid line: the sum of the first `index` track
  * sizes, clamped to the sheet extent (anchors past it stop growing, exactly
  * as a precomputed per-track array would). Summed in track order so the
@@ -487,25 +579,44 @@ export function adaptChartGraphic(chart: XmlElement, theme: DrawingTheme): { gra
  */
 type GridOffset = (index: number) => number;
 
+/** The `xdr:graphicFrame` of an Office 2016 chart: inside `mc:AlternateContent/mc:Choice`, holding a `cx:chart`. */
+function chartExFrame(anchor: XmlElement): XmlElement | undefined {
+  for (const alternate of anchor.children) {
+    if (alternate.local !== "AlternateContent") continue;
+    for (const choice of alternate.children) {
+      if (choice.local !== "Choice") continue;
+      const frame = firstChild(choice, "graphicFrame");
+      const graphic = frame === undefined ? undefined : firstChild(frame, "graphic");
+      const data = graphic === undefined ? undefined : firstChild(graphic, "graphicData");
+      if (frame !== undefined && data !== undefined && firstChild(data, "chart") !== undefined) return frame;
+    }
+  }
+  return undefined;
+}
+
 async function parseDrawings(
   pkg: OpcPackage,
+  workbook: XlsxWorkbook,
   sheetPart: string,
   columnOffset: GridOffset,
   rowOffset: GridOffset,
-  theme: DrawingTheme,
   skip: SkipDamaged,
   signal?: AbortSignal,
-): Promise<{ drawings: SheetDrawingModel[]; unsupported: SheetUnsupportedModel[] }> {
+): Promise<{ drawings: SheetDrawingModel[]; unsupported: SheetUnsupportedModel[]; missingIds: number }> {
   throwIfAborted(signal);
   const drawings: SheetDrawingModel[] = [];
   const unsupported: SheetUnsupportedModel[] = [];
+  /** Drawings kept whose `xdr:cNvPr` states no id: Excel calls that damage; nothing here uses a drawing's id. */
+  let missingIds = 0;
+  const lacksId = (cNvPr: XmlElement | undefined): boolean => cNvPr === undefined || attr(cNvPr, "id") === undefined;
   const relationships = await pkg.relationships(sheetPart, signal);
   throwIfAborted(signal);
   const drawingRel = relationships.find((relationship) => relationship.type.endsWith("/drawing"));
-  if (drawingRel === undefined) return { drawings, unsupported };
+  if (drawingRel === undefined) return { drawings, unsupported, missingIds };
   const drawing = await pkg.readXmlIfPresent(drawingRel.target, signal);
-  if (drawing === undefined) return { drawings, unsupported };
+  if (drawing === undefined) return { drawings, unsupported, missingIds };
   const drawingRels = await pkg.relationships(drawingRel.target, signal);
+  let chartTheme: DrawingTheme | undefined;
   throwIfAborted(signal);
   for (const anchor of drawing.children) {
     throwIfAborted(signal);
@@ -556,7 +667,8 @@ async function parseDrawings(
     }
     if (bounds === undefined) continue;
     const picture = firstChild(anchor, "pic");
-    const frame = firstChild(anchor, "graphicFrame");
+    // An Office 2016 chart sits in `mc:AlternateContent`: the frame in the Choice, a "not available" text box as the Fallback (never painted).
+    const frame = firstChild(anchor, "graphicFrame") ?? chartExFrame(anchor);
     if (picture !== undefined) {
       const blipFill = firstChild(picture, "blipFill");
       const blip = blipFill === undefined ? undefined : firstChild(blipFill, "blip");
@@ -577,6 +689,7 @@ async function parseDrawings(
         anchor: range,
       };
       drawings.push(pictureModel);
+      if (lacksId(nameElement)) missingIds++;
       continue;
     }
     if (frame !== undefined) {
@@ -592,26 +705,27 @@ async function parseDrawings(
         continue;
       }
       const chartRoot = await pkg.readXml(target, signal);
-      const adapted = adaptChartGraphic(chartRoot, theme);
-      const chartModel: SheetChartModel = {
-        kind: "chart",
-        name,
-        bounds,
-        anchor: range,
-        sourceChartId: target,
-        ...(adapted.graphic === undefined ? {} : { graphic: adapted.graphic }),
-        ...(adapted.unsupportedReason === undefined ? {} : { unsupportedReason: adapted.unsupportedReason }),
-      };
+      // Excel has no colour map: chart DrawingML uses the default one.
+      chartTheme ??= themeForColorMap(workbook.theme, undefined);
+      // The same reader as PPTX, so a chart reads the same in both formats; one it
+      // cannot draw keeps its frame and says why.
+      // An Office 2016 chart carries no values of its own in a workbook: they sit in the cells its formulas name.
+      const formulas = chartexFormulas(chartRoot);
+      const chartData = formulas.length === 0 ? undefined : await resolveChartexData(pkg, workbook, formulas, signal);
+      const read = readChartModel(chartRoot, chartTheme, { owner: await chartFillOwner(pkg, target, signal), ...(chartData === undefined ? {} : { data: chartData }) });
+      const alt = nameElement === undefined ? undefined : attr(nameElement, "descr") || attr(nameElement, "title") || undefined;
+      const chartModel: SheetChartModel = { kind: "chart", name, ...(alt === undefined ? {} : { alt }), bounds, anchor: range, sourceChartId: target, ...read };
       drawings.push(chartModel);
-      if (adapted.unsupportedReason !== undefined) {
-        unsupported.push({ kind: "drawing", detail: `chart "${name}": ${adapted.unsupportedReason}`, range });
+      if (lacksId(nameElement)) missingIds++;
+      if ("unsupportedReason" in read) {
+        unsupported.push({ kind: "drawing", detail: `chart "${name}": ${read.unsupportedReason}`, range });
       }
       continue;
     }
     unsupported.push({ kind: "drawing", detail: "a drawing shape is not previewed; its anchor is skipped", range });
   }
   throwIfAborted(signal);
-  return { drawings, unsupported };
+  return { drawings, unsupported, missingIds };
 }
 
 function hasOwnKeys(value: object): boolean {
@@ -660,10 +774,8 @@ export async function parseXlsxSheet(
       if (cell.local !== "c") continue;
       const ref = attr(cell, "r");
       if (ref === undefined) continue;
-      let position: { row: number; col: number };
-      try {
-        position = parseCellReference(ref);
-      } catch {
+      const position = parseCell(ref);
+      if (position === undefined) {
         skip("cell");
         continue;
       }
@@ -716,17 +828,30 @@ export async function parseXlsxSheet(
   const format = firstChild(root, "sheetFormatPr");
   const defaultRowPoints = format === undefined ? 15 : (numberAttr(format, "defaultRowHeight", "sheetFormatPr") ?? 15);
   const defaultRowHeight = ptToInches(defaultRowPoints);
-  const defaultColChars = format === undefined ? 8.43 : (numberAttr(format, "defaultColWidth", "sheetFormatPr") ?? 8.43);
+  const defaultColChars = format === undefined ? undefined : numberAttr(format, "defaultColWidth", "sheetFormatPr");
 
   const columnWidths = new Map<number, number>();
   const columnHidden = new Set<number>();
   const cols = firstChild(root, "cols");
   if (cols !== undefined) {
+    // Excel's own <col> ranges never overlap, so together they cover at most the
+    // grid once. A file that spends more than that (thousands of full-width
+    // ranges) is corrupt: stop reading widths instead of looping per overlap.
+    let columnsCovered = 0;
     for (const col of childElements(cols, "col")) {
       throwIfAborted(signal);
       const min = numberAttr(col, "min", "col") ?? 1;
       // Clamp to the grid: a corrupt `max` must not spin through billions of columns.
       const max = Math.min(numberAttr(col, "max", "col") ?? min, MAX_COLUMNS);
+      if (!Number.isInteger(min) || min < 1 || min > max) {
+        skip("column range");
+        continue;
+      }
+      columnsCovered += max - min + 1;
+      if (columnsCovered > MAX_COLUMNS) {
+        skip("column range");
+        break;
+      }
       const width = attr(col, "width");
       const chars = width === undefined ? Number.NaN : Number(width);
       const inches = Number.isFinite(chars) ? columnCharsToInches(chars) : undefined;
@@ -749,73 +874,79 @@ export async function parseXlsxSheet(
       throwIfAborted(signal);
       const ref = attr(merge, "ref");
       if (ref === undefined) continue;
-      try {
-        merges.push(parseCellRange(ref));
-      } catch {
-        skip("merged range");
-      }
+      const range = parseRef(ref);
+      if (range === undefined) skip("merged range");
+      else merges.push(range);
     }
   }
 
   const formats = conditionalRules(root, skip);
   if (formats.length > 0) applyConditionalFormatting(grid, formats, styles, unsupported);
 
-  // Extent: authored dimension wins; otherwise derive from content so a
-  // missing dimension still yields a bounded, renderable grid.
-  let extent = dimension;
-  if (extent === undefined) {
-    let cols = 0;
-    let rows = 0;
-    for (const [row, entries] of byRow) {
-      rows = Math.max(rows, row + 1);
-      cols = Math.max(cols, entries[entries.length - 1]!.col + 1);
-    }
-    for (const merge of merges) {
-      rows = Math.max(rows, merge.end.row + 1);
-      cols = Math.max(cols, merge.end.col + 1);
-    }
-    extent = { cols, rows };
+  // Extent: the authored dimension, grown to the cells that exist (some
+  // writers leave `<dimension ref="A1"/>` whatever the sheet holds, and Excel
+  // does not trust it either). Merges count as content too.
+  let extent = { cols: dimension?.cols ?? 0, rows: dimension?.rows ?? 0 };
+  for (const [row, entries] of byRow) {
+    extent.rows = Math.max(extent.rows, row + 1);
+    extent.cols = Math.max(extent.cols, entries[entries.length - 1]!.col + 1);
+  }
+  for (const merge of merges) {
+    // A merge over the whole grid must not make an empty sheet a million rows tall.
+    if (mergedCellCount(merge) > MAX_MERGED_CELLS) continue;
+    extent.rows = Math.max(extent.rows, merge.end.row + 1);
+    extent.cols = Math.max(extent.cols, merge.end.col + 1);
   }
   const { rows: extentRows, cols: extentCols } = extent;
+  const boundedMerges = boundMerges(merges, extentRows, extentCols, skip);
 
-  const defaultColumnWidth = columnCharsToInches(defaultColChars);
-  const widths: number[] = [];
-  for (let col = 0; col < extentCols; col++) {
-    widths.push(columnWidths.get(col) ?? defaultColumnWidth);
-  }
-  const hiddenColumns = [...columnHidden].filter((col) => col < extentCols).sort((a, b) => a - b);
-  const hidden = [...hiddenRows].filter((row) => row < extentRows).sort((a, b) => a - b);
+  const defaultColumnWidth = defaultColChars === undefined ? DEFAULT_COLUMN_PIXELS / PX_PER_INCH : columnCharsToInches(defaultColChars);
 
+  // A row with no cells but its own height is still a row of the grid (and of
+  // the drawings' offsets): it travels with no cells. One at the default
+  // height says nothing, so it is left out.
+  const heightOnly = [...rowHeights].filter(([row, height]) => !byRow.has(row) && height !== defaultRowHeight).map(([row]) => row);
+  const rowOrder = heightOnly.length === 0 ? grid.rowOrder : [...grid.rowOrder, ...heightOnly].sort((a, b) => a - b);
   const rows: RowModel[] = [];
-  for (const rowIndex of grid.rowOrder) {
+  for (const rowIndex of rowOrder) {
     if (rowIndex >= extentRows) break;
-    let entries = byRow.get(rowIndex)!;
+    let entries = byRow.get(rowIndex) ?? [];
     // Columns are sorted: trimming past the extent is a single cut.
-    if (entries[entries.length - 1]!.col >= extentCols) entries = entries.slice(0, lowerBound(entries, extentCols, entryCol));
-    if (entries.length === 0) continue;
+    if (entries.length > 0 && entries[entries.length - 1]!.col >= extentCols) entries = entries.slice(0, lowerBound(entries, extentCols, entryCol));
     const height = rowHeights.get(rowIndex);
+    if (entries.length === 0 && height === undefined) continue;
     rows.push({
       index: rowIndex,
       cells: entries,
       ...(height === undefined ? {} : { height }),
-      ...(hiddenRows.has(rowIndex) ? { hidden: true as const } : {}),
     });
   }
 
-  // Drawing bounds need absolute EMU offsets: column widths plus row heights.
-  const columnOffset: GridOffset = (index) => {
-    let total = 0;
-    for (let i = 0; i < index && i < extentCols; i++) total += inchesToEmu(widths[i]!);
-    return total;
-  };
-  const rowOffset: GridOffset = (index) => {
-    let total = 0;
-    for (let i = 0; i < index && i < extentRows; i++) total += inchesToEmu(rowHeights.get(i) ?? defaultRowHeight);
-    return total;
-  };
-  const { drawings, unsupported: drawingUnsupported } = await parseDrawings(pkg, reference.part, columnOffset, rowOffset, workbook.theme, skip, signal);
+  // Drawing bounds need absolute EMU offsets: column widths plus row heights,
+  // past the used range too (Excel's grid never ends, and a chart often sits
+  // beside or below the data). Default tracks are counted at once and only the
+  // authored ones walked, so an anchor far down the sheet costs nothing.
+  const columnOffset: GridOffset = (index) => gridOffset(Math.min(index, MAX_COLUMNS), defaultColumnWidth, columnWidths);
+  const rowOffset: GridOffset = (index) => gridOffset(Math.min(index, MAX_ROWS), defaultRowHeight, rowHeights);
+  const { drawings, unsupported: drawingUnsupported, missingIds } = await parseDrawings(pkg, workbook, reference.part, columnOffset, rowOffset, skip, signal);
   throwIfAborted(signal);
   unsupported.push(...drawingUnsupported, ...damagedEntries(skipped));
+
+  // The grid reaches every drawing: a chart placed past the data still sits on cells.
+  for (const drawing of drawings) {
+    const right = inchesToEmu(drawing.bounds.x + drawing.bounds.width);
+    const bottom = inchesToEmu(drawing.bounds.y + drawing.bounds.height);
+    extent = {
+      cols: Math.max(extent.cols, trackAt(right, drawing.anchor.start.col, MAX_COLUMNS, columnOffset) + 1),
+      rows: Math.max(extent.rows, trackAt(bottom, drawing.anchor.start.row, MAX_ROWS, rowOffset) + 1),
+    };
+  }
+  const widths: number[] = [];
+  for (let col = 0; col < extent.cols; col++) {
+    widths.push(columnWidths.get(col) ?? defaultColumnWidth);
+  }
+  const hiddenColumns = [...columnHidden].filter((col) => col < extent.cols).sort((a, b) => a - b);
+  const hidden = [...hiddenRows].filter((row) => row < extent.rows).sort((a, b) => a - b);
 
   const validations = firstChild(root, "dataValidations");
   if (validations !== undefined && (numberAttr(validations, "count", "dataValidations") ?? childElements(validations, "dataValidation").length) > 0) {
@@ -827,11 +958,12 @@ export async function parseXlsxSheet(
   if (sheetRels.some((relationship) => relationship.type.endsWith("/pivotTable"))) {
     unsupported.push({ kind: "pivot", detail: "pivot tables are shown as their cached values, never recalculated" });
   }
-  if (pkg.partNames().some((part) => part.toLowerCase() === "xl/vbaproject.bin")) {
+  if (workbook.hasMacros) {
     unsupported.push({ kind: "macro", detail: "this workbook contains macros; code never runs in previews" });
   }
+  // Sparklines live in a worksheet extension (`x14:sparklineGroups`), not in cells.
   const extensionList = firstChild(root, "extLst");
-  if (extensionList !== undefined && textContent(extensionList).includes("sparkline")) {
+  if (extensionList !== undefined && childElements(extensionList, "ext").some((ext) => firstChild(ext, "sparklineGroups") !== undefined)) {
     unsupported.push({ kind: "sparkline", detail: "sparklines are not drawn in previews" });
   }
   if (sheetRels.some((relationship) => relationship.type.endsWith("/oleObject") || relationship.type.endsWith("/control"))) {
@@ -844,16 +976,18 @@ export async function parseXlsxSheet(
     part: reference.part,
     rightToLeft,
     showGridlines,
-    extent: { ...extent },
+    extent,
     rows,
-    merges,
-    frozen: { ...frozen },
+    merges: boundedMerges,
+    frozen,
     columnWidths: widths,
     hiddenColumns,
     hiddenRows: hidden,
     defaultRowHeight,
+    defaultColumnWidth,
     drawings,
     unsupported,
+    ...(missingIds === 0 ? {} : { missingIds }),
   };
 }
 
@@ -865,6 +999,33 @@ export async function parseXlsxSheet(
  * to their intersection with it. Rows absent from the window read as
  * empty, exactly like sparse authored rows.
  */
+/**
+ * A sheet's searchable text, for search's text read in the Worker: each
+ * non-empty cell's formatted text (a string cached value when the formatted
+ * text is empty; formulas are never evaluated), in row-major order, then each
+ * chart's words at the cell its top-left corner is anchored to.
+ */
+export function sheetText(sheet: SheetModel): SheetText {
+  const out: SheetText = { rows: [], cols: [], text: [], chart: [] };
+  const add = (row: number, col: number, text: string, chart: string | null): void => {
+    out.rows.push(row);
+    out.cols.push(col);
+    out.text.push(text);
+    out.chart.push(chart);
+  };
+  for (const row of sheet.rows) {
+    for (const { col, cell } of row.cells) {
+      const text = cell.formatted !== "" ? cell.formatted : typeof cell.value === "string" ? cell.value : "";
+      if (text !== "") add(row.index, col, text, null);
+    }
+  }
+  for (const drawing of sheet.drawings) {
+    if (drawing.kind !== "chart" || drawing.spec === undefined) continue;
+    for (const text of chartText(drawing.spec)) add(drawing.anchor.start.row, drawing.anchor.start.col, text, drawing.name);
+  }
+  return out;
+}
+
 export function sliceSheetToRange(sheet: SheetModel, range: CellRange): SheetRangeModel {
   // Rows are sorted by index and cells by column: binary-search both edges.
   const rows: RowModel[] = [];
@@ -875,7 +1036,7 @@ export function sliceSheetToRange(sheet: SheetModel, range: CellRange): SheetRan
     const from = lowerBound(cells, range.start.col, entryCol);
     let to = from;
     while (to < cells.length && cells[to]!.col <= range.end.col) to++;
-    if (to > from) rows.push({ ...row, cells: cells.slice(from, to) });
+    if (to > from || cells.length === 0) rows.push({ ...row, cells: cells.slice(from, to) });
   }
   const merges: CellRange[] = [];
   for (const merge of sheet.merges) {

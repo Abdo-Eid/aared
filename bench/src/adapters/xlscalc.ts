@@ -1,7 +1,7 @@
 import { abortError, type OpenedDoc } from "./types";
 
 /**
- * Pilot: xlscalc XLSX via its headless HTML renderer. `loadXlsx` parses +
+ * xlscalc XLSX via its headless HTML renderer. `loadXlsx` parses +
  * evaluates in the root entry (React-free); `renderToHtml` shares style
  * composition with the `ExcelView` component, so this HTML is the renderer's
  * own output, not a re-implementation. The grid is drawn in full (no

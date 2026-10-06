@@ -1,492 +1,80 @@
 /**
- * Shared chart-to-primitives module for PPTX, XLSX, and DOCX.
- *
- * Parses DrawingML chart parts (`c:chartSpace`) into typed
- * `ChartGraphicModel` primitives only — rect/line/path/text in local
- * unitless coordinates. Never emits raw SVG/HTML markup, never touches
- * the DOM, so it runs headless in the Worker and is reusable across
- * formats. PPTX wires `graphicFrame` charts here; XLSX/DOCX will reuse
- * the same entry points for their own drawing layers.
+ * The Worker half of the chart engine, shared by PPTX, XLSX and DOCX: a
+ * DrawingML `c:chartSpace` part (or an Office 2016 `cx:chartSpace`) plus the
+ * theme -> a resolved `ChartSpecModel` for the unit model. Reading only:
+ * layout and painting happen on the page (`core/chart/draw.ts`, loaded when a
+ * chart first shows), so the Worker carries the readers and nothing else of
+ * the engine (DECISION_LOG §71). Never emits markup and never touches the DOM.
  */
 
-import { attr, childElements, firstChild, textContent } from "./xml.js";
+import { firstChild } from "./xml.js";
 import type { XmlElement } from "./xml.js";
-import { resolveDrawingColor } from "./theme.js";
+import type { OpcPackage } from "./opc.js";
 import type { DrawingTheme } from "./theme.js";
-import type { ChartGraphicModel, ChartGraphicPrimitive } from "./model.js";
-import { EMU_PER_INCH, PX_PER_INCH } from "./units.js";
+import type { FillOwner } from "./fill.js";
+import { AaredError } from "./errors.js";
+import { ChartTooLarge, SUPPORTED_GROUP_TAGS, readChart } from "./chart/read.js";
+import { isChartEx, readChartEx } from "./chart/read-chartex.js";
+import type { ChartexData } from "./chart/read-chartex.js";
+import type { ChartSpecModel } from "./chart/spec.js";
 
-const VIEW_WIDTH = 1000;
-const VIEW_HEIGHT = 600;
-const PLOT_LEFT = 90;
-const PLOT_RIGHT = 30;
-const PLOT_TOP = 30;
-const PLOT_BOTTOM = 90;
-const LEGEND_HEIGHT = 44;
-
-const FALLBACK_PALETTE = ["#2E7D74", "#C9D6D3", "#156082", "#E8A33D", "#73A0B4", "#5B6470", "#888888"];
-
-interface ChartSeries {
-  name: string;
-  fill?: string;
-  categories: string[];
-  values: number[];
-}
-
-function seriesName(ser: XmlElement): string {
-  const tx = firstChild(ser, "tx");
-  if (tx === undefined) return "";
-  const findV = (element: XmlElement): string | undefined => {
-    if (element.local === "v") {
-      const text = textContent(element).trim();
-      return text === "" ? undefined : text;
-    }
-    for (const child of element.children) {
-      const found = findV(child);
-      if (found !== undefined) return found;
-    }
-    return undefined;
-  };
-  // Series names surface as a descendant <c:v> inside strRef/strCache.
-  return findV(tx) ?? "";
-}
-
-function pointsIn(container: XmlElement | undefined): Array<{ index: number; text: string }> {
-  if (container === undefined) return [];
-  const points: Array<{ index: number; text: string }> = [];
-  const visit = (element: XmlElement): void => {
-    if (element.local === "pt") {
-      const rawIndex = attr(element, "idx");
-      const index = rawIndex === undefined ? points.length : Number(rawIndex);
-      const v = firstChild(element, "v");
-      points.push({ index: Number.isFinite(index) ? index : points.length, text: v === undefined ? "" : textContent(v).trim() });
-      return;
-    }
-    for (const child of element.children) visit(child);
-  };
-  visit(container);
-  return [...points].sort((a, b) => a.index - b.index);
-}
-
-function categoriesOf(ser: XmlElement): string[] {
-  const cat = firstChild(ser, "cat");
-  if (cat === undefined) return [];
-  return pointsIn(cat).map((point) => point.text);
-}
-
-function valuesOf(ser: XmlElement): number[] {
-  const val = firstChild(ser, "val");
-  if (val === undefined) return [];
-  const out: number[] = [];
-  for (const point of pointsIn(val)) {
-    const numeric = Number(point.text);
-    out.push(Number.isFinite(numeric) ? numeric : 0);
-  }
-  return out;
-}
-
-function seriesFill(ser: XmlElement, theme: DrawingTheme, fallback: string): string {
-  const spPr = firstChild(ser, "spPr");
-  const color = resolveDrawingColor(spPr === undefined ? undefined : firstChild(spPr, "solidFill"), theme);
-  if (color !== undefined) return color;
-  // Per-point fills (pie slices) are resolved by the pie path; series-level
-  // callers use the palette fallback.
-  return fallback;
-}
-
-function pointFills(ser: XmlElement, theme: DrawingTheme): Map<number, string> {
-  const fills = new Map<number, string>();
-  for (const dPt of childElements(ser, "dPt")) {
-    const indexRaw = firstChild(dPt, "idx");
-    const index = indexRaw === undefined ? undefined : Number(attr(indexRaw, "val") ?? NaN);
-    const spPr = firstChild(dPt, "spPr");
-    const color = resolveDrawingColor(spPr === undefined ? undefined : firstChild(spPr, "solidFill"), theme);
-    if (index !== undefined && Number.isFinite(index) && color !== undefined) fills.set(index, color);
-  }
-  return fills;
-}
-
-function collectSeries(chartType: XmlElement, theme: DrawingTheme): ChartSeries[] {
-  return childElements(chartType, "ser").map((ser, seriesIndex) => {
-    const fallback = FALLBACK_PALETTE[seriesIndex % FALLBACK_PALETTE.length]!;
-    return {
-      name: seriesName(ser),
-      fill: seriesFill(ser, theme, fallback),
-      categories: categoriesOf(ser),
-      values: valuesOf(ser),
-    };
-  });
-}
-
-/** Widest series (categories or values); a loop, since spreading a large series into `Math.max` overflows the stack. */
-function categoryCountOf(series: readonly ChartSeries[]): number {
-  let count = 0;
-  for (const entry of series) count = Math.max(count, entry.categories.length, entry.values.length);
-  return count;
-}
-
-/** Value range across all series, always including zero (the baseline). */
-function valueRange(series: readonly ChartSeries[]): { minValue: number; maxValue: number } {
-  let minValue = 0;
-  let maxValue = 0;
-  for (const entry of series) {
-    for (const value of entry.values) {
-      if (value < minValue) minValue = value;
-      if (value > maxValue) maxValue = value;
-    }
-  }
-  return { minValue, maxValue };
-}
-
-function axisFontFamily(theme: DrawingTheme): string {
-  return theme.fonts.minor.latin || theme.fonts.minor.complexScript || "Arial";
-}
-
-function barPrimitives(
-  series: ChartSeries[],
-  direction: "col" | "bar",
-  theme: DrawingTheme,
-  hasLegend: boolean,
-): ChartGraphicPrimitive[] {
-  const primitives: ChartGraphicPrimitive[] = [];
-  const fontFamily = axisFontFamily(theme);
-  const legendReserve = hasLegend ? LEGEND_HEIGHT : 0;
-  const plotWidth = VIEW_WIDTH - PLOT_LEFT - PLOT_RIGHT;
-  const plotHeight = VIEW_HEIGHT - PLOT_TOP - PLOT_BOTTOM - legendReserve;
-  const categoryCount = categoryCountOf(series);
-  if (categoryCount === 0 || series.length === 0) return primitives;
-  const categories = series[0]!.categories.length === categoryCount
-    ? series[0]!.categories
-    : Array.from({ length: categoryCount }, (_, index) => series[0]?.categories[index] ?? `Cat ${index + 1}`);
-  const { minValue, maxValue } = valueRange(series);
-  const span = maxValue - minValue === 0 ? 1 : maxValue - minValue;
-  const yFor = (value: number): number => PLOT_TOP + plotHeight - ((value - minValue) / span) * plotHeight;
-  const xFor = (value: number): number => PLOT_LEFT + ((value - minValue) / span) * plotWidth;
-  const baselineY = yFor(0);
-  const baselineX = xFor(0);
-
-  // Axes and gridlines.
-  const gridColor = "#E6E2DA";
-  const axisColor = "#888888";
-  if (direction === "col") {
-    for (let tick = 0; tick <= 4; tick++) {
-      const value = minValue + (span * tick) / 4;
-      const y = yFor(value);
-      primitives.push({ kind: "line", x1: PLOT_LEFT, y1: y, x2: PLOT_LEFT + plotWidth, y2: y, stroke: { color: tick === 0 ? axisColor : gridColor, width: 2 } });
-      primitives.push({
-        kind: "text", x: PLOT_LEFT - 10, y: y + 7, text: String(Math.round(value * 100) / 100),
-        fontSize: 20, fontFamily, textAnchor: "end", fill: "#5B6470",
-      });
-    }
-    primitives.push({ kind: "line", x1: PLOT_LEFT, y1: PLOT_TOP, x2: PLOT_LEFT, y2: PLOT_TOP + plotHeight, stroke: { color: axisColor, width: 2 } });
-    primitives.push({ kind: "line", x1: PLOT_LEFT, y1: baselineY, x2: PLOT_LEFT + plotWidth, y2: baselineY, stroke: { color: axisColor, width: 2 } });
-  } else {
-    for (let tick = 0; tick <= 4; tick++) {
-      const value = minValue + (span * tick) / 4;
-      const x = xFor(value);
-      primitives.push({ kind: "line", x1: x, y1: PLOT_TOP, x2: x, y2: PLOT_TOP + plotHeight, stroke: { color: tick === 0 ? axisColor : gridColor, width: 2 } });
-      primitives.push({
-        kind: "text", x, y: PLOT_TOP + plotHeight + 24, text: String(Math.round(value * 100) / 100),
-        fontSize: 20, fontFamily, textAnchor: "middle", fill: "#5B6470",
-      });
-    }
-    primitives.push({ kind: "line", x1: PLOT_LEFT, y1: PLOT_TOP + plotHeight, x2: PLOT_LEFT + plotWidth, y2: PLOT_TOP + plotHeight, stroke: { color: axisColor, width: 2 } });
-    primitives.push({ kind: "line", x1: baselineX, y1: PLOT_TOP, x2: baselineX, y2: PLOT_TOP + plotHeight, stroke: { color: axisColor, width: 2 } });
-  }
-
-  if (direction === "col") {
-    const groupWidth = plotWidth / categoryCount;
-    const barWidth = (groupWidth * 0.7) / series.length;
-    series.forEach((entry, seriesIndex) => {
-      entry.values.forEach((value, categoryIndex) => {
-        const groupX = PLOT_LEFT + groupWidth * categoryIndex;
-        const x = groupX + (groupWidth - barWidth * series.length) / 2 + barWidth * seriesIndex;
-        const y = value >= 0 ? yFor(value) : baselineY;
-        const height = Math.abs(yFor(value) - baselineY);
-        if (height <= 0) return;
-        primitives.push({ kind: "rect", x, y, width: barWidth, height, fill: entry.fill ?? FALLBACK_PALETTE[seriesIndex % FALLBACK_PALETTE.length]! });
-        primitives.push({
-          kind: "text", x: x + barWidth / 2, y: (value >= 0 ? y - 6 : y + height + 20),
-          text: String(value), fontSize: 18, fontFamily, textAnchor: "middle", fill: "#5B6470",
-        });
-      });
-    });
-    categories.forEach((category, index) => {
-      primitives.push({
-        kind: "text", x: PLOT_LEFT + groupWidth * index + groupWidth / 2, y: PLOT_TOP + plotHeight + 28,
-        text: category, fontSize: 20, fontFamily, textAnchor: "middle", fill: "#5B6470",
-      });
-    });
-  } else {
-    const groupHeight = plotHeight / categoryCount;
-    const barHeight = (groupHeight * 0.7) / series.length;
-    series.forEach((entry, seriesIndex) => {
-      entry.values.forEach((value, categoryIndex) => {
-        const groupY = PLOT_TOP + groupHeight * categoryIndex;
-        const y = groupY + (groupHeight - barHeight * series.length) / 2 + barHeight * seriesIndex;
-        const x = value >= 0 ? baselineX : xFor(value);
-        const width = Math.abs(xFor(value) - baselineX);
-        if (width <= 0) return;
-        primitives.push({ kind: "rect", x, y, width, height: barHeight, fill: entry.fill ?? FALLBACK_PALETTE[seriesIndex % FALLBACK_PALETTE.length]! });
-        primitives.push({
-          kind: "text", x: (value >= 0 ? x + width + 6 : x - 6), y: y + barHeight / 2 + 6,
-          text: String(value), fontSize: 18, fontFamily,
-          textAnchor: value >= 0 ? "start" : "end", fill: "#5B6470",
-        });
-      });
-    });
-    categories.forEach((category, index) => {
-      primitives.push({
-        kind: "text", x: PLOT_LEFT - 10, y: PLOT_TOP + groupHeight * index + groupHeight / 2 + 6,
-        text: category, fontSize: 20, fontFamily, textAnchor: "end", fill: "#5B6470",
-      });
-    });
-  }
-
-  if (hasLegend) {
-    const legendY = VIEW_HEIGHT - legendReserve + 20;
-    let cursor = PLOT_LEFT;
-    series.forEach((entry, index) => {
-      const color = entry.fill ?? FALLBACK_PALETTE[index % FALLBACK_PALETTE.length]!;
-      primitives.push({ kind: "rect", x: cursor, y: legendY - 14, width: 22, height: 14, fill: color });
-      cursor += 28;
-      const label = entry.name === "" ? `Series ${index + 1}` : entry.name;
-      primitives.push({ kind: "text", x: cursor, y: legendY, text: label, fontSize: 20, fontFamily, textAnchor: "start", fill: "#5B6470" });
-      cursor += Math.max(60, label.length * 11 + 24);
-    });
-  }
-  return primitives;
-}
-
-function linePrimitives(series: ChartSeries[], theme: DrawingTheme, hasLegend: boolean): ChartGraphicPrimitive[] {
-  const primitives: ChartGraphicPrimitive[] = [];
-  const fontFamily = axisFontFamily(theme);
-  const legendReserve = hasLegend ? LEGEND_HEIGHT : 0;
-  const plotWidth = VIEW_WIDTH - PLOT_LEFT - PLOT_RIGHT;
-  const plotHeight = VIEW_HEIGHT - PLOT_TOP - PLOT_BOTTOM - legendReserve;
-  const categoryCount = categoryCountOf(series);
-  if (categoryCount === 0 || series.length === 0) return primitives;
-  const categories = series[0]!.categories.length === categoryCount
-    ? series[0]!.categories
-    : Array.from({ length: categoryCount }, (_, index) => series[0]?.categories[index] ?? `Cat ${index + 1}`);
-  const { minValue, maxValue } = valueRange(series);
-  const span = maxValue - minValue === 0 ? 1 : maxValue - minValue;
-  const xFor = (index: number): number => categoryCount === 1 ? PLOT_LEFT + plotWidth / 2 : PLOT_LEFT + (plotWidth * index) / (categoryCount - 1);
-  const yFor = (value: number): number => PLOT_TOP + plotHeight - ((value - minValue) / span) * plotHeight;
-
-  for (let tick = 0; tick <= 4; tick++) {
-    const value = minValue + (span * tick) / 4;
-    const y = yFor(value);
-    primitives.push({ kind: "line", x1: PLOT_LEFT, y1: y, x2: PLOT_LEFT + plotWidth, y2: y, stroke: { color: tick === 0 ? "#888888" : "#E6E2DA", width: 2 } });
-    primitives.push({
-      kind: "text", x: PLOT_LEFT - 10, y: y + 7, text: String(Math.round(value * 100) / 100),
-      fontSize: 20, fontFamily, textAnchor: "end", fill: "#5B6470",
-    });
-  }
-  primitives.push({ kind: "line", x1: PLOT_LEFT, y1: PLOT_TOP + plotHeight, x2: PLOT_LEFT + plotWidth, y2: PLOT_TOP + plotHeight, stroke: { color: "#888888", width: 2 } });
-
-  series.forEach((entry, seriesIndex) => {
-    const color = entry.fill ?? FALLBACK_PALETTE[seriesIndex % FALLBACK_PALETTE.length]!;
-    const points = entry.values.map((value, index) => ({ x: xFor(index), y: yFor(value), value }));
-    if (points.length === 0) return;
-    const path = points.map((point, index) => `${index === 0 ? "M" : "L"} ${round(point.x)} ${round(point.y)}`).join(" ");
-    primitives.push({ kind: "path", path, fill: "none", stroke: { color, width: 4 } });
-    for (const point of points) {
-      primitives.push({ kind: "rect", x: point.x - 5, y: point.y - 5, width: 10, height: 10, fill: color });
-      primitives.push({
-        kind: "text", x: point.x, y: point.y - 10, text: String(point.value),
-        fontSize: 18, fontFamily, textAnchor: "middle", fill: "#5B6470",
-      });
-    }
-  });
-
-  categories.forEach((category, index) => {
-    primitives.push({
-      kind: "text", x: xFor(index), y: PLOT_TOP + plotHeight + 28,
-      text: category, fontSize: 20, fontFamily, textAnchor: "middle", fill: "#5B6470",
-    });
-  });
-
-  if (hasLegend) {
-    const legendY = VIEW_HEIGHT - legendReserve + 20;
-    let cursor = PLOT_LEFT;
-    series.forEach((entry, index) => {
-      const color = entry.fill ?? FALLBACK_PALETTE[index % FALLBACK_PALETTE.length]!;
-      primitives.push({ kind: "line", x1: cursor, y1: legendY - 5, x2: cursor + 26, y2: legendY - 5, stroke: { color, width: 4 } });
-      cursor += 32;
-      const label = entry.name === "" ? `Series ${index + 1}` : entry.name;
-      primitives.push({ kind: "text", x: cursor, y: legendY, text: label, fontSize: 20, fontFamily, textAnchor: "start", fill: "#5B6470" });
-      cursor += Math.max(60, label.length * 11 + 24);
-    });
-  }
-  return primitives;
-}
-
-function round(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
-function piePrimitives(chartType: XmlElement, theme: DrawingTheme, hasLegend: boolean): ChartGraphicPrimitive[] {
-  const primitives: ChartGraphicPrimitive[] = [];
-  const fontFamily = axisFontFamily(theme);
-  const serElements = childElements(chartType, "ser");
-  const series = collectSeries(chartType, theme);
-  if (series.length === 0 || serElements.length === 0) return primitives;
-  const first = series[0]!;
-  const firstSer = serElements[0]!;
-  const total = first.values.reduce((sum, value) => sum + Math.max(value, 0), 0);
-  if (total <= 0 || first.values.length === 0) return primitives;
-  const fills = pointFills(firstSer, theme);
-  const centerX = VIEW_WIDTH / 2;
-  const centerY = (VIEW_HEIGHT - (hasLegend ? LEGEND_HEIGHT : 0)) / 2 + 10;
-  const radius = Math.min(VIEW_WIDTH, VIEW_HEIGHT - (hasLegend ? LEGEND_HEIGHT : 0)) / 2 - 60;
-  let angle = -90;
-  first.values.forEach((value, index) => {
-    const clamped = Math.max(value, 0);
-    if (clamped <= 0) return;
-    const sweep = (clamped / total) * 360;
-    const start = (angle * Math.PI) / 180;
-    const end = ((angle + sweep) * Math.PI) / 180;
-    const x1 = centerX + radius * Math.cos(start);
-    const y1 = centerY + radius * Math.sin(start);
-    const x2 = centerX + radius * Math.cos(end);
-    const y2 = centerY + radius * Math.sin(end);
-    const largeArc = sweep > 180 ? 1 : 0;
-    const fill = fills.get(index) ?? FALLBACK_PALETTE[index % FALLBACK_PALETTE.length]!;
-    primitives.push({
-      kind: "path",
-      path: `M ${round(centerX)} ${round(centerY)} L ${round(x1)} ${round(y1)} A ${round(radius)} ${round(radius)} 0 ${largeArc} 1 ${round(x2)} ${round(y2)} Z`,
-      fill,
-      stroke: { color: "#FFFFFF", width: 2 },
-    });
-    const mid = ((angle + sweep / 2) * Math.PI) / 180;
-    const labelX = centerX + radius * 0.65 * Math.cos(mid);
-    const labelY = centerY + radius * 0.65 * Math.sin(mid);
-    const category = first.categories[index] ?? "";
-    const percent = `${round((clamped / total) * 1000) / 10}%`;
-    primitives.push({
-      kind: "text", x: round(labelX), y: round(labelY),
-      text: category === "" ? percent : `${category} ${percent}`,
-      fontSize: 20, fontFamily, textAnchor: "middle", fill: "#FFFFFF",
-    });
-    angle += sweep;
-  });
-
-  if (hasLegend) {
-    const legendY = VIEW_HEIGHT - LEGEND_HEIGHT + 22;
-    let cursor = PLOT_LEFT;
-    first.values.forEach((_, index) => {
-      const fill = fills.get(index) ?? FALLBACK_PALETTE[index % FALLBACK_PALETTE.length]!;
-      const label = first.categories[index] ?? `Slice ${index + 1}`;
-      primitives.push({ kind: "rect", x: cursor, y: legendY - 14, width: 22, height: 14, fill });
-      cursor += 28;
-      primitives.push({ kind: "text", x: cursor, y: legendY, text: label, fontSize: 20, fontFamily, textAnchor: "start", fill: "#5B6470" });
-      cursor += Math.max(60, label.length * 11 + 24);
-    });
-  }
-  return primitives;
-}
-
-function plotAreaOf(chartSpace: XmlElement): { chart?: XmlElement; plotArea?: XmlElement } {
-  // Accept the part root (`c:chartSpace`) or its `c:chart` child.
-  const chart = chartSpace.local === "chart" ? chartSpace : firstChild(chartSpace, "chart");
-  if (chart === undefined) return {};
-  const plotArea = firstChild(chart, "plotArea");
-  return plotArea === undefined ? { chart } : { chart, plotArea };
-}
-
-const viewBox = (): ChartGraphicModel["viewBox"] => ({ width: VIEW_WIDTH, height: VIEW_HEIGHT });
+export { chartexFormulas } from "./chart/read-chartex.js";
+export type { ChartexData, ChartexGrid } from "./chart/read-chartex.js";
 
 /**
- * The chart's authored title (`c:chart/c:title/c:tx`), trimmed. Titles live
- * outside the plot area in DrawingML, so every chart kind shares this one
- * reader; an overlay title (`overlay="1"`) is still painted — preview has no
- * layout pass that could reflow around it.
+ * The chart part as the owner of its picture fills: a chart's `r:embed`
+ * resolves against the chart part's own relationships, whichever format holds
+ * the chart. Pass the result to `readChartModel`.
  */
-function chartTitle(chart: XmlElement): string {
-  const tx = firstChild(firstChild(chart, "title") ?? chart, "tx");
-  return tx === undefined ? "" : textContent(tx).trim();
-}
-
-/** Centered title primitive for the reserved band above the plot (`PLOT_TOP`). */
-function titlePrimitive(title: string, theme: DrawingTheme): ChartGraphicPrimitive {
+export async function chartFillOwner(pkg: OpcPackage, chartPart: string, signal?: AbortSignal): Promise<FillOwner> {
   return {
-    kind: "text",
-    x: VIEW_WIDTH / 2,
-    y: PLOT_TOP - 8,
-    text: title,
-    fontSize: 22,
-    fontFamily: axisFontFamily(theme),
-    fontWeight: "bold",
-    textAnchor: "middle",
-    fill: "#5B6470",
+    relationships: await pkg.relationships(chartPart, signal),
+    mediaContentType: (target) => pkg.mediaContentType(target),
+    inherited: false,
   };
 }
 
-/** EMU per CSS pixel (96 dpi). */
-const EMU_PER_PIXEL = EMU_PER_INCH / PX_PER_INCH;
-
-/** The chart area's authored fill and outline, when the part is a `c:chartSpace`. */
-function chartBackground(chartSpace: XmlElement, theme: DrawingTheme): ChartGraphicModel["background"] {
-  const spPr = chartSpace.local === "chartSpace" ? firstChild(chartSpace, "spPr") : undefined;
-  if (spPr === undefined) return undefined;
-  const fill = resolveDrawingColor(firstChild(spPr, "solidFill"), theme);
-  const line = firstChild(spPr, "ln");
-  const lineColor = line === undefined ? undefined : resolveDrawingColor(firstChild(line, "solidFill"), theme);
-  if (fill === undefined && lineColor === undefined) return undefined;
-  const background: NonNullable<ChartGraphicModel["background"]> = {};
-  if (fill !== undefined) background.fill = fill;
-  if (line !== undefined && lineColor !== undefined) {
-    const width = Number(attr(line, "w"));
-    background.stroke = { color: lineColor, width: Number.isFinite(width) && width > 0 ? Math.max(1, width / EMU_PER_PIXEL) : 1 };
+/**
+ * Read a chart part. `theme` must already carry the colour-map names
+ * (`themeForColorMap`). `data` holds the cell ranges an XLSX chartex part's
+ * formulas point at (the part carries no cache of its own there; see
+ * `chartexFormulas`). A chart the engine cannot draw (a type it does not
+ * draw, more points than it draws, or no cached values) comes back with the
+ * reason instead, phrased for an `unsupported` report. `owner` (from
+ * `chartFillOwner`) lets a picture fill name its media; without it a picture
+ * fill reads as `unsupported`.
+ */
+export function readChartModel(
+  chartSpace: XmlElement,
+  theme: DrawingTheme,
+  options: { data?: ChartexData; owner?: FillOwner } = {},
+): { spec: ChartSpecModel } | { unsupportedReason: string } {
+  const space = chartSpace.local === "chartSpace" ? chartSpace : firstChild(chartSpace, "chartSpace") ?? chartSpace;
+  let spec: ChartSpecModel | string | undefined;
+  try {
+    spec = isChartEx(space) ? readChartEx(space, theme, options.data, options.owner) : readChart(space, theme, options.owner);
+  } catch (error) {
+    if (error instanceof ChartTooLarge) return { unsupportedReason: error.message };
+    // A malformed number in a fill (the shared readers are strict, as for a shape) costs
+    // this chart its drawing, marked, and not the slide, sheet or document around it.
+    if (error instanceof AaredError && error.code === "invalid-document") {
+      return { unsupportedReason: `this chart has a damaged fill and is not previewed (${error.message.replace(/^aared\/core: /, "").replace(/\. The file may be damaged.*$/, "")})` };
+    }
+    throw error;
   }
-  return background;
+  if (typeof spec === "string") return { unsupportedReason: spec };
+  // A chart with series but no cached points draws nothing: say so instead of an empty frame.
+  if (spec !== undefined && spec.groups.some((g) => g.series.some((s) => s.values.some((v) => v !== null)))) return { spec };
+  return { unsupportedReason: unsupportedReason(space) };
 }
 
-/** Parse a DrawingML `c:chartSpace` element into typed SVG primitives. */
-export function parseChartGraphic(chartSpace: XmlElement, theme: DrawingTheme): ChartGraphicModel | undefined {
-  const graphic = parseChartPrimitives(chartSpace, theme);
-  if (graphic === undefined) return undefined;
-  const background = chartBackground(chartSpace, theme);
-  return background === undefined ? graphic : { ...graphic, background };
-}
-
-function parseChartPrimitives(chartSpace: XmlElement, theme: DrawingTheme): ChartGraphicModel | undefined {
-  const { chart, plotArea } = plotAreaOf(chartSpace);
-  if (chart === undefined || plotArea === undefined) return undefined;
-  const hasLegend = firstChild(chart, "legend") !== undefined;
-  const title = chartTitle(chart);
-  const titled = (primitives: ChartGraphicPrimitive[]): ChartGraphicPrimitive[] =>
-    title === "" ? primitives : [titlePrimitive(title, theme), ...primitives];
-  const barChart = firstChild(plotArea, "barChart");
-  const lineChart = firstChild(plotArea, "lineChart");
-  const pieChart = firstChild(plotArea, "pieChart") ?? firstChild(plotArea, "doughnutChart");
-  if (barChart !== undefined) {
-    const direction = attr(firstChild(barChart, "barDir") ?? barChart, "val") === "bar" ? "bar" : "col";
-    const series = collectSeries(barChart, theme);
-    if (series.length === 0) return undefined;
-    return { viewBox: viewBox(), primitives: titled(barPrimitives(series, direction, theme, hasLegend)) };
-  }
-  if (lineChart !== undefined) {
-    const series = collectSeries(lineChart, theme);
-    if (series.length === 0) return undefined;
-    return { viewBox: viewBox(), primitives: titled(linePrimitives(series, theme, hasLegend)) };
-  }
-  if (pieChart !== undefined) {
-    const primitives = piePrimitives(pieChart, theme, hasLegend);
-    if (primitives.length === 0) return undefined;
-    return { viewBox: viewBox(), primitives: titled(primitives) };
-  }
-  return undefined;
-}
-
-/** Why `parseChartGraphic` drew nothing for this chart, phrased for an `unsupported` report. */
-export function chartUnsupportedReason(chartSpace: XmlElement): string {
-  const { plotArea } = plotAreaOf(chartSpace);
+function unsupportedReason(chartSpace: XmlElement): string {
+  const chart = chartSpace.local === "chart" ? chartSpace : firstChild(chartSpace, "chart");
+  const plotArea = chart === undefined ? undefined : firstChild(chart, "plotArea");
   if (plotArea === undefined) return "this chart has no plot area to preview";
   const types = plotArea.children.map((child) => child.local).filter((local) => local.endsWith("Chart"));
-  if (types.some((type) => type === "barChart" || type === "lineChart" || type === "pieChart" || type === "doughnutChart")) {
-    return "this chart has no cached values to preview";
-  }
-  return `chart type ${types.length === 0 ? "unknown" : types.join(", ")} is not previewed`;
+  const missing = types.filter((type) => !SUPPORTED_GROUP_TAGS.includes(type));
+  if (missing.length > 0) return `chart type ${missing.join(", ")} is not previewed`;
+  if (types.length === 0) return isChartEx(chartSpace) ? "this chart has no cached values to preview" : "chart type unknown is not previewed";
+  return "this chart has no cached values to preview";
 }

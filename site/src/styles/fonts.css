@@ -7,10 +7,9 @@
  *   for the hero headline/wordmark only.
  * - IBM Plex Sans Arabic: body/UI text — one family spans Latin + Arabic,
  *   so interface copy never seams between two different type systems.
- * - IBM Plex Mono: the JSON/technical-annotation layer (coordinates,
- *   shape ids, the parse→model→render callout) and inline code.
+ * - IBM Plex Mono: code and the numeric readouts.
  *
  * Keep this <head> preconnect pair in sync with the one in
- * site/src/pages/index.astro and the DocsLayout theme toggle script.
+ * site/src/pages/index.astro and site/src/layouts/DocsLayout.astro.
  */
 @import url('https://fonts.googleapis.com/css2?family=Reem+Kufi:wght@400..700&family=IBM+Plex+Sans+Arabic:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap');

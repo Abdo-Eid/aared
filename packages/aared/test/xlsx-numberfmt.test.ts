@@ -62,12 +62,54 @@ describe("XLSX number formats", () => {
     expect(isDateFormatCode("General")).toBe(false);
   });
 
+  test("the 1904 date system counts from 1904-01-01 (serial 0), not from the 1900 epoch", () => {
+    expect(serialToDate(0, true)).toMatchObject({ year: 1904, month: 1, day: 1 });
+    expect(serialToDate(1, true)).toMatchObject({ year: 1904, month: 1, day: 2 });
+    // The same day is 1462 serials earlier in the 1904 system.
+    expect(serialToDate(45000 - 1462, true)).toEqual(serialToDate(45000, false));
+    expect(formatSerialDate(24107, "yyyy-mm-dd", true)).toBe("1970-01-01");
+  });
+
+  test("day names are written out, in English, from the real weekday", () => {
+    // 2023-03-15 was a Wednesday; the 1904 system names the same day.
+    expect(formatSerialDate(45000, "dddd, mmmm d", false)).toBe("Wednesday, March 15");
+    expect(formatSerialDate(45000, "ddd dd/mm/yyyy", false)).toBe("Wed 15/03/2023");
+    expect(formatSerialDate(45000 - 1462, "dddd", true)).toBe("Wednesday");
+    expect(formatSerialDate(45004, "ddd", false)).toBe("Sun");
+  });
+
   test("converts serials deterministically in UTC", () => {
-    expect(serialToDate(45000, false)).toEqual({ year: 2023, month: 3, day: 15, hours: 0, minutes: 0, seconds: 0 });
+    expect(serialToDate(45000, false)).toEqual({ year: 2023, month: 3, day: 15, weekday: 3, hours: 0, minutes: 0, seconds: 0 });
     expect(formatSerialDate(45000, "dd mmm yyyy", false)).toBe("15 Mar 2023");
     expect(formatSerialDate(45000, "mm-dd-yy", false)).toBe("03-15-23");
     expect(formatSerialDate(0.5, "h:mm", false)).toBe("12:00");
     expect(formatSerialDate(1.5, "[h]:mm", false)).toBe("36:00");
     expect(formatSerialDate(45000.75, "m/d/yy h:mm", false)).toBe("3/15/23 18:00");
+  });
+
+  // Every expectation below is what Excel 16 itself displayed for the code and
+  // value (probe `xlsx-builtin-numfmt`, whitespace collapsed).
+  test("optional and padded digits: # drops a trailing zero, ? blanks it, only 0 prints an integer zero", () => {
+    expect(formatNumberValue(0.5, "0.0#")).toBe("0.5");
+    expect(formatNumberValue(0.004, "0.0#")).toBe("0.0");
+    expect(formatNumberValue(0.5, "#.00")).toBe(".50");
+    expect(formatNumberValue(0.5, "??.??").replace(/\s+/g, " ").trim()).toBe(".5");
+    expect(formatNumberValue(0, "??.??").replace(/\s+/g, " ").trim()).toBe(".");
+    expect(formatNumberValue(0, "#,###")).toBe("");
+    expect(formatNumberValue(1234.5678, "#,###")).toBe("1,235");
+    expect(formatNumberValue(0, '0.00;-0.00;"zero"')).toBe("zero");
+  });
+
+  test("ids a file names without a code resolve to the ECMA-376 currency, accounting and date codes", () => {
+    const code = (id: number): string => formatCodeForId(id, new Map());
+    // Excel reads these from the reader's regional settings; aared shows the spec's en-US form.
+    expect(formatNumberValue(-1234.5678, code(5))).toBe("($1,235)");
+    expect(formatNumberValue(1234.5678, code(7))).toBe("$1,234.57");
+    expect(formatNumberValue(-1234.5678, code(41))).toBe("(1,235)");
+    expect(formatNumberValue(0, code(43)).replace(/\s+/g, " ").trim()).toBe("-");
+    expect(formatNumberValue(1234.5678, code(44))).toBe("$1,234.57");
+    expect(formatNumberValue(45000.75, code(32))).toBe("18:00:00");
+    for (const id of [27, 30, 36, 50, 58]) expect(formatNumberValue(45000, code(id))).toBe("03-15-23");
+    expect(code(23)).toBe("General");
   });
 });

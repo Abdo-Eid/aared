@@ -4,8 +4,13 @@ Exports a real `.xlsx` through the installed Microsoft Excel application,
 not LibreOffice: every visible sheet prints to A4, one page per sheet.
 
 ```bash
-bun tools/excel-render/index.ts fixtures/xlsx-coverage.xlsx
+bun tools/office-export.ts --format xlsx fixtures/xlsx-coverage.xlsx
 ```
+
+Options: `--dpi <dpi>` sets the raster resolution (default 150), and `--part
+<sheet>:<name>=<range>` (repeatable) also prints one named range of a sheet
+as its own page. `<sheet>` is the 1-based position among the visible sheets,
+so a hidden sheet is not counted.
 
 The tool requires Windows, Excel, PowerShell 7, and Python with PyMuPDF
 (`pip install "PyMuPDF==1.27.2"`). It opens the file read-only (link

@@ -95,17 +95,13 @@ function ellipsePoint(wR: number, hR: number, angle: number): { x: number; y: nu
 }
 
 /**
- * A symmetry of the square, as catalog aliases spell it: any of `t`
- * (transpose — swap the axes), `x` (mirror left↔right), `y` (mirror
- * top↔bottom), applied in that order. `leftArrow` is `x` of `rightArrow`.
- */
-export type Symmetry = string;
-
-/**
  * Evaluate a geometry program for a `width` × `height` shape (EMU). Authored
- * `adjustments` override the program's `avLst` defaults by name. With a
- * `symmetry`, the program is evaluated in its own frame (axes swapped for
- * `t`) and its output mapped onto this shape. Returns `undefined` for
+ * `adjustments` override the program's `avLst` defaults by name. A
+ * `symmetry` is a symmetry of the square as catalog aliases spell it: any of
+ * `t` (transpose, swap the axes), `x` (mirror left-right), `y` (mirror
+ * top-bottom), applied in that order (`leftArrow` is `x` of `rightArrow`); the
+ * program is evaluated in its own frame (axes swapped for `t`) and its output
+ * mapped onto this shape. Returns `undefined` for
  * anything malformed or non-finite, so callers keep their bounds fallback
  * rather than painting a wrong outline.
  */
@@ -114,7 +110,7 @@ export function evaluateGeometry(
   width: number,
   height: number,
   adjustments: Readonly<Record<string, number>> = {},
-  symmetry: Symmetry = "",
+  symmetry = "",
 ): GeometryPaths | undefined {
   try {
     return run(program, width, height, adjustments, symmetry);
@@ -123,7 +119,7 @@ export function evaluateGeometry(
   }
 }
 
-function run(program: string, width: number, height: number, adjustments: Readonly<Record<string, number>>, symmetry: Symmetry): GeometryPaths | undefined {
+function run(program: string, width: number, height: number, adjustments: Readonly<Record<string, number>>, symmetry: string): GeometryPaths | undefined {
   const transpose = symmetry.includes("t");
   const mirrorX = symmetry.includes("x");
   const mirrorY = symmetry.includes("y");

@@ -84,6 +84,8 @@ export interface SearchCell {
 export interface Benchmarks {
   generated: string;
   machine: Record<string, string | number> | null;
+  /** Which renderers were measured when, when that differs (aared re-measured, competitors once); empty otherwise. */
+  measured?: string;
   method: { runs: number; warmupDiscarded: number; coldRuns: number; memoryRuns: number; navigationRuns: number };
   size: SizeSummary | null;
   run: RunCell[];
@@ -288,7 +290,6 @@ export function searchGroups(data: Benchmarks): BarGroup[] {
 /** "48 ms", "1.2 s" — the value with a unit that keeps it readable. */
 export function formatMs(ms: number): string {
   if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)} s`;
-  if (ms >= 100) return `${ms.toFixed(0)} ms`;
   if (ms >= 10) return `${ms.toFixed(0)} ms`;
   return `${ms.toFixed(1)} ms`;
 }

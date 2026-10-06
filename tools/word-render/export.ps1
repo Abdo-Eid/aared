@@ -5,17 +5,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$input = [System.IO.Path]::GetFullPath($InputPath)
+$source = [System.IO.Path]::GetFullPath($InputPath)
 $output = [System.IO.Path]::GetFullPath($OutputDir)
-if (-not [System.IO.File]::Exists($input)) {
-  throw "aared Word export: input document does not exist: $input"
+if (-not [System.IO.File]::Exists($source)) {
+  throw "aared Word export: input document does not exist: $source"
 }
 
 [System.IO.Directory]::CreateDirectory($output) | Out-Null
 # Word opens a private copy so the fixture is never touched: no `~$` lock file
 # appears beside it and a stray save cannot alter the frozen bytes.
 $copy = Join-Path $output "word-source.docx"
-Copy-Item -LiteralPath $input -Destination $copy -Force
+Copy-Item -LiteralPath $source -Destination $copy -Force
 $pdf = Join-Path $output "word.pdf"
 
 $application = $null
