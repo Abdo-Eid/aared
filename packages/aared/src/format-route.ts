@@ -7,19 +7,37 @@
 
 import { AaredError } from "./core/index.js";
 import type { Appearance, DocumentFormat, MediaResolver, OpenOptions, UnitRef, ZoomValue } from "./core/index.js";
-import type { DocxPagination } from "./preview/index.js";
-import type { DocxDocument } from "./docx/index.js";
-import type { PptxDocument } from "./pptx/index.js";
-import type { XlsxDocument } from "./xlsx/index.js";
+import type { DocxPagination, PreviewEventMap } from "./preview/index.js";
+import type { DocxContent, DocxDocument } from "./docx/index.js";
+import type { PptxContent, PptxDocument } from "./pptx/index.js";
+import type { XlsxContent, XlsxDocument } from "./xlsx/index.js";
+import type { WorkerSession } from "./core/session.js";
 
 export type AnyDocument = PptxDocument | XlsxDocument | DocxDocument;
+export type AnyContent = PptxContent | XlsxContent | DocxContent;
+
+/** Listed as a record so adding a public event requires forwarding it too. */
+const VIEWER_EVENT_NAMES: Readonly<Record<keyof PreviewEventMap, true>> = {
+  searchchange: true,
+  indexchange: true,
+  slidechange: true,
+  sheetchange: true,
+  zoomchange: true,
+  error: true,
+  linkactivate: true,
+  cellactivate: true,
+  selectionchange: true,
+};
+
+/** Event forwarding needs metadata, never an eager import of the controller. */
+export const VIEWER_EVENTS = Object.keys(VIEWER_EVENT_NAMES) as ReadonlyArray<keyof PreviewEventMap>;
 
 /**
  * The appearance an embed layer renders with: the caller's, with the embed
  * defaults under whatever it leaves out. A workbook shows its sheet tabs,
  * since an embed has no other way to switch sheets; the headless `render()`
  * default stays off, for an app that draws its own. Applied at every render
- * and every `setAppearance()`, so a theme switch keeps the tabs.
+ * and every appearance change the viewer forwards.
  */
 export function embedAppearance(format: DocumentFormat, appearance: Appearance): Appearance;
 export function embedAppearance(format: DocumentFormat, appearance: Appearance | undefined): Appearance | undefined;
@@ -27,6 +45,15 @@ export function embedAppearance(format: DocumentFormat, appearance: Appearance |
   if (format !== "xlsx" || appearance?.spreadsheet?.sheetTabs !== undefined) return appearance;
   return { ...appearance, spreadsheet: { ...appearance?.spreadsheet, sheetTabs: true } };
 }
+
+/**
+ * The viewer's internal "replace the whole appearance" call, for the React
+ * hook alone: its `appearance` option is the full state it wants, so a knob
+ * removed from the option must go back to its default, which the public
+ * merging `setAppearance()` never does. A registry symbol, so the hook and
+ * the lazily loaded viewer chunk agree on it without sharing a module.
+ */
+export const REPLACE_APPEARANCE: unique symbol = Symbol.for("aared.replaceAppearance");
 
 /** What every format's render handle offers a facade. */
 export interface RenderHandle extends EventTarget {
@@ -53,7 +80,8 @@ export interface ViewerRenderInput {
 /** A format supplies parsing and rendering; the shared viewer owns lifecycle. */
 export interface ViewerRoute {
   readonly format: DocumentFormat;
-  open(bytes: ArrayBuffer, options: OpenOptions | undefined): Promise<AnyDocument>;
+  adopt(session: WorkerSession, options: OpenOptions | undefined): Promise<AnyDocument>;
+  content(document: AnyDocument, assertOpen: () => void, signal: AbortSignal): AnyContent;
   render(input: ViewerRenderInput): Promise<RenderHandle>;
 }
 
@@ -106,7 +134,7 @@ export function announceUnit(target: EventTarget, format: DocumentFormat, docume
  * own `sheetchange` (a sheet-tab click) is not here: the facade turns it into
  * its own unit announcement so its `index` follows (see `followSheet`).
  */
-const FORWARDED_EVENTS = ["zoomchange", "linkactivate", "cellactivate", "selectionchange"] as const;
+const FORWARDED_EVENTS = ["zoomchange", "linkactivate", "cellactivate", "selectionchange", "error"] as const;
 
 /** Re-raise the handle's events on `to` until `signal` aborts. */
 export function forwardRenderEvents(from: EventTarget, to: EventTarget, signal: AbortSignal): void {

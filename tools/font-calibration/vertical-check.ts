@@ -1,14 +1,14 @@
 // Line-box check for every calibrated face: at line-height: normal and 2000px, the
 // real Office font's line box against the substitute registered with the shipped
-// numbers (and, for the record, the numbers before DECISION_LOG §46). A main-face
+// numbers (and, for the record, the numbers before Notes §46). A main-face
 // substitute (FONT_CALIBRATION) is all its subsets under one alias; an Arabic
 // fallback (ARABIC_SCRIPT_FALLBACKS) is the Latin substitute plus the Arabic face,
 // as the resolver registers them. 2000px: line boxes round to whole pixels, so a
 // smaller size hides a 0.5% error in rounding.
 //
 //   bun tools/font-calibration/vertical-check.ts
-import { ARABIC_SCRIPT_FALLBACKS, ARABIC_UNICODE_RANGE, FONT_CALIBRATION, FONT_SUBSTITUTIONS, parseFontCss } from "../../../packages/aared-fonts/src/index.ts";
-import type { FontCalibration } from "../../../packages/aared-fonts/src/index.ts";
+import { ARABIC_SCRIPT_FALLBACKS, ARABIC_UNICODE_RANGE, FONT_CALIBRATION, FONT_SUBSTITUTIONS, parseFontCss } from "../../packages/aared-fonts/src/index.ts";
+import type { FontCalibration } from "../../packages/aared-fonts/src/index.ts";
 
 const SIZE = 2000;
 const FILES: Record<string, { 400: string; 700?: string }> = {

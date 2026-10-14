@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "allowImportingTsExtensions": true,
+    "moduleDetection": "force",
+    "jsx": "react-jsx"
+  },
+  "include": ["cli.ts", "cli/**/*.ts", "benchmarks/**/*.ts", "checks/**/*.ts", "inspect/**/*.ts", "shared/**/*.ts", "review/**/*.ts", "chart-oracle/*.ts", "font-calibration/*.ts", "../bench/src/types/*.d.ts", "../bench/node_modules/vite/client.d.ts"]
+}

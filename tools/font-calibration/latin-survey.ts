@@ -12,12 +12,12 @@
 //
 //   bun tools/font-calibration/latin-survey.ts [--bold] [--italic] [--refs a,b] [--cands x,y] [--calib "Ref=Cand,..."]
 import { readdirSync } from "node:fs";
-import { OpcPackage } from "../../../packages/aared/src/core/opc.ts";
-import { indexDocx, parseDocxSections } from "../../../packages/aared/src/core/docx/document.ts";
-import { indexPptx, parsePptxSlide } from "../../../packages/aared/src/core/pptx.ts";
-import { readWorkbook } from "../../../packages/aared/src/core/xlsx/workbook.ts";
-import { parseXlsxSheet } from "../../../packages/aared/src/core/xlsx/sheet.ts";
-import { fontCssUrl, parseFontCss } from "../../../packages/aared-fonts/src/index.ts";
+import { OpcPackage } from "../../packages/aared/src/core/opc.ts";
+import { indexDocx, parseDocxSections } from "../../packages/aared/src/core/docx/document.ts";
+import { indexPptx, parsePptxSlide } from "../../packages/aared/src/core/pptx.ts";
+import { readWorkbook } from "../../packages/aared/src/core/xlsx/workbook.ts";
+import { parseXlsxSheet } from "../../packages/aared/src/core/xlsx/sheet.ts";
+import { fontCssUrl, parseFontCss } from "../../packages/aared-fonts/src/index.ts";
 import { cloudFontFile } from "./cloud-fonts.ts";
 
 const BOLD = process.argv.includes("--bold");

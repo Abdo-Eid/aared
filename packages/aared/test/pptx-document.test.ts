@@ -12,10 +12,10 @@ test("opens a deck with an addressable slide collection", async () => {
   const deck = await open(await Bun.file(ARABIC_FIXTURE).arrayBuffer());
   try {
     expect(deck.info.format).toBe("pptx");
-    expect(deck.info.count).toBe(18);
+    expect(deck.info.count).toBe(20);
     const slides = deck.slides.list();
-    expect(slides).toHaveLength(18);
-    expect(slides.map((slide) => slide.info.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+    expect(slides).toHaveLength(20);
+    expect(slides.map((slide) => slide.info.index)).toEqual(Array.from({ length: 20 }, (_, index) => index));
     for (const slide of slides) {
       expect(slide.info.title).toContain("Slide");
       expect(slide.info.size.width).toBeGreaterThan(0);
@@ -40,7 +40,7 @@ test("reads slides lazily through handles", async () => {
 test("reports unknown slides with a not-found error", async () => {
   const deck = await open(await Bun.file(ARABIC_FIXTURE).arrayBuffer());
   try {
-    const error = await rejection(deck.slides.get(2).read().then(() => deck.slides.get(19).read()));
+    const error = await rejection(deck.slides.get(2).read().then(() => deck.slides.get(20).read()));
     expect(error).toBeInstanceOf(AaredError);
     expect((error as AaredError).code).toBe("not-found");
   } finally {
@@ -48,7 +48,7 @@ test("reports unknown slides with a not-found error", async () => {
   }
   const reopened = await open(await Bun.file(ARABIC_FIXTURE).arrayBuffer());
   try {
-    expect(() => reopened.slides.get(25)).toThrow("outside this 18-slide deck");
+    expect(() => reopened.slides.get(25)).toThrow("outside this 20-slide deck");
   } finally {
     reopened.close();
   }
@@ -142,6 +142,8 @@ test("serves picture media through the media collection", async () => {
     expect(mediaIds.length).toBeGreaterThan(0);
     const bytes = await deck.media.get(mediaIds[0]!);
     expect(bytes.byteLength).toBeGreaterThan(0);
+    // A PNG's signature, so this is the picture's own bytes and not a wrapper.
+    expect(new Uint8Array(bytes)[0]).toBe(0x89);
     const missing = await rejection(deck.media.get("ppt/media/not-present.png"));
     expect((missing as AaredError).code).toBe("media-error");
   } finally {

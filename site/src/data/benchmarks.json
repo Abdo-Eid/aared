@@ -1,8 +1,8 @@
 {
- "generated": "2026-10-05T16:34:07.655Z",
+ "generated": "2026-10-11T11:27:02.374Z",
  "sources": {
   "run": "20260924-235805.json",
-  "size": "size-20260924-231918.json",
+  "size": "size-20261001-184013.json",
   "search": "search-20261005-193334.json"
  },
  "machine": {
@@ -16,7 +16,7 @@
   "ram_gb": 15,
   "browser": "HeadlessChrome/153.0.0.0"
  },
- "measured": "",
+ "measured": "aared (3 of 8 cells) measured 2026-10-11 on HeadlessChrome/155.0.0.0; aared (5 of 8 cells), the other renderers measured 2026-09-24 on HeadlessChrome/153.0.0.0",
  "method": {
   "runs": 11,
   "warmupDiscarded": 2,
@@ -35,12 +35,12 @@
     ],
     "version": "0.0.0",
     "totals": {
-     "files": 6,
-     "bytes": 269972,
-     "gzip": 83543,
-     "brotli": 70415,
-     "main": 40145,
-     "worker": 43398,
+     "files": 13,
+     "bytes": 423904,
+     "gzip": 137512,
+     "brotli": 116405,
+     "main": 53948,
+     "worker": 83564,
      "wasm": 0
     }
    },
@@ -53,11 +53,11 @@
     ],
     "version": "1.1.9",
     "totals": {
-     "files": 3,
-     "bytes": 898723,
-     "gzip": 259171,
-     "brotli": 209110,
-     "main": 259171,
+     "files": 4,
+     "bytes": 898815,
+     "gzip": 259258,
+     "brotli": 209438,
+     "main": 259258,
      "worker": 0,
      "wasm": 0
     }
@@ -73,9 +73,9 @@
     "totals": {
      "files": 2,
      "bytes": 2619795,
-     "gzip": 944462,
-     "brotli": 690797,
-     "main": 262079,
+     "gzip": 944463,
+     "brotli": 690530,
+     "main": 262080,
      "worker": 0,
      "wasm": 682383
     }
@@ -89,11 +89,11 @@
     ],
     "version": "1.3.0",
     "totals": {
-     "files": 4,
-     "bytes": 1244192,
-     "gzip": 390818,
-     "brotli": 323129,
-     "main": 390818,
+     "files": 5,
+     "bytes": 1244284,
+     "gzip": 390902,
+     "brotli": 323333,
+     "main": 390902,
      "worker": 0,
      "wasm": 0
     }
@@ -117,6 +117,42 @@
     }
    },
    {
+    "renderer": "pptx-browser",
+    "format": "pptx",
+    "fixtures": [
+     "pptx-coverage.pptx",
+     "post-production-review.pptx"
+    ],
+    "version": "4.1.5",
+    "totals": {
+     "files": 1,
+     "bytes": 153138,
+     "gzip": 49924,
+     "brotli": 42016,
+     "main": 49924,
+     "worker": 0,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "extend",
+    "format": "pptx",
+    "fixtures": [
+     "pptx-coverage.pptx",
+     "post-production-review.pptx"
+    ],
+    "version": "0.2.1",
+    "totals": {
+     "files": 13,
+     "bytes": 1433569,
+     "gzip": 506715,
+     "brotli": 416524,
+     "main": 275447,
+     "worker": 2128,
+     "wasm": 229140
+    }
+   },
+   {
     "renderer": "omni",
     "format": "pptx",
     "fixtures": [
@@ -125,11 +161,11 @@
     ],
     "version": "0.2.0",
     "totals": {
-     "files": 6,
-     "bytes": 1392798,
-     "gzip": 451600,
-     "brotli": 368706,
-     "main": 451600,
+     "files": 7,
+     "bytes": 1392973,
+     "gzip": 451727,
+     "brotli": 369011,
+     "main": 451727,
      "worker": 0,
      "wasm": 0
     }
@@ -143,12 +179,12 @@
     ],
     "version": "0.0.0",
     "totals": {
-     "files": 6,
-     "bytes": 183366,
-     "gzip": 63717,
-     "brotli": 55987,
-     "main": 20319,
-     "worker": 43398,
+     "files": 11,
+     "bytes": 414099,
+     "gzip": 146525,
+     "brotli": 127527,
+     "main": 62961,
+     "worker": 83564,
      "wasm": 0
     }
    },
@@ -179,11 +215,11 @@
     ],
     "version": "0.4.0",
     "totals": {
-     "files": 2,
-     "bytes": 1085183,
-     "gzip": 327236,
-     "brotli": 263715,
-     "main": 327236,
+     "files": 4,
+     "bytes": 1092775,
+     "gzip": 330967,
+     "brotli": 267347,
+     "main": 330967,
      "worker": 0,
      "wasm": 0
     }
@@ -207,6 +243,24 @@
     }
    },
    {
+    "renderer": "extend",
+    "format": "xlsx",
+    "fixtures": [
+     "post-production-tracker.xlsx",
+     "xlsx-coverage.xlsx"
+    ],
+    "version": "0.16.6",
+    "totals": {
+     "files": 13,
+     "bytes": 7075404,
+     "gzip": 2536918,
+     "brotli": 1900450,
+     "main": 806754,
+     "worker": 39203,
+     "wasm": 1690961
+    }
+   },
+   {
     "renderer": "omni",
     "format": "xlsx",
     "fixtures": [
@@ -216,10 +270,10 @@
     "version": "0.2.0",
     "totals": {
      "files": 3,
-     "bytes": 536608,
-     "gzip": 178769,
-     "brotli": 148301,
-     "main": 178769,
+     "bytes": 536649,
+     "gzip": 178792,
+     "brotli": 148346,
+     "main": 178792,
      "worker": 0,
      "wasm": 0
     }
@@ -232,12 +286,12 @@
     ],
     "version": "0.0.0",
     "totals": {
-     "files": 6,
-     "bytes": 176772,
-     "gzip": 61684,
-     "brotli": 54140,
-     "main": 18286,
-     "worker": 43398,
+     "files": 14,
+     "bytes": 455788,
+     "gzip": 161694,
+     "brotli": 140752,
+     "main": 78130,
+     "worker": 83564,
      "wasm": 0
     }
    },
@@ -249,11 +303,11 @@
     ],
     "version": "0.4.0",
     "totals": {
-     "files": 3,
-     "bytes": 173514,
-     "gzip": 51453,
-     "brotli": 45443,
-     "main": 51453,
+     "files": 4,
+     "bytes": 173606,
+     "gzip": 51546,
+     "brotli": 45529,
+     "main": 51546,
      "worker": 0,
      "wasm": 0
     }
@@ -266,13 +320,47 @@
     ],
     "version": "0.2.2",
     "totals": {
-     "files": 3,
-     "bytes": 451903,
-     "gzip": 135472,
-     "brotli": 115911,
-     "main": 135472,
+     "files": 4,
+     "bytes": 451995,
+     "gzip": 135567,
+     "brotli": 115930,
+     "main": 135567,
      "worker": 0,
      "wasm": 0
+    }
+   },
+   {
+    "renderer": "apollo",
+    "format": "docx",
+    "fixtures": [
+     "docx-coverage.docx"
+    ],
+    "version": "0.9.0",
+    "totals": {
+     "files": 4,
+     "bytes": 179820,
+     "gzip": 53650,
+     "brotli": 47472,
+     "main": 53650,
+     "worker": 0,
+     "wasm": 0
+    }
+   },
+   {
+    "renderer": "extend",
+    "format": "docx",
+    "fixtures": [
+     "docx-coverage.docx"
+    ],
+    "version": "0.9.2",
+    "totals": {
+     "files": 13,
+     "bytes": 1692619,
+     "gzip": 635307,
+     "brotli": 491958,
+     "main": 175362,
+     "worker": 4104,
+     "wasm": 455841
     }
    },
    {
@@ -283,32 +371,32 @@
     ],
     "version": "0.2.0",
     "totals": {
-     "files": 5,
-     "bytes": 208210,
-     "gzip": 65027,
-     "brotli": 57568,
-     "main": 65027,
+     "files": 6,
+     "bytes": 208383,
+     "gzip": 65158,
+     "brotli": 57713,
+     "main": 65158,
      "worker": 0,
      "wasm": 0
     }
    }
   ],
   "aaredAll": {
-   "files": 9,
-   "bytes": 340521,
-   "gzip": 107847,
-   "brotli": 92215,
-   "main": 64449,
-   "worker": 43398,
+   "files": 19,
+   "bytes": 618441,
+   "gzip": 208176,
+   "brotli": 179042,
+   "main": 124612,
+   "worker": 83564,
    "wasm": 0
   },
   "stitched": {
    "totals": {
-    "files": 5,
-    "bytes": 771923,
-    "gzip": 245055,
-    "brotli": 205818,
-    "main": 245055,
+    "files": 6,
+    "bytes": 772015,
+    "gzip": 245148,
+    "brotli": 205904,
+    "main": 245148,
     "worker": 0,
     "wasm": 0
    },
@@ -329,6 +417,159 @@
   }
  },
  "run": [
+  {
+   "fixture": "pptx-coverage.pptx",
+   "format": "pptx",
+   "renderer": "aared",
+   "units": 20,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 128.20000000298023,
+    "p95": 208.30000000074506,
+    "min": 108,
+    "max": 208.30000000074506
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 32,
+    "p95": 33.099999997764826,
+    "min": 30.100000001490116,
+    "max": 33.099999997764826
+   },
+   "nav_ms": {
+    "n": 100,
+    "median": 33.5,
+    "p95": 117.5,
+    "min": 24.099999997764826,
+    "max": 250.30000000074506
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 948.6000000014901,
+    "p95": 1031.9000000022352,
+    "min": 898.8000000007451,
+    "max": 1031.9000000022352
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 996.0595703125,
+    "min": 876.7265625,
+    "max": 1003.4697265625,
+    "samples": [
+     877,
+     996,
+     1003,
+     998,
+     996
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 181.10546875,
+    "min": 100.8232421875,
+    "max": 184.74609375,
+    "samples": [
+     101,
+     180,
+     181,
+     185,
+     183
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 813.5439453125,
+    "min": 775.9033203125,
+    "max": 822.3642578125,
+    "samples": [
+     776,
+     816,
+     822,
+     813,
+     814
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 2942.1904296875,
+    "min": 2942.0419921875,
+    "max": 2943.1279296875,
+    "samples": [
+     2943,
+     2942,
+     2943,
+     2942,
+     2942
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 1091.7451171875,
+    "min": 1091.5966796875,
+    "max": 1092.6826171875,
+    "samples": [
+     1093,
+     1092,
+     1093,
+     1092,
+     1092
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 1850.4453125,
+    "min": 1850.4453125,
+    "max": 1850.4453125,
+    "samples": [
+     1850,
+     1850,
+     1850,
+     1850,
+     1850
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 1384.6796875,
+    "min": 1311.06640625,
+    "max": 1454.36328125,
+    "samples": [
+     1454,
+     1311,
+     1385
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 1.5546875,
+    "min": -118.2392578125,
+    "max": 8.98046875,
+    "samples": [
+     -118,
+     1,
+     9,
+     3,
+     2
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1764.7958984375,
+    "min": 1764.7958984375,
+    "max": 1764.7958984375,
+    "samples": [
+     1765
+    ]
+   },
+   "elements": 66,
+   "status": "measured",
+   "error": null,
+   "measured_on": {
+    "date": "2026-10-11T10:54:51.953Z",
+    "browser": "HeadlessChrome/155.0.0.0",
+    "os": "Windows_NT 10.0.26300"
+   }
+  },
   {
    "fixture": "pptx-coverage.pptx",
    "format": "pptx",
@@ -1066,6 +1307,154 @@
     ]
    },
    "elements": 740,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "post-production-review.pptx",
+   "format": "pptx",
+   "renderer": "aared",
+   "units": 7,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 98.29999999981374,
+    "p95": 99.5,
+    "min": 94.09999999962747,
+    "max": 99.5
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 31.700000000186265,
+    "p95": 32.90000000037253,
+    "min": 29.600000000558794,
+    "max": 32.90000000037253
+   },
+   "nav_ms": {
+    "n": 35,
+    "median": 33.39999999944121,
+    "p95": 35.799999999813735,
+    "min": 28.700000000186265,
+    "max": 40.09999999962747
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 232.6000000005588,
+    "p95": 234,
+    "min": 231.69999999925494,
+    "max": 234
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 626.384765625,
+    "min": 591.6064453125,
+    "max": 642.802734375,
+    "samples": [
+     592,
+     622,
+     626,
+     628,
+     643
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 121.40625,
+    "min": 83.8974609375,
+    "max": 137.609375,
+    "samples": [
+     84,
+     121,
+     121,
+     122,
+     138
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 505.193359375,
+    "min": 500.744140625,
+    "max": 507.708984375,
+    "samples": [
+     508,
+     501,
+     505,
+     507,
+     505
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 2181.421875,
+    "min": 2181.421875,
+    "max": 2182.359375,
+    "samples": [
+     2182,
+     2181,
+     2181,
+     2181,
+     2182
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 852.046875,
+    "min": 852.046875,
+    "max": 852.984375,
+    "samples": [
+     853,
+     852,
+     852,
+     852,
+     853
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 1329.375,
+    "min": 1329.375,
+    "max": 1329.375,
+    "samples": [
+     1329,
+     1329,
+     1329,
+     1329,
+     1329
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 798.27734375,
+    "min": 787.12890625,
+    "max": 807.8037109375,
+    "samples": [
+     808,
+     787,
+     798
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 4.08203125,
+    "min": -30.5322265625,
+    "max": 5.8359375,
+    "samples": [
+     -31,
+     0,
+     4,
+     6,
+     5
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1256.279296875,
+    "min": 1256.279296875,
+    "max": 1256.279296875,
+    "samples": [
+     1256
+    ]
+   },
+   "elements": 39,
    "status": "measured",
    "error": null
   },
@@ -2552,6 +2941,159 @@
   {
    "fixture": "xlsx-coverage.xlsx",
    "format": "xlsx",
+   "renderer": "aared",
+   "units": 5,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 148.30000000074506,
+    "p95": 275.5,
+    "min": 121.60000000149012,
+    "max": 275.5
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 28.199999999254942,
+    "p95": 37.900000002235174,
+    "min": 23.5,
+    "max": 37.900000002235174
+   },
+   "nav_ms": {
+    "n": 25,
+    "median": 41.80000000074506,
+    "p95": 90.30000000074506,
+    "min": 23.399999998509884,
+    "max": 127
+   },
+   "full_ms": {
+    "n": 5,
+    "median": 241.79999999701977,
+    "p95": 316,
+    "min": 208.09999999776483,
+    "max": 316
+   },
+   "heap_open_kb": {
+    "n": 5,
+    "median": 717.7490234375,
+    "min": 647.326171875,
+    "max": 727.3232421875,
+    "samples": [
+     647,
+     716,
+     718,
+     727,
+     724
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 619.3359375,
+    "min": 560.8076171875,
+    "max": 623.625,
+    "samples": [
+     561,
+     618,
+     619,
+     624,
+     621
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 98.4130859375,
+    "min": 86.5185546875,
+    "max": 103.6982421875,
+    "samples": [
+     87,
+     98,
+     98,
+     104,
+     103
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 2332.37890625,
+    "min": 2331.80859375,
+    "max": 2333.17578125,
+    "samples": [
+     2332,
+     2333,
+     2332,
+     2332,
+     2333
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 1186.8916015625,
+    "min": 1186.3603515625,
+    "max": 1187.6884765625,
+    "samples": [
+     1186,
+     1188,
+     1187,
+     1186,
+     1187
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 1145.4873046875,
+    "min": 1145.3740234375,
+    "max": 1145.4873046875,
+    "samples": [
+     1145,
+     1145,
+     1145,
+     1145,
+     1145
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 1320.470703125,
+    "min": 1176.919921875,
+    "max": 1382.0634765625,
+    "samples": [
+     1382,
+     1177,
+     1320
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": -0.6953125,
+    "min": -71.1181640625,
+    "max": 5.71484375,
+    "samples": [
+     -71,
+     -6,
+     -1,
+     6,
+     5
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1774.484375,
+    "min": 1774.484375,
+    "max": 1774.484375,
+    "samples": [
+     1774
+    ]
+   },
+   "elements": 204,
+   "status": "measured",
+   "error": null,
+   "measured_on": {
+    "date": "2026-10-11T10:54:51.953Z",
+    "browser": "HeadlessChrome/155.0.0.0",
+    "os": "Windows_NT 10.0.26300"
+   }
+  },
+  {
+   "fixture": "xlsx-coverage.xlsx",
+   "format": "xlsx",
    "renderer": "sheetjs",
    "units": 4,
    "open_cold_ms": {
@@ -3144,6 +3686,147 @@
   {
    "fixture": "docx-coverage.docx",
    "format": "docx",
+   "renderer": "aared",
+   "units": 0,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 799.7999999970198,
+    "p95": 1228.5,
+    "min": 593.4000000022352,
+    "max": 1228.5
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 165.80000000074506,
+    "p95": 181,
+    "min": 142.90000000223517,
+    "max": 181
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 2370.2646484375,
+    "min": 2314.625,
+    "max": 2386.1982421875,
+    "samples": [
+     2315,
+     2386,
+     2370,
+     2380,
+     2364
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 2064.8681640625,
+    "min": 2024.794921875,
+    "max": 2073.5205078125,
+    "samples": [
+     2025,
+     2074,
+     2069,
+     2065,
+     2064
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 301.330078125,
+    "min": 289.830078125,
+    "max": 314.880859375,
+    "samples": [
+     290,
+     313,
+     301,
+     315,
+     300
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 6664.232421875,
+    "min": 6663.654296875,
+    "max": 6665.830078125,
+    "samples": [
+     6664,
+     6664,
+     6666,
+     6665,
+     6664
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 4795.8486328125,
+    "min": 4795.4462890625,
+    "max": 4796.6962890625,
+    "samples": [
+     4796,
+     4795,
+     4797,
+     4796,
+     4796
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 1868.6572265625,
+    "min": 1867.7783203125,
+    "max": 1869.1494140625,
+    "samples": [
+     1868,
+     1868,
+     1869,
+     1869,
+     1869
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 3,
+    "median": 3473.77734375,
+    "min": 3458.59765625,
+    "max": 3503.3671875,
+    "samples": [
+     3503,
+     3459,
+     3474
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 16.98046875,
+    "min": -46.7861328125,
+    "max": 27.1015625,
+    "samples": [
+     -47,
+     27,
+     17,
+     18,
+     11
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1972.0029296875,
+    "min": 1972.0029296875,
+    "max": 1972.0029296875,
+    "samples": [
+     1972
+    ]
+   },
+   "elements": 1341,
+   "status": "measured",
+   "error": null,
+   "measured_on": {
+    "date": "2026-10-11T10:54:51.953Z",
+    "browser": "HeadlessChrome/155.0.0.0",
+    "os": "Windows_NT 10.0.26300"
+   }
+  },
+  {
+   "fixture": "docx-coverage.docx",
+   "format": "docx",
    "renderer": "docx-preview",
    "units": 0,
    "open_cold_ms": {
@@ -3546,6 +4229,132 @@
     ]
    },
    "elements": 599,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-300-slides.pptx",
+   "format": "pptx",
+   "renderer": "aared",
+   "units": 300,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 117.70000000018626,
+    "p95": 119.09999999962747,
+    "min": 108.3999999994412,
+    "max": 119.09999999962747
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 31.5,
+    "p95": 45.10000000055879,
+    "min": 30.09999999962747,
+    "max": 45.10000000055879
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 1347.4267578125,
+    "min": 1330.0859375,
+    "max": 1356.4228515625,
+    "samples": [
+     1330,
+     1342,
+     1354,
+     1347,
+     1356
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 174.0498046875,
+    "min": 170.7890625,
+    "max": 180.9140625,
+    "samples": [
+     174,
+     171,
+     181,
+     171,
+     181
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 1172.8251953125,
+    "min": 1156.0361328125,
+    "max": 1176.6376953125,
+    "samples": [
+     1156,
+     1171,
+     1173,
+     1177,
+     1176
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 2927.55859375,
+    "min": 2925.97265625,
+    "max": 2927.91015625,
+    "samples": [
+     2928,
+     2928,
+     2928,
+     2926,
+     2928
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 906.609375,
+    "min": 904.9375,
+    "max": 906.875,
+    "samples": [
+     907,
+     907,
+     907,
+     905,
+     907
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 2021.03515625,
+    "min": 2020.94921875,
+    "max": 2021.03515625,
+    "samples": [
+     2021,
+     2021,
+     2021,
+     2021,
+     2021
+    ]
+   },
+   "heap_visited_kb": null,
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 0.59765625,
+    "min": -16.7431640625,
+    "max": 9.59375,
+    "samples": [
+     -17,
+     -5,
+     7,
+     1,
+     10
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1103.9599609375,
+    "min": 1103.9599609375,
+    "max": 1103.9599609375,
+    "samples": [
+     1104
+    ]
+   },
+   "elements": 39,
    "status": "measured",
    "error": null
   },
@@ -4182,6 +4991,132 @@
   {
    "fixture": "large-13-sheets.xlsx",
    "format": "xlsx",
+   "renderer": "aared",
+   "units": 13,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 110.6000000005588,
+    "p95": 118.40000000037253,
+    "min": 104.70000000018626,
+    "max": 118.40000000037253
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 25.5,
+    "p95": 42.5,
+    "min": 23.5,
+    "max": 42.5
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 2396.32421875,
+    "min": 2369.8974609375,
+    "max": 2401.05078125,
+    "samples": [
+     2370,
+     2400,
+     2390,
+     2401,
+     2396
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 603.7109375,
+    "min": 588.6513671875,
+    "max": 603.98828125,
+    "samples": [
+     589,
+     604,
+     602,
+     604,
+     604
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 1792.59375,
+    "min": 1781.24609375,
+    "max": 1797.33984375,
+    "samples": [
+     1781,
+     1796,
+     1787,
+     1797,
+     1793
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 3627.96484375,
+    "min": 3627.43359375,
+    "max": 3627.96484375,
+    "samples": [
+     3628,
+     3627,
+     3628,
+     3628,
+     3628
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 1020.7431640625,
+    "min": 1020.2119140625,
+    "max": 1020.7431640625,
+    "samples": [
+     1021,
+     1020,
+     1021,
+     1020,
+     1021
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 2607.2216796875,
+    "min": 2607.2216796875,
+    "max": 2607.2216796875,
+    "samples": [
+     2607,
+     2607,
+     2607,
+     2607,
+     2607
+    ]
+   },
+   "heap_visited_kb": null,
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 5.4765625,
+    "min": -20.9501953125,
+    "max": 10.203125,
+    "samples": [
+     -21,
+     9,
+     1,
+     10,
+     5
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1038.2763671875,
+    "min": 1038.2763671875,
+    "max": 1038.2763671875,
+    "samples": [
+     1038
+    ]
+   },
+   "elements": 202,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-13-sheets.xlsx",
+   "format": "xlsx",
    "renderer": "sheetjs",
    "units": 13,
    "open_cold_ms": {
@@ -4686,6 +5621,140 @@
   {
    "fixture": "large-40x.docx",
    "format": "docx",
+   "renderer": "aared",
+   "units": 0,
+   "open_cold_ms": {
+    "n": 5,
+    "median": 1119.2999999998137,
+    "p95": 1253.2000000001863,
+    "min": 1106.7999999998137,
+    "max": 1253.2000000001863
+   },
+   "open_warm_ms": {
+    "n": 11,
+    "median": 611.2999999998137,
+    "p95": 711.7000000001863,
+    "min": 584.9000000003725,
+    "max": 711.7000000001863
+   },
+   "nav_ms": null,
+   "full_ms": null,
+   "heap_open_kb": {
+    "n": 5,
+    "median": 15792.62890625,
+    "min": 15783.9951171875,
+    "max": 15812.2265625,
+    "samples": [
+     15784,
+     15812,
+     15793,
+     15807,
+     15787
+    ]
+   },
+   "heap_open_page_kb": {
+    "n": 5,
+    "median": 15446.6845703125,
+    "min": 15428.6796875,
+    "max": 15461.3916015625,
+    "samples": [
+     15429,
+     15461,
+     15447,
+     15461,
+     15439
+    ]
+   },
+   "heap_open_worker_kb": {
+    "n": 5,
+    "median": 347.3115234375,
+    "min": 345.9443359375,
+    "max": 355.3154296875,
+    "samples": [
+     355,
+     351,
+     346,
+     347,
+     347
+    ]
+   },
+   "heap_first_kb": {
+    "n": 5,
+    "median": 15646.54296875,
+    "min": 15635.38671875,
+    "max": 15662.80859375,
+    "samples": [
+     15643,
+     15663,
+     15653,
+     15647,
+     15635
+    ]
+   },
+   "heap_first_page_kb": {
+    "n": 5,
+    "median": 14314.478515625,
+    "min": 14305.658203125,
+    "max": 14330.564453125,
+    "samples": [
+     14311,
+     14331,
+     14320,
+     14314,
+     14306
+    ]
+   },
+   "heap_first_worker_kb": {
+    "n": 5,
+    "median": 1332.064453125,
+    "min": 1329.728515625,
+    "max": 1332.244140625,
+    "samples": [
+     1332,
+     1332,
+     1332,
+     1332,
+     1330
+    ]
+   },
+   "heap_visited_kb": {
+    "n": 1,
+    "median": 33816.03515625,
+    "min": 33816.03515625,
+    "max": 33816.03515625,
+    "samples": [
+     33816
+    ]
+   },
+   "heap_residual_kb": {
+    "n": 5,
+    "median": 15246.3642578125,
+    "min": 15241.5673828125,
+    "max": 15251.9150390625,
+    "samples": [
+     15244,
+     15246,
+     15252,
+     15242,
+     15246
+    ]
+   },
+   "heap_idle_worker_kb": {
+    "n": 1,
+    "median": 1191.1435546875,
+    "min": 1191.1435546875,
+    "max": 1191.1435546875,
+    "samples": [
+     1191
+    ]
+   },
+   "elements": 19241,
+   "status": "measured",
+   "error": null
+  },
+  {
+   "fixture": "large-40x.docx",
+   "format": "docx",
    "renderer": "docx-preview",
    "units": 0,
    "open_cold_ms": {
@@ -4948,972 +6017,6 @@
     ]
    },
    "elements": 17459,
-   "status": "measured",
-   "error": null
-  },
-  {
-   "fixture": "pptx-coverage.pptx",
-   "format": "pptx",
-   "renderer": "aared",
-   "units": 11,
-   "open_cold_ms": {
-    "n": 5,
-    "median": 91.29999999981374,
-    "p95": 109.3999999994412,
-    "min": 87.20000000018626,
-    "max": 109.3999999994412
-   },
-   "open_warm_ms": {
-    "n": 11,
-    "median": 31.200000000186265,
-    "p95": 32.59999999962747,
-    "min": 29.399999999441206,
-    "max": 32.59999999962747
-   },
-   "nav_ms": {
-    "n": 55,
-    "median": 33.5,
-    "p95": 216.40000000037253,
-    "min": 20.90000000037253,
-    "max": 217
-   },
-   "full_ms": {
-    "n": 5,
-    "median": 583,
-    "p95": 665.2000000001863,
-    "min": 549.7999999998137,
-    "max": 665.2000000001863
-   },
-   "heap_open_kb": {
-    "n": 5,
-    "median": 972.59375,
-    "min": 922.0185546875,
-    "max": 980.4140625,
-    "samples": [
-     922,
-     973,
-     968,
-     973,
-     980
-    ]
-   },
-   "heap_open_page_kb": {
-    "n": 5,
-    "median": 211.08203125,
-    "min": 184.7177734375,
-    "max": 219.11328125,
-    "samples": [
-     185,
-     207,
-     211,
-     211,
-     219
-    ]
-   },
-   "heap_open_worker_kb": {
-    "n": 5,
-    "median": 761.30078125,
-    "min": 737.30078125,
-    "max": 765.2578125,
-    "samples": [
-     737,
-     765,
-     757,
-     762,
-     761
-    ]
-   },
-   "heap_first_kb": {
-    "n": 5,
-    "median": 2570.841796875,
-    "min": 2570.841796875,
-    "max": 2571.638671875,
-    "samples": [
-     2572,
-     2571,
-     2571,
-     2571,
-     2571
-    ]
-   },
-   "heap_first_page_kb": {
-    "n": 5,
-    "median": 990.9404296875,
-    "min": 990.9404296875,
-    "max": 991.7373046875,
-    "samples": [
-     992,
-     991,
-     991,
-     991,
-     991
-    ]
-   },
-   "heap_first_worker_kb": {
-    "n": 5,
-    "median": 1579.9013671875,
-    "min": 1579.9013671875,
-    "max": 1579.9013671875,
-    "samples": [
-     1580,
-     1580,
-     1580,
-     1580,
-     1580
-    ]
-   },
-   "heap_visited_kb": {
-    "n": 3,
-    "median": 989.0390625,
-    "min": 917.51953125,
-    "max": 1036.63671875,
-    "samples": [
-     1037,
-     918,
-     989
-    ]
-   },
-   "heap_residual_kb": {
-    "n": 5,
-    "median": 4.7265625,
-    "min": -44.1845703125,
-    "max": 12.546875,
-    "samples": [
-     -44,
-     5,
-     0,
-     6,
-     13
-    ]
-   },
-   "heap_idle_worker_kb": {
-    "n": 1,
-    "median": 1338.2333984375,
-    "min": 1338.2333984375,
-    "max": 1338.2333984375,
-    "samples": [
-     1338
-    ]
-   },
-   "elements": 65,
-   "status": "measured",
-   "error": null
-  },
-  {
-   "fixture": "post-production-review.pptx",
-   "format": "pptx",
-   "renderer": "aared",
-   "units": 7,
-   "open_cold_ms": {
-    "n": 5,
-    "median": 98.29999999981374,
-    "p95": 99.5,
-    "min": 94.09999999962747,
-    "max": 99.5
-   },
-   "open_warm_ms": {
-    "n": 11,
-    "median": 31.700000000186265,
-    "p95": 32.90000000037253,
-    "min": 29.600000000558794,
-    "max": 32.90000000037253
-   },
-   "nav_ms": {
-    "n": 35,
-    "median": 33.39999999944121,
-    "p95": 35.799999999813735,
-    "min": 28.700000000186265,
-    "max": 40.09999999962747
-   },
-   "full_ms": {
-    "n": 5,
-    "median": 232.6000000005588,
-    "p95": 234,
-    "min": 231.69999999925494,
-    "max": 234
-   },
-   "heap_open_kb": {
-    "n": 5,
-    "median": 626.384765625,
-    "min": 591.6064453125,
-    "max": 642.802734375,
-    "samples": [
-     592,
-     622,
-     626,
-     628,
-     643
-    ]
-   },
-   "heap_open_page_kb": {
-    "n": 5,
-    "median": 121.40625,
-    "min": 83.8974609375,
-    "max": 137.609375,
-    "samples": [
-     84,
-     121,
-     121,
-     122,
-     138
-    ]
-   },
-   "heap_open_worker_kb": {
-    "n": 5,
-    "median": 505.193359375,
-    "min": 500.744140625,
-    "max": 507.708984375,
-    "samples": [
-     508,
-     501,
-     505,
-     507,
-     505
-    ]
-   },
-   "heap_first_kb": {
-    "n": 5,
-    "median": 2181.421875,
-    "min": 2181.421875,
-    "max": 2182.359375,
-    "samples": [
-     2182,
-     2181,
-     2181,
-     2181,
-     2182
-    ]
-   },
-   "heap_first_page_kb": {
-    "n": 5,
-    "median": 852.046875,
-    "min": 852.046875,
-    "max": 852.984375,
-    "samples": [
-     853,
-     852,
-     852,
-     852,
-     853
-    ]
-   },
-   "heap_first_worker_kb": {
-    "n": 5,
-    "median": 1329.375,
-    "min": 1329.375,
-    "max": 1329.375,
-    "samples": [
-     1329,
-     1329,
-     1329,
-     1329,
-     1329
-    ]
-   },
-   "heap_visited_kb": {
-    "n": 3,
-    "median": 798.27734375,
-    "min": 787.12890625,
-    "max": 807.8037109375,
-    "samples": [
-     808,
-     787,
-     798
-    ]
-   },
-   "heap_residual_kb": {
-    "n": 5,
-    "median": 4.08203125,
-    "min": -30.5322265625,
-    "max": 5.8359375,
-    "samples": [
-     -31,
-     0,
-     4,
-     6,
-     5
-    ]
-   },
-   "heap_idle_worker_kb": {
-    "n": 1,
-    "median": 1256.279296875,
-    "min": 1256.279296875,
-    "max": 1256.279296875,
-    "samples": [
-     1256
-    ]
-   },
-   "elements": 39,
-   "status": "measured",
-   "error": null
-  },
-  {
-   "fixture": "xlsx-coverage.xlsx",
-   "format": "xlsx",
-   "renderer": "aared",
-   "units": 4,
-   "open_cold_ms": {
-    "n": 5,
-    "median": 111.70000000018626,
-    "p95": 112.40000000037253,
-    "min": 108.5,
-    "max": 112.40000000037253
-   },
-   "open_warm_ms": {
-    "n": 11,
-    "median": 26,
-    "p95": 39.700000000186265,
-    "min": 24.100000000558794,
-    "max": 39.700000000186265
-   },
-   "nav_ms": {
-    "n": 20,
-    "median": 34.5,
-    "p95": 79.70000000018626,
-    "min": 26.100000000558794,
-    "max": 83.70000000018626
-   },
-   "full_ms": {
-    "n": 5,
-    "median": 171.09999999962747,
-    "p95": 222.90000000037253,
-    "min": 159.69999999925494,
-    "max": 222.90000000037253
-   },
-   "heap_open_kb": {
-    "n": 5,
-    "median": 695.787109375,
-    "min": 525.3486328125,
-    "max": 701.072265625,
-    "samples": [
-     525,
-     696,
-     695,
-     701,
-     699
-    ]
-   },
-   "heap_open_page_kb": {
-    "n": 5,
-    "median": 609.90234375,
-    "min": 450.4326171875,
-    "max": 610.55859375,
-    "samples": [
-     450,
-     610,
-     610,
-     611,
-     609
-    ]
-   },
-   "heap_open_worker_kb": {
-    "n": 5,
-    "median": 85.884765625,
-    "min": 74.916015625,
-    "max": 90.513671875,
-    "samples": [
-     75,
-     86,
-     85,
-     91,
-     90
-    ]
-   },
-   "heap_first_kb": {
-    "n": 5,
-    "median": 1910.2412109375,
-    "min": 1909.4248046875,
-    "max": 1910.3310546875,
-    "samples": [
-     1909,
-     1910,
-     1909,
-     1910,
-     1910
-    ]
-   },
-   "heap_first_page_kb": {
-    "n": 5,
-    "median": 1018.0869140625,
-    "min": 1018.0869140625,
-    "max": 1018.0869140625,
-    "samples": [
-     1018,
-     1018,
-     1018,
-     1018,
-     1018
-    ]
-   },
-   "heap_first_worker_kb": {
-    "n": 5,
-    "median": 892.154296875,
-    "min": 891.337890625,
-    "max": 892.244140625,
-    "samples": [
-     891,
-     892,
-     891,
-     892,
-     892
-    ]
-   },
-   "heap_visited_kb": {
-    "n": 3,
-    "median": 944.8974609375,
-    "min": 871.6005859375,
-    "max": 998.0107421875,
-    "samples": [
-     998,
-     872,
-     945
-    ]
-   },
-   "heap_residual_kb": {
-    "n": 5,
-    "median": 2.49609375,
-    "min": -166.8486328125,
-    "max": 6.90625,
-    "samples": [
-     -167,
-     2,
-     2,
-     7,
-     5
-    ]
-   },
-   "heap_idle_worker_kb": {
-    "n": 1,
-    "median": 1073.98828125,
-    "min": 1073.98828125,
-    "max": 1073.98828125,
-    "samples": [
-     1074
-    ]
-   },
-   "elements": 202,
-   "status": "measured",
-   "error": null
-  },
-  {
-   "fixture": "docx-coverage.docx",
-   "format": "docx",
-   "renderer": "aared",
-   "units": 0,
-   "open_cold_ms": {
-    "n": 5,
-    "median": 310,
-    "p95": 337.3999999994412,
-    "min": 307.6000000005588,
-    "max": 337.3999999994412
-   },
-   "open_warm_ms": {
-    "n": 11,
-    "median": 43.299999999813735,
-    "p95": 49.299999999813735,
-    "min": 40.59999999962747,
-    "max": 49.299999999813735
-   },
-   "nav_ms": null,
-   "full_ms": null,
-   "heap_open_kb": {
-    "n": 5,
-    "median": 996.5322265625,
-    "min": 948.75,
-    "max": 1343.2587890625,
-    "samples": [
-     949,
-     1343,
-     978,
-     997,
-     1006
-    ]
-   },
-   "heap_open_page_kb": {
-    "n": 5,
-    "median": 814.8671875,
-    "min": 788.3037109375,
-    "max": 1165.96875,
-    "samples": [
-     788,
-     1166,
-     802,
-     815,
-     823
-    ]
-   },
-   "heap_open_worker_kb": {
-    "n": 5,
-    "median": 177.2900390625,
-    "min": 160.4462890625,
-    "max": 182.9111328125,
-    "samples": [
-     160,
-     177,
-     177,
-     182,
-     183
-    ]
-   },
-   "heap_first_kb": {
-    "n": 5,
-    "median": 2865.3505859375,
-    "min": 2865.3115234375,
-    "max": 2866.2490234375,
-    "samples": [
-     2865,
-     2865,
-     2865,
-     2866,
-     2866
-    ]
-   },
-   "heap_first_page_kb": {
-    "n": 5,
-    "median": 1730.8779296875,
-    "min": 1730.8779296875,
-    "max": 1731.7763671875,
-    "samples": [
-     1731,
-     1731,
-     1731,
-     1732,
-     1731
-    ]
-   },
-   "heap_first_worker_kb": {
-    "n": 5,
-    "median": 1134.47265625,
-    "min": 1134.43359375,
-    "max": 1134.625,
-    "samples": [
-     1134,
-     1134,
-     1134,
-     1134,
-     1135
-    ]
-   },
-   "heap_visited_kb": {
-    "n": 3,
-    "median": 1267.9697265625,
-    "min": 1263.0400390625,
-    "max": 1287.1533203125,
-    "samples": [
-     1287,
-     1263,
-     1268
-    ]
-   },
-   "heap_residual_kb": {
-    "n": 5,
-    "median": 517.44140625,
-    "min": 464.1591796875,
-    "max": 612.28515625,
-    "samples": [
-     464,
-     612,
-     499,
-     517,
-     527
-    ]
-   },
-   "heap_idle_worker_kb": {
-    "n": 1,
-    "median": 1100.1787109375,
-    "min": 1100.1787109375,
-    "max": 1100.1787109375,
-    "samples": [
-     1100
-    ]
-   },
-   "elements": 614,
-   "status": "measured",
-   "error": null
-  },
-  {
-   "fixture": "large-300-slides.pptx",
-   "format": "pptx",
-   "renderer": "aared",
-   "units": 300,
-   "open_cold_ms": {
-    "n": 5,
-    "median": 117.70000000018626,
-    "p95": 119.09999999962747,
-    "min": 108.3999999994412,
-    "max": 119.09999999962747
-   },
-   "open_warm_ms": {
-    "n": 11,
-    "median": 31.5,
-    "p95": 45.10000000055879,
-    "min": 30.09999999962747,
-    "max": 45.10000000055879
-   },
-   "nav_ms": null,
-   "full_ms": null,
-   "heap_open_kb": {
-    "n": 5,
-    "median": 1347.4267578125,
-    "min": 1330.0859375,
-    "max": 1356.4228515625,
-    "samples": [
-     1330,
-     1342,
-     1354,
-     1347,
-     1356
-    ]
-   },
-   "heap_open_page_kb": {
-    "n": 5,
-    "median": 174.0498046875,
-    "min": 170.7890625,
-    "max": 180.9140625,
-    "samples": [
-     174,
-     171,
-     181,
-     171,
-     181
-    ]
-   },
-   "heap_open_worker_kb": {
-    "n": 5,
-    "median": 1172.8251953125,
-    "min": 1156.0361328125,
-    "max": 1176.6376953125,
-    "samples": [
-     1156,
-     1171,
-     1173,
-     1177,
-     1176
-    ]
-   },
-   "heap_first_kb": {
-    "n": 5,
-    "median": 2927.55859375,
-    "min": 2925.97265625,
-    "max": 2927.91015625,
-    "samples": [
-     2928,
-     2928,
-     2928,
-     2926,
-     2928
-    ]
-   },
-   "heap_first_page_kb": {
-    "n": 5,
-    "median": 906.609375,
-    "min": 904.9375,
-    "max": 906.875,
-    "samples": [
-     907,
-     907,
-     907,
-     905,
-     907
-    ]
-   },
-   "heap_first_worker_kb": {
-    "n": 5,
-    "median": 2021.03515625,
-    "min": 2020.94921875,
-    "max": 2021.03515625,
-    "samples": [
-     2021,
-     2021,
-     2021,
-     2021,
-     2021
-    ]
-   },
-   "heap_visited_kb": null,
-   "heap_residual_kb": {
-    "n": 5,
-    "median": 0.59765625,
-    "min": -16.7431640625,
-    "max": 9.59375,
-    "samples": [
-     -17,
-     -5,
-     7,
-     1,
-     10
-    ]
-   },
-   "heap_idle_worker_kb": {
-    "n": 1,
-    "median": 1103.9599609375,
-    "min": 1103.9599609375,
-    "max": 1103.9599609375,
-    "samples": [
-     1104
-    ]
-   },
-   "elements": 39,
-   "status": "measured",
-   "error": null
-  },
-  {
-   "fixture": "large-13-sheets.xlsx",
-   "format": "xlsx",
-   "renderer": "aared",
-   "units": 13,
-   "open_cold_ms": {
-    "n": 5,
-    "median": 110.6000000005588,
-    "p95": 118.40000000037253,
-    "min": 104.70000000018626,
-    "max": 118.40000000037253
-   },
-   "open_warm_ms": {
-    "n": 11,
-    "median": 25.5,
-    "p95": 42.5,
-    "min": 23.5,
-    "max": 42.5
-   },
-   "nav_ms": null,
-   "full_ms": null,
-   "heap_open_kb": {
-    "n": 5,
-    "median": 2396.32421875,
-    "min": 2369.8974609375,
-    "max": 2401.05078125,
-    "samples": [
-     2370,
-     2400,
-     2390,
-     2401,
-     2396
-    ]
-   },
-   "heap_open_page_kb": {
-    "n": 5,
-    "median": 603.7109375,
-    "min": 588.6513671875,
-    "max": 603.98828125,
-    "samples": [
-     589,
-     604,
-     602,
-     604,
-     604
-    ]
-   },
-   "heap_open_worker_kb": {
-    "n": 5,
-    "median": 1792.59375,
-    "min": 1781.24609375,
-    "max": 1797.33984375,
-    "samples": [
-     1781,
-     1796,
-     1787,
-     1797,
-     1793
-    ]
-   },
-   "heap_first_kb": {
-    "n": 5,
-    "median": 3627.96484375,
-    "min": 3627.43359375,
-    "max": 3627.96484375,
-    "samples": [
-     3628,
-     3627,
-     3628,
-     3628,
-     3628
-    ]
-   },
-   "heap_first_page_kb": {
-    "n": 5,
-    "median": 1020.7431640625,
-    "min": 1020.2119140625,
-    "max": 1020.7431640625,
-    "samples": [
-     1021,
-     1020,
-     1021,
-     1020,
-     1021
-    ]
-   },
-   "heap_first_worker_kb": {
-    "n": 5,
-    "median": 2607.2216796875,
-    "min": 2607.2216796875,
-    "max": 2607.2216796875,
-    "samples": [
-     2607,
-     2607,
-     2607,
-     2607,
-     2607
-    ]
-   },
-   "heap_visited_kb": null,
-   "heap_residual_kb": {
-    "n": 5,
-    "median": 5.4765625,
-    "min": -20.9501953125,
-    "max": 10.203125,
-    "samples": [
-     -21,
-     9,
-     1,
-     10,
-     5
-    ]
-   },
-   "heap_idle_worker_kb": {
-    "n": 1,
-    "median": 1038.2763671875,
-    "min": 1038.2763671875,
-    "max": 1038.2763671875,
-    "samples": [
-     1038
-    ]
-   },
-   "elements": 202,
-   "status": "measured",
-   "error": null
-  },
-  {
-   "fixture": "large-40x.docx",
-   "format": "docx",
-   "renderer": "aared",
-   "units": 0,
-   "open_cold_ms": {
-    "n": 5,
-    "median": 1119.2999999998137,
-    "p95": 1253.2000000001863,
-    "min": 1106.7999999998137,
-    "max": 1253.2000000001863
-   },
-   "open_warm_ms": {
-    "n": 11,
-    "median": 611.2999999998137,
-    "p95": 711.7000000001863,
-    "min": 584.9000000003725,
-    "max": 711.7000000001863
-   },
-   "nav_ms": null,
-   "full_ms": null,
-   "heap_open_kb": {
-    "n": 5,
-    "median": 15792.62890625,
-    "min": 15783.9951171875,
-    "max": 15812.2265625,
-    "samples": [
-     15784,
-     15812,
-     15793,
-     15807,
-     15787
-    ]
-   },
-   "heap_open_page_kb": {
-    "n": 5,
-    "median": 15446.6845703125,
-    "min": 15428.6796875,
-    "max": 15461.3916015625,
-    "samples": [
-     15429,
-     15461,
-     15447,
-     15461,
-     15439
-    ]
-   },
-   "heap_open_worker_kb": {
-    "n": 5,
-    "median": 347.3115234375,
-    "min": 345.9443359375,
-    "max": 355.3154296875,
-    "samples": [
-     355,
-     351,
-     346,
-     347,
-     347
-    ]
-   },
-   "heap_first_kb": {
-    "n": 5,
-    "median": 15646.54296875,
-    "min": 15635.38671875,
-    "max": 15662.80859375,
-    "samples": [
-     15643,
-     15663,
-     15653,
-     15647,
-     15635
-    ]
-   },
-   "heap_first_page_kb": {
-    "n": 5,
-    "median": 14314.478515625,
-    "min": 14305.658203125,
-    "max": 14330.564453125,
-    "samples": [
-     14311,
-     14331,
-     14320,
-     14314,
-     14306
-    ]
-   },
-   "heap_first_worker_kb": {
-    "n": 5,
-    "median": 1332.064453125,
-    "min": 1329.728515625,
-    "max": 1332.244140625,
-    "samples": [
-     1332,
-     1332,
-     1332,
-     1332,
-     1330
-    ]
-   },
-   "heap_visited_kb": {
-    "n": 1,
-    "median": 33816.03515625,
-    "min": 33816.03515625,
-    "max": 33816.03515625,
-    "samples": [
-     33816
-    ]
-   },
-   "heap_residual_kb": {
-    "n": 5,
-    "median": 15246.3642578125,
-    "min": 15241.5673828125,
-    "max": 15251.9150390625,
-    "samples": [
-     15244,
-     15246,
-     15252,
-     15242,
-     15246
-    ]
-   },
-   "heap_idle_worker_kb": {
-    "n": 1,
-    "median": 1191.1435546875,
-    "min": 1191.1435546875,
-    "max": 1191.1435546875,
-    "samples": [
-     1191
-    ]
-   },
-   "elements": 19241,
    "status": "measured",
    "error": null
   }

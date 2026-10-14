@@ -282,7 +282,7 @@ const formatLabels: Record<string, string> = { pptx: "PPTX", xlsx: "XLSX", docx:
     clip: auto;
     white-space: normal;
     margin: 0;
-    color: #c0392b;
+    color: var(--lt-error);
   }
 
   /* ---- Stage: two cards side-by-side ---- */
@@ -335,12 +335,6 @@ const formatLabels: Record<string, string> = { pptx: "PPTX", xlsx: "XLSX", docx:
     width: 100%;
     padding-inline-start: 2ch;
     text-indent: -2ch;
-  }
-  .lt-panel-code :global(pre.astro-code span) {
-    color: var(--shiki-light);
-  }
-  :global(:root[data-theme="dark"]) .lt-panel-code :global(pre.astro-code span) {
-    color: var(--shiki-dark);
   }
 
   /* ---- Render panel ---- */

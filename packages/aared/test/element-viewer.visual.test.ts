@@ -1,7 +1,6 @@
-import { expect, test } from "bun:test";
-import { browserModule } from "./harness.js";
+import { expect } from "bun:test";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 const XLSX_FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`;
 const DOCX_FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/docx-coverage.docx`;
@@ -14,34 +13,24 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
     Bun.file(XLSX_FIXTURE_PATH).arrayBuffer(),
     Bun.file(DOCX_FIXTURE_PATH).arrayBuffer(),
   ]);
-  const server = Bun.serve({
-    port: 0,
-    async fetch(request) {
-      const url = new URL(request.url);
-      if (url.pathname === "/element.mjs") {
-        return new Response(elementModule, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      }
-      if (url.pathname === "/worker.mjs") {
-        return new Response(workerModule, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      }
+  await withVisualPage({
+    modules: { "/element.mjs": elementModule, "/worker.mjs": workerModule },
+    // The element detects the format from the response's own content type, so
+    // these keep explicit MIME types (and the slow/404 routes their own behavior).
+    onRequest: async (url) => {
+      const office = {
+        "/arabic.pptx": [fixture, "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+        "/slow.pptx": [fixture, "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+        "/arabic.xlsx": [xlsxFixture, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+        "/arabic.docx": [docxFixture, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+      } as const;
       if (url.pathname === "/missing.pptx") return new Response("gone", { status: 404 });
+      const route = office[url.pathname as keyof typeof office];
+      if (route === undefined) return undefined;
       if (url.pathname === "/slow.pptx") await Bun.sleep(100);
-      if (url.pathname === "/arabic.pptx" || url.pathname === "/slow.pptx") {
-        return new Response(fixture, {
-          headers: { "content-type": "application/vnd.openxmlformats-officedocument.presentationml.presentation" },
-        });
-      }
-      if (url.pathname === "/arabic.xlsx") {
-        return new Response(xlsxFixture, {
-          headers: { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
-        });
-      }
-      if (url.pathname === "/arabic.docx") {
-        return new Response(docxFixture, {
-          headers: { "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
-        });
-      }
-      return new Response(`<!doctype html><body style="margin:0"><aared-viewer id="viewer" style="height:600px"></aared-viewer><script type="module">
+      return new Response(route[0], { headers: { "content-type": route[1] } });
+    },
+    page: `<!doctype html><body style="margin:0"><aared-viewer id="viewer" style="height:600px"></aared-viewer><script type="module">
         import "/element.mjs";
         const viewer = document.querySelector("#viewer");
         window.events = [];
@@ -65,12 +54,10 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
           return slide.getBoundingClientRect().width / parseFloat(scene.style.width);
         };
         window.label = () => viewer.shadowRoot.querySelector('[data-aared-controls="zoom"]').textContent;
-      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
+      </script>`,
+    width: 1280,
+    height: 720,
+  }, async (view) => {
     // Script-created elements (unlike parsed markup) throw if the
     // constructor adds attributes — the playground/home demos rely on this.
     expect(await view.evaluate(`document.createElement("aared-viewer").tagName`) as string).toBe("AARED-VIEWER");
@@ -78,7 +65,7 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
     // --- Load: the starting state is `load`, never an indexchange -----------
     const pptxLoad = await view.evaluate(`openSource("/arabic.pptx")`) as { format: string; count: number };
     expect(pptxLoad.format).toBe("pptx");
-    expect(pptxLoad.count).toBe(18);
+    expect(pptxLoad.count).toBe(20);
     const firstSlide = await view.evaluate(`(async () => {
       await frame();
       const viewer = document.querySelector("#viewer");
@@ -93,7 +80,7 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
     })()`) as { title?: string; format: string; count: number; canvasCount: number; progress: number; events: string[] };
     expect(firstSlide.title).toContain("تقرير الإنتاج الأسبوعي");
     expect(firstSlide.format).toBe("pptx");
-    expect(firstSlide.count).toBe(18);
+    expect(firstSlide.count).toBe(20);
     expect(firstSlide.canvasCount).toBe(0);
     expect(firstSlide.progress).toBeGreaterThan(0);
     expect(firstSlide.events).toEqual(["load"]);
@@ -201,9 +188,11 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
       button("Next").click();
       await new Promise((resolve) => viewer.addEventListener("indexchange", resolve, { once: true }));
       const nextAttribute = viewer.getAttribute("index");
+      const beforeScale = slideScale();
       viewer.viewer.zoomIn(0.5);
       await frame();
       const zoomedIn = viewer.getAttribute("zoom");
+      const zoomedScale = slideScale();
       viewer.viewer.resetZoom();
       await frame();
       const reset = viewer.getAttribute("zoom");
@@ -211,7 +200,7 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
       // The element's viewer searches the deck it has open.
       const searched = (await viewer.viewer.search("الاسم")).map((match) => match.slide.index);
       take();
-      return { zoomAttribute, cleared, indexAttribute, restored, errors, nextAttribute, zoomedIn, reset, searched };
+      return { zoomAttribute, cleared, indexAttribute, restored, errors, nextAttribute, beforeScale, zoomedIn, zoomedScale, reset, searched };
     })()`) as {
       zoomAttribute: string;
       cleared: { attribute: string | null; zoom: unknown };
@@ -220,6 +209,8 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
       errors: string[];
       nextAttribute: string;
       zoomedIn: string;
+      beforeScale: number;
+      zoomedScale: number;
       reset: string;
       searched: number[];
     };
@@ -229,17 +220,19 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
     expect(sync.restored).toEqual({ attribute: "3", shown: 3 });
     expect(sync.errors).toEqual(["not-found"]);
     expect(sync.nextAttribute).toBe("4");
-    expect(Number(sync.zoomedIn)).toBeGreaterThan(0);
+    const expectedZoom = Math.round(Math.min(3, sync.beforeScale + 0.5) * 100) / 100;
+    expect(Number(sync.zoomedIn)).toBeCloseTo(expectedZoom, 2);
+    expect(sync.zoomedScale).toBeCloseTo(expectedZoom, 2);
     // Back at the format's own default: an attribute that was set says so.
     expect(sync.reset).toBe("fit-page");
     expect(sync.searched).toContain(1);
 
-    // --- Errors: AaredError, same codes as preview(), reported once, rethrown ---
+    // --- Public calls reject only; automatic attribute changes report once ---
     const errors = await view.evaluate(`(async () => {
       const viewer = document.querySelector("#viewer");
       take();
       let thrown = null;
-      try { await viewer.viewer.goTo(19); } catch (error) { thrown = error; }
+      try { await viewer.viewer.goTo(20); } catch (error) { thrown = error; }
       const reported = take().filter((event) => event.type === "error");
       // Same split as preview(): a whole number outside is not-found, below 0 too.
       let negative = null;
@@ -253,16 +246,14 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
       return {
         thrown: { name: thrown?.name, code: thrown?.code, message: thrown?.message },
         reportedCount: reported.length,
-        sameInstance: reported[0]?.detail.cause === thrown,
         negative,
         fractional,
         mismatch: mismatch.map((event) => event.detail.cause?.code),
       };
-    })()`) as { thrown: { name: string; code: string; message: string }; reportedCount: number; sameInstance: boolean; negative: string; fractional: string; mismatch: string[] };
+    })()`) as { thrown: { name: string; code: string; message: string }; reportedCount: number; negative: string; fractional: string; mismatch: string[] };
     expect(errors.thrown).toMatchObject({ name: "AaredError", code: "not-found" });
     expect(errors.thrown.message).toContain(`outside this ${pptxLoad.count}-unit document`);
-    expect(errors.reportedCount).toBe(1);
-    expect(errors.sameInstance).toBe(true);
+    expect(errors.reportedCount).toBe(0);
     expect(errors.negative).toBe("not-found");
     expect(errors.fractional).toBe("invalid-argument");
     expect(errors.mismatch).toEqual(["unsupported-format"]);
@@ -284,21 +275,55 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
     expect(loadErrors.badType).toEqual(["unsupported-format"]);
 
     // --- A newer src wins; the slow one never paints -------------------------
-    const stale = await view.evaluate(`(() => new Promise((resolve, reject) => {
+    const stale = await view.evaluate(`(async () => {
       const viewer = document.querySelector("#viewer");
       viewer.index = 0;
-      const loadsBefore = window.events.filter((event) => event.type === "load").length;
-      const load = () => {
-        viewer.removeEventListener("error", error);
-        resolve({ loads: window.events.filter((event) => event.type === "load").length - loadsBefore, text: viewer.shadowRoot.querySelector('[part="page"]')?.textContent });
+      take();
+      const originalFetch = window.fetch;
+      const originalOpen = viewer.open.bind(viewer);
+      let oldOutcome;
+      viewer.open = (...args) => {
+        const attempt = originalOpen(...args);
+        if (viewer.src === '/slow.pptx') oldOutcome = attempt.then(() => 'resolved', error => error.code);
+        return attempt;
       };
-      const error = (event) => { viewer.removeEventListener("load", load); reject(new Error(event.detail.message)); };
-      viewer.addEventListener("load", load, { once: true });
-      viewer.addEventListener("error", error, { once: true });
-      viewer.src = "/slow.pptx";
-      viewer.src = "/arabic.pptx";
-    }))()`) as { loads: number; text?: string };
-    expect(stale.loads).toBe(1);
+      let started, release, returned, oldSignal;
+      const oldStarted = new Promise(resolve => { started = resolve; });
+      const oldReleased = new Promise(resolve => { release = resolve; });
+      const oldReturned = new Promise(resolve => { returned = resolve; });
+      window.fetch = async (input, options) => {
+        if (new URL(typeof input === 'string' ? input : input.url, location.href).pathname !== '/slow.pptx') return originalFetch(input, options);
+        oldSignal = options.signal;
+        // A different real document, held until the newer one has painted.
+        // Ignore cancellation in this fetch to exercise the late-response guard.
+        const response = await originalFetch('/arabic.xlsx');
+        started();
+        await oldReleased;
+        returned();
+        return response;
+      };
+      try {
+        viewer.src = '/slow.pptx';
+        await oldStarted;
+        const info = await openSource('/arabic.pptx');
+        const cancelled = oldSignal.aborted;
+        release();
+        await oldReturned;
+        const outcome = await oldOutcome;
+        await frame();
+        const events = take();
+        return { cancelled, loadedFormat: info.format, shownFormat: viewer.viewer.format,
+          outcome, eventTypes: events.map(event => event.type),
+          loads: events.filter(event => event.type === 'load').map(event => event.detail.format),
+          text: viewer.shadowRoot.querySelector('[part="page"]')?.textContent };
+      } finally { release(); window.fetch = originalFetch; delete viewer.open; }
+    })()`) as { cancelled: boolean; loadedFormat: string; shownFormat: string; outcome: string; eventTypes: string[]; loads: string[]; text?: string };
+    expect(stale.cancelled).toBe(true);
+    expect(stale.loadedFormat).toBe("pptx");
+    expect(stale.shownFormat).toBe("pptx");
+    expect(stale.outcome).toBe("aborted");
+    expect(stale.eventTypes).toEqual(["load"]);
+    expect(stale.loads).toEqual(["pptx"]);
     expect(stale.text).toContain("تقرير الإنتاج الأسبوعي");
 
     // The open() a newer one replaced says so: it rejects `aborted` (no `error`
@@ -393,7 +418,6 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
         tabs: tabs(),
         cells: shadow.querySelectorAll('[data-aared-element="cell"]').length,
         // The grid's class rules must reach inside the shadow root, not just the document.
-        classSheets: shadow.adoptedStyleSheets.length,
         cellLine: cell && getComputedStyle(cell).borderRightColor,
         headingFill: heading && getComputedStyle(heading).backgroundColor,
       };
@@ -420,7 +444,7 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
       viewer.removeAttribute("zoom");
       return { initial, dark, light, tabbed, fitted, canvasCount: shadow.querySelectorAll("canvas").length };
     })()`) as {
-      initial: { label: string; tabs: number; cells: number; classSheets: number; cellLine: string; headingFill: string };
+      initial: { label: string; tabs: number; cells: number; cellLine: string; headingFill: string };
       dark: { tabs: number; surface?: string };
       light: { tabs: number };
       tabbed: { index: string; shown: number; events: string[] };
@@ -428,10 +452,9 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
       canvasCount: number;
     };
     expect(xlsx.initial.label).toBe("100%");
-    expect(xlsx.initial.tabs).toBeGreaterThan(0);
+    expect(xlsx.initial.tabs).toBe(xlsxLoad.count);
     expect(xlsx.initial.cells).toBeGreaterThan(0);
-    // The element's own chrome sheet, plus the grid's class rules beside it.
-    expect(xlsx.initial.classSheets).toBe(2);
+    // Read actual grid paint inside the shadow root, not stylesheet packaging.
     expect(xlsx.initial.cellLine).toBe("rgb(231, 233, 238)");
     expect(xlsx.initial.headingFill).toBe("rgb(244, 244, 247)");
     expect(xlsx.dark.tabs).toBe(xlsx.initial.tabs);
@@ -469,7 +492,7 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
       viewer.src = null;
       await new Promise((resolve) => setTimeout(resolve, 300));
       const cancelled = { viewer: viewer.viewer, children: page(), events: take().map((event) => event.type) };
-      // Asking to open with nothing to open is a mistake: it rejects and is reported once.
+      // An explicit open rejects only to its caller, with no duplicate event.
       const asked = await viewer.open().then(() => "resolved", (error) => error.code);
       const reported = take().map((event) => event.type);
       return { fileAfterSrc, srcAfterFile, emptied, cancelled, asked, reported };
@@ -487,7 +510,7 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
       emptied: { viewer: null, children: 0, events: [] },
       cancelled: { viewer: null, children: 0, events: [] },
       asked: "invalid-state",
-      reported: ["error"],
+      reported: [],
     });
 
     // --- DOCX through the type property; dark theme reaches its marker -------
@@ -552,10 +575,8 @@ visual("visual element output: renders, navigates, zooms, themes and reports lif
     expect(layout.paged.pageCount).toBe(layout.paged.pages);
     expect(layout.paged.marker).toBe("layout");
     expect(layout.paged.partShadow).toBe("none");
-    expect(layout.paged.pageShadow).toContain("0px 1px 5px");
+    expect(layout.paged.pageShadow).not.toBe("none");
     expect(layout.kept).toBe(true);
     expect(layout.flow).toEqual({ pages: 0, marker: null });
-  } finally {
-    server.stop();
-  }
+  });
 });

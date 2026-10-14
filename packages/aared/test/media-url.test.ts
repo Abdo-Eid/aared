@@ -98,4 +98,77 @@ describe("MediaUrls", () => {
     });
     await expect(urls.url("a", "image/png")).rejects.toThrow("sync failure");
   });
+
+  test("an image source reads its primary, and the raster fallback beside it when both answer", async () => {
+    const { resolve, calls } = countingResolver();
+    const urls = new MediaUrls(resolve);
+    const result = await urls.image({
+      mediaId: "ppt/media/image13.svg",
+      contentType: "image/svg+xml",
+      fallbackMediaId: "ppt/media/image13.png",
+      fallbackContentType: "image/png",
+    });
+    expect(result?.url).toBe("blob:test/0");
+    expect(result?.fallbackUrl).toBe("blob:test/1");
+    expect(calls).toEqual(["ppt/media/image13.svg", "ppt/media/image13.png"]);
+  });
+
+  test("a source with no fallback declares none", async () => {
+    const urls = new MediaUrls(countingResolver().resolve);
+    const result = await urls.image({ mediaId: "a.png", contentType: "image/png" });
+    expect(result?.url).toBe("blob:test/0");
+    expect(result?.fallbackUrl).toBeUndefined();
+  });
+
+  test("a primary that cannot be read promotes the fallback to the source itself", async () => {
+    const urls = new MediaUrls(async (id) => {
+      if (id === "broken.svg") throw new Error("corrupt");
+      return bytes();
+    });
+    const result = await urls.image({
+      mediaId: "broken.svg",
+      contentType: "image/svg+xml",
+      fallbackMediaId: "fallback.png",
+      fallbackContentType: "image/png",
+    });
+    // One URL, and it is the raster: the caller paints it as the primary.
+    expect(result).toEqual({ url: "blob:test/0" });
+    expect(created).toHaveLength(1);
+  });
+
+  test("nothing readable leaves the caller to paint its unavailable state", async () => {
+    const failing = (): Promise<ArrayBuffer> => Promise.reject(new Error("gone"));
+    const bothFail = await new MediaUrls(failing).image({
+      mediaId: "a.svg",
+      contentType: "image/svg+xml",
+      fallbackMediaId: "a.png",
+      fallbackContentType: "image/png",
+    });
+    expect(bothFail).toBeUndefined();
+    expect(await new MediaUrls(failing).image({ mediaId: "a.png", contentType: "image/png" })).toBeUndefined();
+    expect(created).toEqual([]);
+  });
+
+  test("a readable primary survives a fallback that cannot be read", async () => {
+    const urls = new MediaUrls(async (id) => {
+      if (id === "fallback.png") throw new Error("gone");
+      return bytes();
+    });
+    const result = await urls.image({
+      mediaId: "a.svg",
+      contentType: "image/svg+xml",
+      fallbackMediaId: "fallback.png",
+      fallbackContentType: "image/png",
+    });
+    expect(result?.url).toBe("blob:test/0");
+    expect(result?.fallbackUrl).toBeUndefined();
+  });
+
+  test("after close an image source resolves to nothing without fetching", async () => {
+    const { resolve, calls } = countingResolver();
+    const urls = new MediaUrls(resolve);
+    urls.close();
+    expect(await urls.image({ mediaId: "a.png", contentType: "image/png" })).toBeUndefined();
+    expect(calls).toEqual([]);
+  });
 });

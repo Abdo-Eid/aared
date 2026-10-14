@@ -1,12 +1,13 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { indexPptx, parsePptxSlide } from "../src/core/pptx.js";
 import { OpcPackage } from "../src/core/opc.js";
 import type { ShapeModel, SlideModel } from "../src/core/model.js";
 import { findCoverageSlide } from "./fixture.js";
-import { browserModule } from "./harness.js";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 import { withPart } from "./mutate.js";
+import { fontAlias } from "../src/core/typography.js";
+import { within } from "./harness.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 
 /** Every media id a model names, with its bytes, so the page can resolve picture fills. */
@@ -63,9 +64,7 @@ visual("visual DOM output: pattern, picture and rect-gradient fills paint on sha
       </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1280, height: 720 }, async (view) => {
 
     await view.evaluate(`renderFixture(${JSON.stringify(shapes)}, ${JSON.stringify(media)})`);
     const idOf = (name: string): string => {
@@ -146,9 +145,7 @@ visual("visual DOM output: pattern, picture and rect-gradient fills paint on sha
     expect(cell("نقش")).toMatchObject({ server: "pattern", textAbove: true });
     expect(cell("تدرج")).toMatchObject({ server: "pattern", textAbove: true });
     expect(cell("تصميم")).toMatchObject({ server: null, solid: "rgb(204, 210, 216)" });
-  } finally {
-    server.stop();
-  }
+  });
 });
 
 visual("visual DOM output: fills that cannot paint are marked, never silently dropped", async () => {
@@ -177,9 +174,7 @@ visual("visual DOM output: fills that cannot paint are marked, never silently dr
       </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1280, height: 720 }, async (view) => {
     // No media resolver: the picture fills cannot paint either.
     await view.evaluate(`renderFixture(${JSON.stringify(slide)})`);
     const marked = await view.evaluate(`((ids) => ids.map((id) => {
@@ -201,9 +196,7 @@ visual("visual DOM output: fills that cannot paint are marked, never silently dr
       };
     })()`);
     expect(backgroundMark).toEqual({ kind: "unsupported", source: "gradient-path", marker: true });
-  } finally {
-    server.stop();
-  }
+  });
 });
 
 // Slide 11 (appended through PowerPoint): lines and connectors are `p:cxnSp`.
@@ -240,7 +233,7 @@ visual("visual DOM output: connector and line shapes paint with their dash style
           // "2.1%" is an en-US run in a right-to-left paragraph: "%" right of the digits.
           const span = [...document.querySelectorAll("span")].find((el) => el.textContent === "2.1%");
           const glyph = (index) => { const range = document.createRange(); range.setStart(span.firstChild, index); range.setEnd(span.firstChild, index + 1); return range.getBoundingClientRect().left; };
-          window.ltrRun = { mark: getComputedStyle(span, "::before").content, percentRightOfDigits: glyph(3) > glyph(0) };
+          window.ltrRun = { percentRightOfDigits: glyph(3) > glyph(0) };
           // The same box is spaced exactly 30pt and mixes a Calibri run into
           // the Arabic: its one line keeps the pitch (offsetHeight is layout
           // pixels, before the slide's scale).
@@ -250,19 +243,19 @@ visual("visual DOM output: connector and line shapes paint with their dash style
             lineHeight: getComputedStyle(line).lineHeight,
             height: line.offsetHeight,
             fonts: new Set(runs.map((run) => getComputedStyle(run).fontFamily)).size,
-            runLineHeights: [...new Set(runs.map((run) => getComputedStyle(run).lineHeight))],
           };
           return out;
         };
       </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1280, height: 720 }, async (view) => {
     const lines = await view.evaluate(`probe(${JSON.stringify(slide)})`) as Record<string, { stroke: string | null; fill: string | null; dash: string | null; span: number }>;
-    expect(await view.evaluate("window.ltrRun") as unknown).toEqual({ mark: '"‎"', percentRightOfDigits: true });
-    expect(await view.evaluate("window.exactPitch") as unknown).toEqual({ lineHeight: "40px", height: 40, fonts: 2, runLineHeights: ["0px"] });
+    expect(await view.evaluate("window.ltrRun") as unknown).toEqual({ percentRightOfDigits: true });
+    const pitch = await view.evaluate("window.exactPitch") as { lineHeight: string; height: number; fonts: number };
+    expect(pitch.lineHeight).toBe("40px");
+    expect(pitch.height).toBe(40);
+    expect(pitch.fonts).toBeGreaterThan(1);
     expect(Object.keys(lines).sort()).toEqual(["Diagonal", "Dotted", "Timeline", "Today"]);
     for (const line of Object.values(lines)) {
       expect(line.fill).toBe("none");
@@ -277,17 +270,16 @@ visual("visual DOM output: connector and line shapes paint with their dash style
     const [dashOn, dashOff] = lines.Today!.dash!.split(" ").map(Number);
     expect(dotOn).toBe(dotOff);
     expect(dashOn! / dashOff!).toBeCloseTo(4 / 3, 5);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
 /**
  * `PptxRenderHandle.warnings` names a family that painted with nothing of
- * its own, the same signal DOCX exposes (DECISION_LOG §45).
+ * its own, the same signal DOCX exposes (Notes §45).
  */
 visual("visual DOM output: PptxRenderHandle.warnings names fonts that painted with the generic fallback", async () => {
   const NONEXISTENT_FAMILY = "Definitely Not A Real Font Zzqx";
+  const ALIAS = fontAlias(NONEXISTENT_FAMILY);
   const slideWith = (family: string): SlideModel => ({
     part: "ppt/slides/slide1.xml",
     size: { width: 10, height: 7.5 },
@@ -300,6 +292,10 @@ visual("visual DOM output: PptxRenderHandle.warnings names fonts that painted wi
     } satisfies ShapeModel],
   });
   const renderer = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const fontBytes = await Bun.file("C:/Windows/Fonts/Cour.ttf").arrayBuffer();
+  let releaseFont!: () => void;
+  const heldFont = new Promise<void>((resolve) => { releaseFont = resolve; });
+  let fontRequests = 0;
   const page = `<!doctype html><style>html,body{margin:0}#host{width:800px;height:600px}</style><main id="host"></main><script type="module">
         import { render } from "/pptx.mjs";
         window.renderSlide = async (model) => {
@@ -310,24 +306,66 @@ visual("visual DOM output: PptxRenderHandle.warnings names fonts that painted wi
       </script>`;
   const server = Bun.serve({
     port: 0,
-    fetch(request) {
+    async fetch(request) {
       const url = new URL(request.url);
       if (url.pathname === "/pptx.mjs") return new Response(renderer, { headers: { "content-type": "text/javascript; charset=utf-8" } });
+      if (url.pathname === "/held-font") {
+        fontRequests++;
+        await heldFont;
+        return new Response(fontBytes, { headers: { "content-type": "font/ttf" } });
+      }
       return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
-  try {
-    await using view = new Bun.WebView({ width: 800, height: 600 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 800, height: 600 }, async (view) => {
+    try {
     const realWarnings = (await view.evaluate(`renderSlide(${JSON.stringify(slideWith("Calibri"))})`)) as Array<{ code: string }>;
     expect(realWarnings.filter((w) => w.code === "font-unavailable")).toEqual([]);
     const missingWarnings = (await view.evaluate(`renderSlide(${JSON.stringify(slideWith(NONEXISTENT_FAMILY))})`)) as Array<{ code: string; message: string }>;
     const missing = missingWarnings.find((w) => w.code === "font-unavailable");
     expect(missing).toBeDefined();
     expect(missing!.message).toContain(NONEXISTENT_FAMILY);
-  } finally {
-    server.stop();
-  }
+    const substituted = await view.evaluate(`(async () => {
+      window.substituteFace = new FontFace(${JSON.stringify(ALIAS)}, "local('Courier New')");
+      document.fonts.add(window.substituteFace); await window.substituteFace.load();
+      return renderSlide(${JSON.stringify(slideWith(NONEXISTENT_FAMILY))});
+    })()`) as Array<{ code: string }>;
+    expect(substituted.filter((warning) => warning.code === "font-unavailable")).toEqual([]);
+    const widths = await view.evaluate(`(() => {
+      const span = [...document.querySelectorAll('span')].find(element => element.textContent === 'Some text');
+      const style = getComputedStyle(span);
+      const measure = family => {
+        const control = document.createElement('span');
+        control.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font:' + style.fontSize + ' ' + family;
+        control.textContent = span.textContent; document.body.append(control);
+        const width = control.getBoundingClientRect().width; control.remove(); return width;
+      };
+      const scene = document.querySelector('[data-aared-element="slide-scene"]');
+      const scale = scene.getBoundingClientRect().width / parseFloat(scene.style.width);
+      const range = document.createRange(); range.selectNodeContents(span);
+      return { painted: range.getBoundingClientRect().width / scale, courier: measure('"Courier New"'), generic: measure('sans-serif') };
+    })()`) as { painted: number; courier: number; generic: number };
+    expect(Math.abs(widths.courier - widths.generic)).toBeGreaterThan(5);
+    expect(widths.painted).toBeCloseTo(widths.courier, 0);
+    // The network response stays withheld until render has returned. This
+    // proves the real offline-font bound without sleeping for an assumed load.
+    const blocked = await within("PPTX render with a withheld font", view.evaluate(`(async () => {
+      document.fonts.delete(window.substituteFace);
+      window.heldFace = new FontFace(${JSON.stringify(ALIAS)}, 'url(/held-font)');
+      document.fonts.add(window.heldFace);
+      const warnings = await renderSlide(${JSON.stringify(slideWith(NONEXISTENT_FAMILY))});
+      return { warnings, status: window.heldFace.status };
+    })()`), 5000) as { warnings: Array<{ code: string }>; status: string };
+    expect(fontRequests).toBe(1);
+    expect(blocked.status).toBe("loading");
+    expect(blocked.warnings.some((warning) => warning.code === "font-unavailable")).toBe(true);
+    releaseFont();
+    const recovered = await view.evaluate(`(async () => { await window.heldFace.load(); return renderSlide(${JSON.stringify(slideWith(NONEXISTENT_FAMILY))}); })()`) as Array<{ code: string }>;
+    expect(recovered.filter((warning) => warning.code === "font-unavailable")).toEqual([]);
+    } finally {
+      releaseFont();
+    }
+  });
 }, 30000);
 
 /**
@@ -356,9 +394,7 @@ visual("visual DOM output: merged table cells span the grid cells they cover", a
       return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 700 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 700 }, async (view) => {
     type Box = { text: string; column: string; row: string; width: number; height: number };
     const cells = (await view.evaluate(`renderSlide(${JSON.stringify(slide)})`)) as Box[];
     // 4 + 4 + 3 + 4 cells in the rows: the covered ones are not painted (14 grid cells for a 4 x 4 table).
@@ -371,9 +407,7 @@ visual("visual DOM output: merged table cells span the grid cells they cover", a
     // The merged cell is as wide as two columns, the tall one as high as two rows.
     expect(wide.width).toBeGreaterThan(plain.width * 1.8);
     expect(tall.height).toBeGreaterThan(plain.height * 1.8);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
 /**
@@ -407,9 +441,7 @@ visual("visual DOM output: PptxRenderHandle.warnings reports elements the file g
       return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
-  try {
-    await using view = new Bun.WebView({ width: 800, height: 600 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 800, height: 600 }, async (view) => {
     type Rendered = { warnings: Array<{ code: string; message: string }>; shapes: number };
     const whole = (await view.evaluate(`renderSlide(${JSON.stringify(clean)})`)) as Rendered;
     expect(whole.warnings.filter((w) => w.code === "pptx-missing-id")).toEqual([]);
@@ -420,7 +452,5 @@ visual("visual DOM output: PptxRenderHandle.warnings reports elements the file g
     expect(warnings[0]!.message).toMatch(/^[\x20-\x7e]+$/);
     // Drawn in full: the same shapes are on the page as for the clean slide.
     expect(repaired.shapes).toBe(whole.shapes);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);

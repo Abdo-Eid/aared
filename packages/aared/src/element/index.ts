@@ -16,10 +16,11 @@ import type { DocumentFormat, DocumentInfo, LoadProgress, Source, ViewerTheme, W
 import type { DocxPagination, DocxPreview, PptxPreview, PreviewEventMap, PreviewHandle, XlsxPreview } from "../preview/index.js";
 import { AaredError, isAbort } from "../core/index.js";
 import { abortError } from "../core/errors.js";
+import { reportBackgroundError } from "../background-error.js";
 import { resolveTheme, watchSystemTheme } from "../appearance.js";
 import { DEFAULT_ZOOM, safeScale, sameZoom } from "../render-handle.js";
-import { constantSheet } from "../class-sheet.js";
-import { VIEWER_EVENTS } from "../embed-viewer.js";
+import { CLASS_SPECIFICITY, constantSheet } from "../class-sheet.js";
+import { VIEWER_EVENTS } from "../format-route.js";
 import { openAutoViewer } from "../auto-viewer.js";
 
 export type { ZoomValue } from "../core/index.js";
@@ -79,7 +80,7 @@ const CHROME_CSS = `
   :host([data-aared-format="pptx"]) [part="page"] { align-self: stretch; margin: 0; display: flex; flex-direction: column; box-shadow: none; }
   :host([data-aared-format="pptx"]) [part="page"] > [data-aared-element="slide"] { margin: auto; flex: none; box-shadow: var(--aared-page-shadow, var(--_aared-shadow)); }
   :host([data-aared-pagination="layout"]) [part="page"] { box-shadow: none; padding-block: 1.5rem; }
-  :host([data-aared-pagination="layout"]) [part="page"] [data-aared-element="page"]:not(#aared-0#aared-1) { box-shadow: var(--aared-page-shadow, var(--_aared-shadow)); }
+  :host([data-aared-pagination="layout"]) [part="page"] [data-aared-element="page"]${CLASS_SPECIFICITY} { box-shadow: var(--aared-page-shadow, var(--_aared-shadow)); }
   [part~="controls"] { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; padding: .5rem; font: 14px system-ui, sans-serif; color: var(--_aared-controls-ink); }
   :host(:fullscreen) [part~="controls"] { background: var(--aared-background, var(--_aared-stage)); }
   button { font: inherit; }
@@ -294,9 +295,9 @@ export class AaredViewer extends ElementBase {
 
   /**
    * (Re)open whichever of `file` and `src` was set last and render unit
-   * `index`. Resolves once painted and `load` has fired; rejects — after
-   * firing `error` once with the same `AaredError` as `detail.cause` — when
-   * it fails. A newer `open()` wins: the one it replaced rejects with
+   * `index`. Resolves once painted and `load` has fired; rejects only when
+   * it fails. Automatic loads report through `error` instead. A newer
+   * `open()` wins: the one it replaced rejects with
    * `aborted` (no `error` event), which `isAbort()` matches.
    */
   async open(): Promise<void> {
@@ -347,7 +348,6 @@ export class AaredViewer extends ElementBase {
       if (isAbort(error)) throw error;
       if (controller !== this.#openController) throw abortError();
       this.#updateChrome();
-      this.#report(error);
       throw error;
     }
   }
@@ -421,7 +421,9 @@ export class AaredViewer extends ElementBase {
   #reopen(): void {
     if (!this.isConnected) return;
     if (this.#source() === null) this.#close();
-    else void this.open().catch(() => {});
+    else void this.open().catch((error: unknown) => {
+      if (this.isConnected) this.#report(error);
+    });
   }
 
   /** What opens: whichever of `file` and `src` was set last, else the other. */
@@ -470,7 +472,7 @@ export class AaredViewer extends ElementBase {
       viewer.addEventListener(type, (event: Event) => {
         if (type === "indexchange") this.#syncAttribute("index", String(viewer.index));
         else if (type === "zoomchange") this.#syncZoom(viewer);
-        // The same `detail` object: an `error`'s `cause` is the very error the call rejected with.
+        // Built-in renderer actions report here; public calls reject only.
         this.dispatchEvent(new CustomEvent(type, { detail: (event as CustomEvent).detail }));
         if (type === "indexchange" || type === "zoomchange") this.#updateChrome();
       }, { signal: listeners.signal });
@@ -480,16 +482,17 @@ export class AaredViewer extends ElementBase {
   /**
    * Move to the `index` attribute. Always through the viewer, even when it
    * names the unit on screen: a move still on its way is then cancelled
-   * (with nothing on its way the viewer does nothing). A move that fails has
-   * already been reported (the viewer's `error`); the attribute goes back to
+   * (with nothing on its way the viewer does nothing). This attribute owns
+   * the action and reports its failure; the attribute goes back to
    * the unit on screen, unless something newer was written meanwhile.
    */
   #showIndex(viewer: PreviewHandle): void {
     const asked = this.getAttribute("index");
-    void viewer.goTo(this.index).catch(() => {
+    void viewer.goTo(this.index).catch((error: unknown) => {
       if (this.#viewer !== viewer || this.getAttribute("index") !== asked) return;
       this.#syncAttribute("index", String(viewer.index));
       this.#updateChrome();
+      this.#report(error);
     });
   }
 
@@ -515,10 +518,9 @@ export class AaredViewer extends ElementBase {
     return this.hasAttribute("zoom") ? this.zoom : DEFAULT_ZOOM[format];
   }
 
-  /** Fire `error` once; `cause` is the `AaredError` itself (the one `open()` rejects with). */
+  /** Report only a built-in action; public calls throw/reject to their caller. */
   #report(cause: unknown): void {
-    const message = cause instanceof Error ? cause.message : String(cause);
-    this.dispatchEvent(new CustomEvent("error", { detail: { message, cause } }));
+    reportBackgroundError(this, "aared/element", cause);
   }
 
   /** The OS scheme flipped: the chrome (`data-aared-theme`, the stage) follows a `system` theme. The viewer follows it by itself. */
@@ -537,8 +539,14 @@ export class AaredViewer extends ElementBase {
     previous.type = "button";
     previous.part.add("button");
     previous.textContent = "Previous";
-    // A failure is the viewer's `error`, which the element re-fires.
-    previous.addEventListener("click", () => void this.#viewer?.previous().catch(() => {}));
+    const move = (direction: "previous" | "next"): void => {
+      const viewer = this.#viewer;
+      if (viewer === null) return;
+      void viewer[direction]().catch((error: unknown) => {
+        if (this.#viewer === viewer) this.#report(error);
+      });
+    };
+    previous.addEventListener("click", () => move("previous"));
     const indicator = document.createElement("span");
     indicator.part.add("label");
     indicator.dataset.aaredControls = "index";
@@ -546,7 +554,7 @@ export class AaredViewer extends ElementBase {
     next.type = "button";
     next.part.add("button");
     next.textContent = "Next";
-    next.addEventListener("click", () => void this.#viewer?.next().catch(() => {}));
+    next.addEventListener("click", () => move("next"));
     const zoomOut = document.createElement("button");
     zoomOut.type = "button";
     zoomOut.part.add("button");

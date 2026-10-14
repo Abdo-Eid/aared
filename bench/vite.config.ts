@@ -102,12 +102,12 @@ export default defineConfig({
     ],
   },
   // Workers keep Vite's default `iife` format — the setup a default consumer
-  // builds aared's single-file Worker with (DECISION_LOG §20). Extend's XLSX
+  // builds aared's single-file Worker with (Notes §20). Extend's XLSX
   // Worker lazy-imports its WASM glue, which `iife` can only emit inlined.
   worker: { rollupOptions: { output: { inlineDynamicImports: true } } },
   build: {
     rollupOptions: {
-      // The bench app, plus the page `tools/bench-measure.ts` drives.
+      // The bench app, plus the page `tools/benchmarks/measure.ts` drives.
       input: {
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
         measure: fileURLToPath(new URL("./measure.html", import.meta.url)),

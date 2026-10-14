@@ -228,6 +228,28 @@ export function readText(body: XmlElement | undefined, base: TextLook, ctx: Ctx,
   out = applyRunProps(pPr === undefined ? undefined : firstChild(pPr, "defRPr"), out, ctx, sample);
   const run = p === undefined ? undefined : firstChild(p, "r");
   out = applyRunProps(run === undefined ? undefined : firstChild(run, "rPr"), out, ctx, sample);
+  // Excel 16.0 build 20430: a cell-linked two-line chart title exported
+  // to PDF at identical print scaling paints 24pt as 22.08 PDF pt, or
+  // 11.04 with normAutofit/fontScale=50000. With sz absent, 16.56 becomes
+  // 8.28. Saveback keeps 50000 and drops the default 100000. Apply after
+  // run/default inheritance, not only to authored sz; noAutofit/spAutoFit
+  // leave the measured size unchanged. This is a stored scale, not a fit
+  // calculation against the chart's bounds.
+  const fit = bodyPr === undefined ? undefined : firstChild(bodyPr, "normAutofit");
+  const scale = fit === undefined ? undefined : attr(fit, "fontScale");
+  const fraction = scale === undefined ? 1 : Number(scale) / 100000;
+  if (Number.isFinite(fraction) && fraction > 0 && fraction <= 1 && fraction !== 1) {
+    out = { ...out, size: out.size * fraction };
+  }
+  // `lnSpcReduction` removes a share of the leading, not of the glyph size, and
+  // the same Excel PDF probe measured the title's baseline gap falling from
+  // 25.39pt to 20.30pt with 20000 — so it needs its own model member rather
+  // than folding into the size above.
+  const reduction = fit === undefined ? undefined : attr(fit, "lnSpcReduction");
+  const leading = reduction === undefined ? Number.NaN : Number(reduction) / 100000;
+  if (Number.isFinite(leading) && leading > 0 && leading < 1) {
+    out = { ...out, lineSpacingReduction: leading };
+  }
   // Text turns at most a quarter turn either way; anything else (Office is
   // believed to write -60000000 for "automatic") leaves the layout to choose.
   const degrees = rot === undefined ? NaN : Number(rot) / 60000;
@@ -289,7 +311,7 @@ export function defaultLine(ctx: Ctx, width = 0.75): Line {
 /**
  * The line Office draws for an unstyled axis, trendline, error bar, leader
  * line or hi-low line: thin and `tx1` itself (black). Measured on the oracle's
- * bare cases in PowerPoint's PDF and Excel's export alike (DECISION_LOG §74).
+ * bare cases in PowerPoint's PDF and Excel's export alike (Notes §74).
  */
 function inkLine(ctx: Ctx): Line {
   return { color: tx1(ctx, 1, 0), width: 0.75 };
@@ -894,6 +916,8 @@ function readTitle(el: XmlElement | undefined, ctx: Ctx, base: TextLook, autoTex
   let text = readText(firstChild(el, "txPr"), base, ctx);
   if (rich !== undefined) {
     lines = plainText(rich);
+    // Excel's PDF uses the rich body's own autofit, not its sibling title
+    // txPr: 50000 on txPr alone left 24pt unchanged; on rich it painted 12pt.
     text = readText(rich, base, ctx, lines.join(""));
   } else if (tx !== undefined) {
     const cache = readCache(tx);

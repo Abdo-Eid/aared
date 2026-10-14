@@ -25,8 +25,7 @@ import { PX_PER_INCH } from "./core/units.js";
 import { mixResolvedColorsLinear, mixResolvedColorsSrgb } from "./core/color.js";
 import type { MediaUrls } from "./media-url.js";
 import { PATTERN_PRESETS } from "./pattern-presets.js";
-
-const SVG_NS = "http://www.w3.org/2000/svg";
+import { svgElement } from "./svg-element.js";
 
 /** The area one fill paints, in the user units of the SVG it paints into. */
 export interface FillBox {
@@ -46,6 +45,8 @@ export interface FillBox {
    */
   originX?: number;
   originY?: number;
+  /** Resolve a scaled gradient against this paint box rather than the path's bounding box (group fill). */
+  scaledToUserSpace?: boolean;
 }
 
 export interface FillPaintOptions {
@@ -68,14 +69,6 @@ function numberText(value: number): string {
   return `${Math.round(value * 1_000_000) / 1_000_000}`;
 }
 
-export function svgElement<K extends keyof SVGElementTagNameMap>(name: K, attributes: Record<string, string | number> = {}): SVGElementTagNameMap[K] {
-  const element = document.createElementNS(SVG_NS, name);
-  for (const [key, value] of Object.entries(attributes)) {
-    element.setAttribute(key, typeof value === "number" ? numberText(value) : value);
-  }
-  return element;
-}
-
 function defsOf(svg: SVGSVGElement): SVGDefsElement {
   const existing = svg.querySelector(":scope > defs");
   if (existing instanceof SVGDefsElement) return existing;
@@ -96,7 +89,7 @@ function smoothstep(value: number): number {
 
 /**
  * How PowerPoint blends between a gradient's stops, which depends on the
- * stops themselves. Measured against PowerPoint renders (DECISION_LOG §28),
+ * stops themselves. Measured against PowerPoint renders (Notes §28),
  * each within a few colour levels:
  *
  * - two stops: linear light, the weight eased by smoothstep — a
@@ -108,7 +101,9 @@ function smoothstep(value: number): number {
  */
 type GradientBlend = "eased-linear-light" | "linear-light" | "srgb";
 
-function gradientBlend(stops: readonly LinearGradientStopModel[]): GradientBlend {
+/** A fill's own blend wins (`srgb`: Excel's cell gradients, measured straight); else PowerPoint's rule above. */
+function gradientBlend(stops: readonly LinearGradientStopModel[], blend?: "srgb"): GradientBlend {
+  if (blend === "srgb") return "srgb";
   if (stops.length <= 2) return "eased-linear-light";
   return stops[0]!.color === stops[stops.length - 1]!.color ? "linear-light" : "srgb";
 }
@@ -124,11 +119,11 @@ function mixStops(blend: GradientBlend, from: string, to: string, local: number)
   }
 }
 
-/** The colour PowerPoint paints at weight `t` (0-1) of a gradient. */
-export function gradientColorAt(stops: readonly LinearGradientStopModel[], t: number): string {
+/** The colour Office paints at weight `t` (0-1) of a gradient. */
+export function gradientColorAt(stops: readonly LinearGradientStopModel[], t: number, fillBlend?: "srgb"): string {
   const first = stops[0]!;
   if (t <= first.position) return first.color;
-  const blend = gradientBlend(stops);
+  const blend = gradientBlend(stops, fillBlend);
   for (let index = 1; index < stops.length; index++) {
     const from = stops[index - 1]!;
     const to = stops[index]!;
@@ -146,8 +141,8 @@ export function gradientColorAt(stops: readonly LinearGradientStopModel[], t: nu
  * its authored stops; the linear-light blends expand each segment into
  * intermediate stops carrying PowerPoint's colours.
  */
-export function officeGradientStops(stops: readonly LinearGradientStopModel[]): LinearGradientStopModel[] {
-  const blend = gradientBlend(stops);
+export function officeGradientStops(stops: readonly LinearGradientStopModel[], fillBlend?: "srgb"): LinearGradientStopModel[] {
+  const blend = gradientBlend(stops, fillBlend);
   if (blend === "srgb") return [...stops];
   const out: LinearGradientStopModel[] = stops.length === 0 ? [] : [stops[0]!];
   for (let index = 1; index < stops.length; index++) {
@@ -164,8 +159,8 @@ export function officeGradientStops(stops: readonly LinearGradientStopModel[]): 
   return out;
 }
 
-function appendStops(gradient: SVGElement, stops: readonly LinearGradientStopModel[]): void {
-  for (const stop of officeGradientStops(stops)) {
+function appendStops(gradient: SVGElement, stops: readonly LinearGradientStopModel[], blend?: "srgb"): void {
+  for (const stop of officeGradientStops(stops, blend)) {
     gradient.append(svgElement("stop", { offset: `${numberText(stop.position * 100)}%`, "stop-color": stop.color }));
   }
 }
@@ -194,8 +189,12 @@ function linearGradient(id: string, fill: LinearGradientFillModel, box: FillBox,
     x2: centerX + horizontal * extent,
     y2: centerY + vertical * extent,
   });
-  if (!fill.scaled) gradient.setAttribute("gradientUnits", "userSpaceOnUse");
-  appendStops(gradient, fill.stops);
+  if (!fill.scaled || box.scaledToUserSpace) gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+  if (fill.scaled && box.scaledToUserSpace) {
+    for (const key of ["x1", "x2"] as const) gradient.setAttribute(key, numberText(Number(gradient.getAttribute(key)) * box.width));
+    for (const key of ["y1", "y2"] as const) gradient.setAttribute(key, numberText(Number(gradient.getAttribute(key)) * box.height));
+  }
+  appendStops(gradient, fill.stops, fill.blend);
   return gradient;
 }
 
@@ -215,9 +214,9 @@ function pathGradientBoxes(fill: PathGradientFillModel, box: FillBox) {
   };
 }
 
-function userSpaceLinear(id: string, stops: readonly LinearGradientStopModel[], x1: number, y1: number, x2: number, y2: number): SVGElement {
+function userSpaceLinear(id: string, stops: readonly LinearGradientStopModel[], x1: number, y1: number, x2: number, y2: number, blend?: "srgb"): SVGElement {
   const gradient = svgElement("linearGradient", { id, gradientUnits: "userSpaceOnUse", x1, y1, x2, y2 });
-  appendStops(gradient, stops);
+  appendStops(gradient, stops, blend);
   return gradient;
 }
 
@@ -226,13 +225,13 @@ function userSpaceLinear(id: string, stops: readonly LinearGradientStopModel[], 
  * user units that may scale x and y differently: the gradient is authored in
  * x-units and squashed back to a circle on y.
  */
-function userSpaceCircle(id: string, stops: readonly LinearGradientStopModel[], cx: number, cy: number, radiusPx: number, box: FillBox): SVGElement {
+function userSpaceCircle(id: string, stops: readonly LinearGradientStopModel[], cx: number, cy: number, radiusPx: number, box: FillBox, blend?: "srgb"): SVGElement {
   const ratio = box.unitsPerPxY / box.unitsPerPxX;
   const gradient = svgElement("radialGradient", { id, gradientUnits: "userSpaceOnUse", cx, cy, r: radiusPx * box.unitsPerPxX });
   if (Math.abs(ratio - 1) > 1e-9) {
     gradient.setAttribute("gradientTransform", `translate(0 ${numberText(cy)}) scale(1 ${numberText(ratio)}) translate(0 ${numberText(-cy)})`);
   }
-  appendStops(gradient, stops);
+  appendStops(gradient, stops, blend);
   return gradient;
 }
 
@@ -249,7 +248,7 @@ function circleGradient(id: string, fill: PathGradientFillModel, box: FillBox): 
   const radiusPx = Math.hypot((x1 - x0) / box.unitsPerPxX, (y1 - y0) / box.unitsPerPxY) / 2;
   const epsilon = 1e-6 * Math.max(box.width, box.height);
   if (Math.abs(fx1 - fx0) <= epsilon && Math.abs(fy1 - fy0) <= epsilon) {
-    return userSpaceCircle(id, fill.stops, (fx0 + fx1) / 2, (fy0 + fy1) / 2, radiusPx, box);
+    return userSpaceCircle(id, fill.stops, (fx0 + fx1) / 2, (fy0 + fy1) / 2, radiusPx, box, fill.blend);
   }
   const { width: w, height: h } = box;
   const clampX = (value: number): number => Math.min(Math.max(value, 0), w);
@@ -261,14 +260,14 @@ function circleGradient(id: string, fill: PathGradientFillModel, box: FillBox): 
   pattern.append(svgElement("rect", { x: 0, y: 0, width: w, height: h, fill: fill.stops[fill.stops.length - 1]!.color }));
   // The four corners, four sides and the focus, each as [x0, y0, x1, y1, paint server].
   const regions: Array<[rx0: number, ry0: number, rx1: number, ry1: number, server: () => SVGElement | string]> = [
-    [0, 0, left, top, () => userSpaceCircle(`${id}-tl`, fill.stops, fx0, fy0, radiusPx, box)],
-    [right, 0, w, top, () => userSpaceCircle(`${id}-tr`, fill.stops, fx1, fy0, radiusPx, box)],
-    [0, bottom, left, h, () => userSpaceCircle(`${id}-bl`, fill.stops, fx0, fy1, radiusPx, box)],
-    [right, bottom, w, h, () => userSpaceCircle(`${id}-br`, fill.stops, fx1, fy1, radiusPx, box)],
-    [0, top, left, bottom, () => userSpaceLinear(`${id}-l`, fill.stops, fx0, 0, fx0 - rx, 0)],
-    [right, top, w, bottom, () => userSpaceLinear(`${id}-r`, fill.stops, fx1, 0, fx1 + rx, 0)],
-    [left, 0, right, top, () => userSpaceLinear(`${id}-t`, fill.stops, 0, fy0, 0, fy0 - ry)],
-    [left, bottom, right, h, () => userSpaceLinear(`${id}-b`, fill.stops, 0, fy1, 0, fy1 + ry)],
+    [0, 0, left, top, () => userSpaceCircle(`${id}-tl`, fill.stops, fx0, fy0, radiusPx, box, fill.blend)],
+    [right, 0, w, top, () => userSpaceCircle(`${id}-tr`, fill.stops, fx1, fy0, radiusPx, box, fill.blend)],
+    [0, bottom, left, h, () => userSpaceCircle(`${id}-bl`, fill.stops, fx0, fy1, radiusPx, box, fill.blend)],
+    [right, bottom, w, h, () => userSpaceCircle(`${id}-br`, fill.stops, fx1, fy1, radiusPx, box, fill.blend)],
+    [0, top, left, bottom, () => userSpaceLinear(`${id}-l`, fill.stops, fx0, 0, fx0 - rx, 0, fill.blend)],
+    [right, top, w, bottom, () => userSpaceLinear(`${id}-r`, fill.stops, fx1, 0, fx1 + rx, 0, fill.blend)],
+    [left, 0, right, top, () => userSpaceLinear(`${id}-t`, fill.stops, 0, fy0, 0, fy0 - ry, fill.blend)],
+    [left, bottom, right, h, () => userSpaceLinear(`${id}-b`, fill.stops, 0, fy1, 0, fy1 + ry, fill.blend)],
     [left, top, right, bottom, () => fill.stops[0]!.color],
   ];
   for (const [rx0, ry0, rx1, ry1, server] of regions) {
@@ -303,7 +302,7 @@ function shapeGradient(id: string, fill: PathGradientFillModel, box: FillBox, ou
     const scale = level / SHAPE_GRADIENT_LEVELS;
     pattern.append(svgElement("path", {
       d: outline,
-      fill: gradientColorAt(fill.stops, scale),
+      fill: gradientColorAt(fill.stops, scale, fill.blend),
       transform: `translate(${numberText(cx)} ${numberText(cy)}) scale(${numberText(scale)}) translate(${numberText(-cx)} ${numberText(-cy)})`,
     }));
   }
@@ -341,7 +340,7 @@ function rectGradient(id: string, fill: PathGradientFillModel, box: FillBox): SV
       x2: to[0],
       y2: to[1],
     });
-    appendStops(gradient, fill.stops);
+    appendStops(gradient, fill.stops, fill.blend);
     pattern.append(gradient);
     // crispEdges: the neighbouring sides agree along the diagonal, so hard
     // edges show no step while anti-aliased ones leave a pale hairline seam.
@@ -420,22 +419,57 @@ function pictureFill(svg: SVGSVGElement, id: string, fill: PictureFillModel, box
     svg.removeAttribute(FILL_LOADING_ATTRIBUTE);
     if (failed) svg.dataset.aaredFillFallback = "media-unavailable";
   };
-  void urls.url(fill.mediaId, fill.contentType).then(async (url) => {
-    if (url === undefined || urls.closed) return settle(url === undefined && !urls.closed);
+  // The SVG source paints first; Office's raster fallback covers a read or
+  // decode failure, and the fill is marked only when neither paints.
+  void urls.image({
+    mediaId: fill.mediaId,
+    contentType: fill.contentType,
+    ...(fill.fallbackMediaId === undefined || fill.fallbackContentType === undefined ? {} : {
+      fallbackMediaId: fill.fallbackMediaId,
+      fallbackContentType: fill.fallbackContentType,
+    }),
+  }).then(async (resolved) => {
+    if (resolved === undefined || urls.closed) return settle(resolved === undefined && !urls.closed);
+    const sources = [resolved.url, ...(resolved.fallbackUrl === undefined ? [] : [resolved.fallbackUrl])];
     if (fill.tile === undefined) {
       const stretch = fill.stretch ?? { left: 0, top: 0, right: 0, bottom: 0 };
       const [x, width] = uncroppedSpan(stretch.left * box.width, box.width - stretch.right * box.width, crop.left, crop.right);
       const [y, height] = uncroppedSpan(stretch.top * box.height, box.height - stretch.bottom * box.height, crop.top, crop.bottom);
-      pattern.append(svgElement("image", { href: url, x, y, width, height, preserveAspectRatio: "none" }));
+      const picture = svgElement("image", { href: sources[0]!, x, y, width, height, preserveAspectRatio: "none" });
+      // At most one decode retry: a broken fallback marks the fill, never a loop.
+      if (sources[1] !== undefined) {
+        const fallback = sources[1];
+        picture.addEventListener("error", () => {
+          const retry = picture.getAttribute("href") !== fallback;
+          if (retry) picture.setAttribute("href", fallback);
+          else settle(true);
+        });
+      }
+      pattern.append(picture);
       return settle(false);
     }
-    const image = new Image();
-    image.src = url;
-    await image.decode();
-    if (urls.closed) return;
+    let picked: string | undefined;
+    let decodedWidth = 0;
+    let decodedHeight = 0;
+    for (const src of sources) {
+      const image = new Image();
+      image.src = src;
+      try {
+        await image.decode();
+      } catch {
+        continue;
+      }
+      if (urls.closed) return;
+      picked = src;
+      decodedWidth = image.naturalWidth;
+      decodedHeight = image.naturalHeight;
+      break;
+    }
+    if (picked === undefined) return settle(true);
+    const url = picked;
     const tile = fill.tile;
-    const naturalWidth = image.naturalWidth * (1 - crop.left - crop.right);
-    const naturalHeight = image.naturalHeight * (1 - crop.top - crop.bottom);
+    const naturalWidth = decodedWidth * (1 - crop.left - crop.right);
+    const naturalHeight = decodedHeight * (1 - crop.top - crop.bottom);
     const tileWidth = naturalWidth * tile.scaleX * box.unitsPerPxX;
     const tileHeight = naturalHeight * tile.scaleY * box.unitsPerPxY;
     if (!(tileWidth > 0 && tileHeight > 0)) return settle(true);
@@ -519,7 +553,7 @@ export function fillPaint(svg: SVGSVGElement, id: string, fill: ShapeFillModel, 
 function placeServer(server: SVGElement, box: FillBox, fill: ShapeFillModel): void {
   const x = box.originX ?? 0;
   const y = box.originY ?? 0;
-  if ((x === 0 && y === 0) || fill.kind === "pattern" || (fill.kind === "linear-gradient" && fill.scaled)) return;
+  if ((x === 0 && y === 0) || fill.kind === "pattern" || (fill.kind === "linear-gradient" && fill.scaled && !box.scaledToUserSpace)) return;
   const name = server.localName === "pattern" ? "patternTransform" : "gradientTransform";
   const move = `translate(${numberText(x)} ${numberText(y)})`;
   const existing = server.getAttribute(name);

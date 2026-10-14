@@ -167,6 +167,9 @@ describe("font use of a model", () => {
     expect(collectFontUse(run("plain Latin 123 text, with punctuation.")).arabic).toBe(false);
     expect(collectFontUse(run("שלום привет 你好")).arabic).toBe(false);
     expect(collectFontUse(run(ARABIC)).arabic).toBe(true);
+    expect(collectFontUse({ rows: [{ cells: [{ cell: { value: ARABIC, style: { fontFamily: "Arial" } } }] }] }).arabic).toBe(true);
+    expect(collectFontUse({ rows: [{ cells: [{ cell: { value: 123, formatted: "١٢٣", style: { fontFamily: "Arial" } } }] }] }).arabic).toBe(true);
+    expect(collectFontUse({ rows: [{ cells: [{ cell: { value: "Latin", formatted: "Latin", style: { fontFamily: "Arial" } } }] }] }).arabic).toBe(false);
     // One Arabic word among Latin, in a deeply nested run, is enough.
     expect(collectFontUse({ root: [{ rows: [{ cells: [{ blocks: [{ runs: [{ text: `Total ${ARABIC}` }] }] }] }] }] }).arabic).toBe(true);
     // Presentation forms count too (they are what shaped Arabic in a PDF or legacy file looks like).

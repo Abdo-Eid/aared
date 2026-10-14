@@ -35,7 +35,10 @@ const BUILTIN_FORMATS: Record<number, string> = {
   40: "#,##0.00;[Red](#,##0.00)",
   45: "mm:ss",
   46: "[h]:mm:ss",
-  47: "mmss.0",
+  // ECMA-376's table prints "mmss.0"; Excel resolves id 47 to "mm:ss.0" and
+  // shows 45123.76 as 08:38.4 (probe xlsx-builtin-numfmt), so the spec's
+  // missing colon is a misprint.
+  47: "mm:ss.0",
   48: "##0.0E+0",
   49: "@",
 };
@@ -225,7 +228,7 @@ function pad(value: number, width: number): string {
 }
 
 /** Excel serial (1900 or 1904 system) to UTC calendar parts; `weekday` is 0 for Sunday. */
-export function serialToDate(serial: number, date1904: boolean): { year: number; month: number; day: number; weekday: number; hours: number; minutes: number; seconds: number } {
+export function serialToDate(serial: number, date1904: boolean): { year: number; month: number; day: number; weekday: number; hours: number; minutes: number; seconds: number; milliseconds: number } {
   // Serial 25569 (1900 system) and 24107 (1904 system) are 1970-01-01.
   const millis = (serial - (date1904 ? 24107 : 25569)) * 86_400_000;
   const date = new Date(Math.round(millis));
@@ -237,6 +240,7 @@ export function serialToDate(serial: number, date1904: boolean): { year: number;
     hours: date.getUTCHours(),
     minutes: date.getUTCMinutes(),
     seconds: date.getUTCSeconds(),
+    milliseconds: date.getUTCMilliseconds(),
   };
 }
 
@@ -263,8 +267,14 @@ export function formatSerialDate(serial: number, code: string, date1904: boolean
         return `${totalSeconds}`;
     }
   }
-  const part = serialToDate(serial, date1904);
   const { masked, literals } = maskLiterals(code);
+  // `ss.0`, `ss.00`, `ss.000`: tenths to thousandths of a second (Excel shows
+  // 18:08:38.4 under `mm:ss.0` as 08:38.4). The time is rounded at that
+  // precision first, so 59.96s under `ss.0` carries into the next minute.
+  const digits = Math.min(/s\.(0+)/i.exec(masked)?.[1]?.length ?? 0, 3);
+  const steps = 86_400 * 10 ** digits;
+  const part = serialToDate(digits === 0 ? serial : Math.round(serial * steps) / steps, date1904);
+  const fraction = digits === 0 ? "" : pad(Math.round(part.milliseconds / 10 ** (3 - digits)), digits);
   const twelveHour = /AM\/PM/i.test(code);
   const hour24 = part.hours + part.minutes / 60 + part.seconds / 3600;
   const hour12 = part.hours % 12 === 0 ? 12 : part.hours % 12;
@@ -292,8 +302,9 @@ export function formatSerialDate(serial: number, code: string, date1904: boolean
   out = out.replace(/(^|[^a-zA-Z])d(?![a-zA-Z])/gi, (_, prefix: string) => `${prefix}${part.day}`);
   out = out.replace(/hh/gi, pad(twelveHour ? hour12 : part.hours, 2));
   out = out.replace(/(^|[^a-zA-Z])h(?![a-zA-Z])/gi, (_, prefix: string) => `${prefix}${twelveHour ? hour12 : part.hours}`);
+  if (digits > 0) out = out.replace(/(ss|s)\.0+/i, (token) => `${token.startsWith("ss") ? pad(part.seconds, 2) : part.seconds}.${fraction}`);
   out = out.replace(/ss/gi, pad(part.seconds, 2));
-  out = out.replace(/(^|[^a-zA-Z])s(?![a-zA-Z])/gi, (_, prefix: string) => `${prefix}${part.seconds}`);
+  out = out.replace(/(^|[^a-zA-Z.])s(?![a-zA-Z])/gi, (_, prefix: string) => `${prefix}${part.seconds}`);
   if (twelveHour) out = out.replace(/AM\/PM/gi, hour24 < 12 ? "AM" : "PM").replace(/A\/P/gi, hour24 < 12 ? "A" : "P");
   return unmask(out.replace(/\[[^\]]*\]/g, ""), literals).trim();
 }
@@ -326,7 +337,7 @@ const TOKEN_PATTERN = /\u0001\d+\u0002/g;
  */
 type SectionPlan =
   | { kind: "literal"; text: string }
-  | { kind: "percent"; inner: SectionPlan }
+  | { kind: "percent"; inner: SectionPlan; appended: boolean }
   | { kind: "scientific"; decimals: number }
   | { kind: "fraction"; maxDenominator: number; integerPart: boolean; spacer: string }
   | { kind: "fixed"; decimals: number; decimalSlots: string; grouping: boolean; integerSlots: number; integerZero: boolean; prefix: string; suffix: string };
@@ -339,7 +350,13 @@ function planSection(masked: string, literals: string[]): SectionPlan {
   // (token indexes, quoted text) never scan as number slots.
   const skeleton = clean.replace(TOKEN_PATTERN, "");
   if (!/[0#?]/.test(skeleton)) return { kind: "literal", text: unmask(clean, literals) };
-  if (/%/.test(skeleton)) return { kind: "percent", inner: planSection(clean.replace(/%/g, ""), literals) };
+  if (/%/.test(skeleton)) {
+    // `%` scales by 100 and prints where the code writes it: `\(0.0%\)` shows
+    // (81.5%), not (81.5)%. It becomes a literal, so a fixed section keeps it
+    // in its prefix or suffix; the other kinds have no affixes and append it.
+    const inner = planSection(clean.replace(/%/g, `\u0001${literals.length}\u0002`), [...literals, "%"]);
+    return { kind: "percent", inner, appended: inner.kind !== "fixed" };
+  }
   if (/E\+0+/i.test(skeleton)) return { kind: "scientific", decimals: /E\+(0+)/i.exec(skeleton)?.[1]?.length ?? 0 };
   if (skeleton.includes("/")) {
     const head = skeleton.split("/")[0] ?? "";
@@ -374,7 +391,7 @@ function applySection(value: number, plan: SectionPlan): string {
     case "literal":
       return plan.text;
     case "percent":
-      return `${applySection(value * 100, plan.inner)}%`;
+      return `${applySection(value * 100, plan.inner)}${plan.appended ? "%" : ""}`;
     case "scientific": {
       const [mantissa, exponent] = value.toExponential(plan.decimals).split("e");
       const sign = exponent!.startsWith("-") ? "-" : "+";

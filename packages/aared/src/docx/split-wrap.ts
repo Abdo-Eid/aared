@@ -22,6 +22,8 @@ import { PX_PER_INCH } from "../core/units.js";
 import { planFloat, polygonSpan } from "./float-layout.js";
 import type { AnchorFrame, FloatPlan } from "./float-layout.js";
 import { fitUnits } from "./split-fit.js";
+import { paintedToLayoutZoom } from "./measure.js";
+import { onTextBoxSize, textBoxSize } from "./text-box.js";
 import type { Slot } from "./split-fit.js";
 
 /** One line beside the picture: a grid of the slots and the hole between them. */
@@ -204,7 +206,9 @@ interface Prepared {
 function prepare(paragraph: HTMLElement, state: SplitState): Prepared {
   const style = getComputedStyle(paragraph);
   const contentPx = paragraph.clientWidth > 0 ? paragraph.clientWidth : state.frame.columnPx - state.leftIndentPx - state.rightIndentPx;
-  const plan = planFloat(state.image, { ...state.frame, columnPx: contentPx + state.leftIndentPx + state.rightIndentPx }, state.leftIndentPx);
+  const size = textBoxSize(state.picture, { width: state.image.width * PX_PER_INCH, height: state.image.height * PX_PER_INCH });
+  const drawing = { ...state.image, width: size.width / PX_PER_INCH, height: size.height / PX_PER_INCH };
+  const plan = planFloat(drawing, { ...state.frame, columnPx: contentPx + state.leftIndentPx + state.rightIndentPx }, state.leftIndentPx);
   const list = units(state.source!);
   const fontPx = Number.parseFloat(style.fontSize);
   return {
@@ -232,8 +236,7 @@ interface PaintedSlot {
 function build(prepared: Prepared & { plan: SplitPlan }, slack: number): PaintedSlot[] {
   const { paragraph, state, plan, contentPx, lineHeightPx, spaceAfterPx, rtl, justify, list, widths, spacePx } = prepared;
   const anchor = state.image.anchor!;
-  const width = state.image.width * PX_PER_INCH;
-  const height = state.image.height * PX_PER_INCH;
+  const { width, height } = textBoxSize(state.picture, { width: state.image.width * PX_PER_INCH, height: state.image.height * PX_PER_INCH });
   const dist = {
     top: anchor.distance.top * PX_PER_INCH,
     bottom: anchor.distance.bottom * PX_PER_INCH,
@@ -312,17 +315,19 @@ function build(prepared: Prepared & { plan: SplitPlan }, slack: number): Painted
 }
 
 /** The check pass for one paragraph: whether any slot's painted text is wider than the slot. */
-function overflows(paragraph: HTMLElement, slots: readonly PaintedSlot[], range: Range): boolean {
+function overflows(paragraph: HTMLElement, slots: readonly PaintedSlot[], range: Range, zoom: number): boolean {
   // Not laid out (a page the browser is skipping): the canvas measure stands.
   if (paragraph.getBoundingClientRect().height <= 0) return false;
+  // `widthPx` is a layout-pixel slot; the range's rect is painted, so the
+  // comparison only means anything once the rect is in the slot's own space.
   return slots.some(({ cell, widthPx }) => {
     range.selectNodeContents(cell);
-    return range.getBoundingClientRect().width > widthPx + 0.5;
+    return range.getBoundingClientRect().width / zoom > widthPx + 0.5;
   });
 }
 
 /** Lay out `paragraphs` in three passes: read all, build all, check all (and narrow the few that overflow). */
-function layoutAll(paragraphs: readonly HTMLElement[]): void {
+function layoutAll(paragraphs: readonly HTMLElement[], zoom: number): void {
   const entries: Array<{ paragraph: HTMLElement; state: SplitState }> = [];
   for (const paragraph of paragraphs) {
     const state = states.get(paragraph);
@@ -345,7 +350,7 @@ function layoutAll(paragraphs: readonly HTMLElement[]): void {
   const range = document.createRange();
   let pending = built;
   for (const slack of SLACK_STEPS_PX) {
-    pending = pending.filter(({ prepared: entry, slots }) => overflows(entry.paragraph, slots, range));
+    pending = pending.filter(({ prepared: entry, slots }) => overflows(entry.paragraph, slots, range, zoom));
     if (pending.length === 0) return;
     for (const item of pending) item.slots = build(item.prepared, slack);
   }
@@ -362,8 +367,19 @@ export function settleSplitWraps(root: HTMLElement, alive: () => boolean, option
   if (paragraphs.length === 0) return () => {};
   let disposed = false;
   const run = (): void => {
-    if (!disposed && alive()) layoutAll(paragraphs);
+    if (!disposed && alive()) layoutAll(paragraphs, paintedToLayoutZoom(root));
   };
+  let queued = false;
+  const queue = (): void => {
+    if (queued || disposed) return;
+    queued = true;
+    queueMicrotask(() => { queued = false; run(); });
+  };
+  for (const paragraph of paragraphs) {
+    const state = states.get(paragraph);
+    if (state?.image.type === "textBox") onTextBoxSize(state.picture, queue);
+    state?.frame.resized?.push(queue);
+  }
   run();
   // Fonts already loaded need no second pass; only a face still arriving changes the widths.
   if (options.refont !== false && typeof document !== "undefined" && document.fonts !== undefined && document.fonts.status !== "loaded") {

@@ -9,7 +9,7 @@ Excel is driven through its own instance (DispatchEx), hidden, and quit in
 
     python tools/chart-oracle/gen_types.py [out_dir]
 
-`out_dir` defaults to tools/chart-oracle/out/types (gitignored with the other
+`out_dir` defaults to tools/out/charts/types (gitignored with the other
 oracle outputs); the workbook is saved there as types-oracle.xlsx, the PNGs as
 types-<sheet>.png. Copy the workbook over tools/chart-oracle/types-oracle.xlsx
 to refresh the corpus the tests read.
@@ -21,7 +21,7 @@ import sys
 import win32com.client
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "out", "types"))
+OUT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "..", "out", "charts", "types"))
 os.makedirs(OUT, exist_ok=True)
 
 # Eight trading days; Arabic weekday names label the categories of the first sheet.

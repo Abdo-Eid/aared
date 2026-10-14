@@ -39,8 +39,9 @@
  * destroys the focused cell, so selection re-application restores the tab
  * stop (selected cell, else the host) when focus fell through to `<body>`;
  * without that, the second arrow key lands outside the grid and navigation
- * dies after one move. Selection is single-cell (Shift never
- * extends; documented, not deferred). Sheet tabs
+ * dies after one move. Selection is a cursor cell with an optional extended
+ * range: `Shift`+arrows extends from the anchor, dragging extends from the
+ * press point, any plain move re-anchors. Sheet tabs
  * list VISIBLE sheets only; `goToSheet()` still resolves hidden sheets by
  * name or index. Hyperlink clicks never navigate: they `preventDefault()`
  * and emit `linkactivate`.
@@ -55,7 +56,10 @@ import type {
   SheetModel,
   SheetPictureModel,
   SheetRangeModel,
+  ShapeFillModel,
 } from "../core/model.js";
+import { mixResolvedColorsSrgb } from "../core/color.js";
+import { loadFillPainter, loadedFillPainter } from "../fill-loader.js";
 import type {
   Appearance,
   CellRef,
@@ -73,13 +77,18 @@ import type {
 } from "../core/index.js";
 import { AaredError } from "../core/index.js";
 import { adoptClassSheet, classes, cssClass, type ClassSheetScope } from "../class-sheet.js";
+import { CONTENT_TEXT } from "../render-defaults.js";
 import { clipSnippet, findByTitle, foldQuery, searchKey } from "../core/search.js";
 import { SessionMedia, WorkerSession } from "../core/session.js";
 import type { SheetText, UnitRange } from "../core/rpc.js";
 import { itemAt, throwIfAborted } from "../core/errors.js";
-import { PALETTE, automaticInk, paintTokens, resolveTheme } from "../appearance.js";
+import { reportBackgroundError } from "../background-error.js";
+import { contentSignal, contentSource } from "../content-view.js";
+import { APPEARANCE_DEFAULTS, PALETTE, automaticInk, mergeAppearance, paintTokens, resolveTheme } from "../appearance.js";
 import { chartsSettled, paintChart } from "../chart-svg.js";
-import { MediaUrls } from "../media-url.js";
+import { loadEffectPainter, loadedEffectPainter } from "../effect-loader.js";
+import { paintTransform } from "../transform-paint.js";
+import { MediaUrls, paintImageSource } from "../media-url.js";
 import { DEFAULT_ZOOM, RenderHandleBase, fitScale, measureFitRoom, missingIdWarning, onReplaced, safeScale, settleRender } from "../render-handle.js";
 import type { EventTargetOf, ZoomChangeEvent } from "../render-handle.js";
 import { MARK_FALLBACKS } from "../diagnostics.js";
@@ -88,6 +97,7 @@ import { PX_PER_INCH, inchesToCss } from "../core/units.js";
 import { cssFontFamily } from "../core/typography.js";
 import { isInsideGrid } from "../core/xlsx/limits.js";
 import { cellAddress, columnName, parseA1Range } from "../core/xlsx/range.js";
+import { iconSvg } from "./icons.js";
 
 /** Document metadata for a workbook; `format` is narrowed to `"xlsx"`. */
 export interface XlsxInfo extends DocumentInfo {
@@ -117,6 +127,19 @@ export interface XlsxSearchMatch extends CellRef {
 export interface SheetReadOptions extends ReadOptions {
   /** An A1 range (`"A1:M200"`, or one cell) or a numeric `CellRange`. Absent reads the whole sheet. */
   range?: string | CellRange;
+}
+
+/** Viewer-owned sheet input: metadata and range reads, without an owner/session. */
+export interface SheetContent {
+  readonly info: SheetInfo;
+  read(options?: SheetReadOptions): Promise<SheetRangeModel>;
+}
+
+/** Read/render capabilities borrowed from a preview; search stays on the viewer. */
+export interface XlsxContent {
+  readonly info: XlsxInfo;
+  readonly sheets: Collection<SheetContent, number | string>;
+  readonly media: MediaCollectionShape;
 }
 
 /**
@@ -340,9 +363,9 @@ export async function open(source: Source, options?: OpenOptions): Promise<XlsxD
   return new XlsxDocument(await WorkerSession.openAs("xlsx", source, options));
 }
 
-/** `render()` input: a sheet handle (read on demand) or an already-resolved model. */
+/** `render()` input: an opened handle, borrowed sheet content, or a resolved model. */
 export interface XlsxRenderInput {
-  sheet: SheetHandle | SheetModel | SheetRangeModel;
+  sheet: SheetHandle | SheetContent | SheetModel | SheetRangeModel;
   target: HTMLElement;
   appearance?: Appearance;
   /** Starting zoom, applied without a `zoomchange`. Default `1` — 100%, as Excel opens a sheet. */
@@ -361,12 +384,14 @@ export interface XlsxRenderInput {
 
 /** The events an XLSX render handle fires, by name: `addEventListener` types each `event.detail`. Every event names its sheet as a unit reference and its cell as a cell location. */
 export interface XlsxRenderEventMap {
+  /** A built-in sheet-tab action failed. Public methods reject instead. */
+  error: CustomEvent<{ message: string; cause: AaredError }>;
   /** The zoom changed. */
   zoomchange: ZoomChangeEvent;
   /** The sheet shown changed (`goToSheet()`, a sheet tab). */
   sheetchange: CustomEvent<UnitRef>;
-  /** The selected cell changed, or the selection cleared (`null`). */
-  selectionchange: CustomEvent<{ sheet: UnitRef; selection: CellRef | null }>;
+  /** The selected cell changed, the range extended, or the selection cleared (`null`). */
+  selectionchange: CustomEvent<{ sheet: UnitRef; selection: CellRef | null; range: { start: CellRef; end: CellRef } | null }>;
   /** A cell was activated: Enter or a double-click. */
   cellactivate: CustomEvent<CellRef & { sheet: UnitRef; model: CellModel }>;
   /** A cell hyperlink was clicked; nothing navigates. */
@@ -394,10 +419,11 @@ export interface XlsxRenderHandle extends EventTargetOf<XlsxRenderEventMap> {
   /** The scale actually painted — the number, or what the fit mode computed. */
   readonly scale: number;
   /**
-   * Replace the viewer appearance in place: repaints the current sheet with
+   * Update the viewer appearance in place: repaints the current sheet with
    * the new theme/chrome knobs while keeping the sheet, selection, zoom and
-   * scroll position. Replaces, never merges: pass the whole object, or
-   * `spreadsheet` knobs you leave out return to their defaults.
+   * scroll position. Changes only what it sets: the theme and `spreadsheet`
+   * knobs it leaves out keep their current values. To bring a knob back to
+   * its default, pass the default (`{ spreadsheet: { sheetTabs: false } }`).
    */
   setAppearance(appearance: Appearance): void;
   /** Select one cell (`"D14"`; ranges reject `invalid-range`), scroll it into view if needed, and focus it. */
@@ -420,6 +446,8 @@ export interface XlsxRenderHandle extends EventTargetOf<XlsxRenderEventMap> {
   readonly sheet: SheetInfo;
   /** The single selected cell, or `null`. */
   readonly selection: CellRef | null;
+  /** The extended range (`Shift`+arrows, drag), or `null` when the cursor stands alone. */
+  readonly range: { start: CellRef; end: CellRef } | null;
 }
 
 const GRIDLINE_COLOR = "#E7E9EE";
@@ -450,10 +478,21 @@ const HEADER_COLOR_DARK = "#C9CAD1";
 // The lines read the tokens the host publishes (`paintSheetTokens`). Bases
 // are declared before their modifiers, so a modifier wins.
 const GRIDLINE = `var(--aared-gridline,${GRIDLINE_COLOR})`;
-const CELL_BOX = `padding:1px 4px;border:1px solid transparent;border-right-color:${GRIDLINE};border-bottom-color:${GRIDLINE};font-size:10pt;line-height:1`;
+/**
+ * Room between a cell's 1px border and its text on each side. Excel's PDF
+ * export puts left- and right-aligned text 2.4-2.5px from the cell box in
+ * Arial 10 and Calibri 11 alike, once its print scale is taken out (it
+ * prints a 12-character, 89px column 95.8px wide); border plus padding
+ * matches that. 4px here cost every cell 5px of room, enough to wrap a header
+ * Excel keeps on one line ("Hours logged", 85.9px in a 91px column).
+ */
+const CELL_PAD_PX = 1.5;
+const CELL_BOX = `padding:1px ${CELL_PAD_PX}px;border:1px solid transparent;border-right-color:${GRIDLINE};border-bottom-color:${GRIDLINE};font-size:10pt;line-height:1`;
 /** A data cell. Single-line cells never outgrow their authored row: see `paintCell`. */
 const CELL = cssClass(`${CELL_BOX};color:#000000;vertical-align:bottom;white-space:nowrap;overflow:hidden`);
 const CELL_WRAP = cssClass("line-height:1.1;white-space:pre-wrap;overflow-wrap:break-word;overflow:visible");
+/** Excel's plus pointer over cells that select on click, the viewer's data and empty cells alike. */
+const SELECTABLE = cssClass("cursor:cell");
 /** A viewport-fill cell: inert, the same box as a data cell. */
 const FILL_CELL = cssClass(`${CELL_BOX};overflow:hidden`);
 /**
@@ -476,8 +515,14 @@ const NO_GRIDLINES = cssClass("border-right-color:transparent;border-bottom-colo
 /** Text that must sit above a data bar. */
 const CELL_TEXT_OVER = cssClass("position:relative;z-index:1");
 const CELL_LINK = cssClass("text-decoration:none");
-const DATA_BAR = cssClass("position:absolute;inset-block:0;inset-inline-start:0;opacity:0.45;pointer-events:none");
-const SPILL = cssClass("position:absolute;top:0;bottom:0;box-sizing:border-box;padding:1px 4px;display:flex;overflow:hidden;pointer-events:none");
+const DATA_BAR = cssClass("position:absolute;inset-block:0;pointer-events:none");
+/** A gradient or pattern cell fill: the cell's whole box, under its text, never interactive. */
+const CELL_FILL = cssClass("position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;display:block");
+/** An icon-set glyph: 16px at the inline start, centred vertically, never interactive. */
+const ICON = cssClass("position:absolute;inset-inline-start:2px;top:50%;width:16px;height:16px;transform:translateY(-50%);pointer-events:none");
+/** Text beside an icon keeps clear of the 16px glyph plus its 2px offset. */
+const CELL_TEXT_WITH_ICON = cssClass("position:relative;z-index:1;padding-inline-start:20px;box-sizing:border-box;display:inline-block;max-width:100%");
+const SPILL = cssClass(`position:absolute;top:0;bottom:0;box-sizing:border-box;padding:1px ${CELL_PAD_PX}px;display:flex;overflow:hidden;pointer-events:none`);
 const SPILL_TEXT = cssClass("white-space:nowrap;pointer-events:auto");
 /**
  * Headings share the grid's own hairlines — bottom/right only, never a full
@@ -493,7 +538,34 @@ const HEADING_CORNER = cssClass("z-index:5");
 const HEADING_LEFT = cssClass("left:0px");
 const HEADING_RIGHT = cssClass("right:0px");
 const HEADING_CLIP = cssClass("overflow:hidden");
-const SPACER = cssClass("padding:0;border:0");
+/**
+ * The extended-range wash on every cell copy the window paints. It is a
+ * translucent layer (an inset shadow sits above the cell's fill and below its
+ * text), so an authored fill keeps its colour and light text on a dark header
+ * stays readable. Scoped to this transient state: removing the class restores
+ * the cell, nothing is saved.
+ */
+const RANGE_WASH = "inset 0 0 0 9999px var(--aared-range-fill)";
+const inRangeClass = cssClass(`box-shadow:${RANGE_WASH}`);
+/**
+ * The cursor cell inside an extended range paints paper-white, as in Excel,
+ * but only when it has no fill of its own: white over a header's dark fill
+ * would hide its text. Such a cell keeps its look and shows its frame.
+ */
+const activeInRangeClass = cssClass("box-shadow:inset 0 0 0 9999px #ffffff");
+/**
+ * Each range a formula reads gets its own colour, in order of first appearance
+ * (as Excel's formula editor does), cycling after six: a light tint and a dashed frame.
+ */
+const REFERENCE_COLORS = [
+  { solid: "#2F6FDB", tint: "rgba(47, 111, 219, 0.12)" },
+  { solid: "#E8772E", tint: "rgba(232, 119, 46, 0.12)" },
+  { solid: "#8E44AD", tint: "rgba(142, 68, 173, 0.12)" },
+  { solid: "#2E9E5B", tint: "rgba(46, 158, 91, 0.12)" },
+  { solid: "#D4A017", tint: "rgba(212, 160, 23, 0.14)" },
+  { solid: "#C0392B", tint: "rgba(192, 57, 43, 0.12)" },
+];
+const referenceClasses = REFERENCE_COLORS.map(({ tint }) => cssClass(`box-shadow:inset 0 0 0 9999px ${tint}`));
 /** HTML clamps `colSpan` at 1000; a wider fill row keeps one cell per column. */
 const MAX_COL_SPAN = 1000;
 
@@ -510,6 +582,9 @@ function paintSheetTokens(
   element.style.setProperty("--aared-header-fill", tokens.headerFill);
   if (tokens.headerColor !== undefined) element.style.setProperty("--aared-header-color", tokens.headerColor);
   element.style.setProperty("--aared-selection", PALETTE[tokens.dark ? "dark" : "light"].accent);
+  // The extended-range wash: the accent at a low alpha, precomputed per
+  // theme (no `color-mix`, which the baseline floor cannot assume).
+  element.style.setProperty("--aared-range-fill", tokens.dark ? "rgba(138, 180, 248, 0.18)" : "rgba(11, 87, 208, 0.12)");
 }
 
 /**
@@ -536,6 +611,9 @@ function textAlign(cell: CellModel, sheetRtl: boolean): string {
   if (align !== "general") return align;
   // Excel's `general`: strings at the start edge, numbers at the end edge,
   // booleans and errors centered. Logical values keep DOM order intact.
+  // Deliberately the sheet's start edge for every string: Excel places a
+  // General string by its own first strong letter, so in a right-to-left
+  // sheet "SKU" sits left beside Arabic sitting right (Notes §116).
   if (typeof cell.value === "number") return sheetRtl ? "left" : "right";
   if (typeof cell.value === "boolean" || cell.type === "error") return "center";
   return sheetRtl ? "right" : "left";
@@ -556,6 +634,8 @@ interface GridPaint {
   automaticColor: (fill: string | undefined) => string;
   /** Opaque fill stamped behind sticky frozen cells whose own fill is transparent. */
   frozenFill: string;
+  /** Cells select on click, so they show Excel's plus pointer (`cursor: cell`). */
+  selectable: boolean;
   headerFill: string;
   headerColor: string;
   /** Chrome line/text colors for notices and drawing placeholders. */
@@ -575,6 +655,10 @@ interface TextSpill {
   width: number;
   /** Physical distance from the run's left edge to the cell's left edge. */
   offset: number;
+  /** Physical distance from the cell's right edge to the run's right edge. */
+  after: number;
+  /** The run's columns, the cell's own among them, physically left to right. */
+  run: number[];
 }
 
 /** Where a cell's text sits, as `paintCell` resolved it (read by the spill overlay). */
@@ -583,26 +667,54 @@ interface CellPlacement {
   vertical: string;
 }
 
-/** Nothing to show: no text, no link, no data bar. Such a cell paints no content element. */
+/** Nothing to show: no text, no link, no data bar, no icon. Such a cell paints no content element. */
 function isEmptyCell(cell: CellModel): boolean {
-  return cell.formatted === "" && cell.hyperlink === undefined && cell.conditional?.dataBar === undefined;
+  return cell.formatted === "" && cell.hyperlink === undefined && cell.conditional?.dataBar === undefined && cell.conditional?.icon === undefined;
 }
 
 function appendCellContent(cellElement: HTMLElement, cell: CellModel, placement: CellPlacement, spill?: TextSpill): void {
   const dataBar = cell.conditional?.dataBar;
+  const icon = cell.conditional?.icon;
+  if (icon !== undefined) {
+    const holder = document.createElement("span");
+    holder.setAttribute("data-aared-element", "cell-icon");
+    holder.setAttribute("aria-hidden", "true");
+    holder.setAttribute("class", ICON);
+    // One inline SVG per painted icon; the catalogue shares geometry so the
+    // per-cell cost is a 16px box, and virtualization bounds how many paint.
+    holder.innerHTML = `<svg viewBox="0 0 16 16" width="16" height="16" focusable="false">${iconSvg(icon.family, icon.icon)}</svg>`;
+    cellElement.append(holder);
+  }
   if (dataBar !== undefined) {
     const bar = document.createElement("div");
     bar.setAttribute("data-aared-element", "data-bar");
     bar.setAttribute("aria-hidden", "true");
     bar.setAttribute("class", DATA_BAR);
     bar.style.width = `${Math.min(Math.max(dataBar.ratio, 0), 1) * 100}%`;
-    bar.style.backgroundColor = dataBar.color;
+    const rtl = dataBar.direction === "rightToLeft"
+      || (dataBar.direction === "context" && getComputedStyle(cellElement).direction === "rtl");
+    if (dataBar.direction === "context") {
+      bar.style.insetInlineStart = "0";
+    } else {
+      bar.style.left = rtl ? "auto" : "0";
+      bar.style.right = rtl ? "0" : "auto";
+    }
+    if (dataBar.gradient) {
+      bar.style.backgroundImage = `linear-gradient(to ${rtl ? "left" : "right"}, ${dataBar.color} 0%, transparent 100%)`;
+    } else {
+      bar.style.backgroundColor = dataBar.color;
+    }
+    if (dataBar.border) {
+      bar.style.boxSizing = "border-box";
+      bar.style.border = `1px solid ${dataBar.borderColor ?? dataBar.color}`;
+    }
     cellElement.append(bar);
   }
-  if (cell.formatted === "" && cell.hyperlink === undefined) return;
+  if ((dataBar?.showValue === false) || (icon?.showValue === false) || (cell.formatted === "" && cell.hyperlink === undefined)) return;
   const text = document.createElement("span");
   text.setAttribute("data-aared-element", "cell-text");
   if (dataBar !== undefined) text.setAttribute("class", CELL_TEXT_OVER);
+  else if (icon !== undefined) text.setAttribute("class", CELL_TEXT_WITH_ICON);
   if (cell.hyperlink === undefined) {
     text.textContent = cell.formatted;
   } else {
@@ -631,12 +743,122 @@ function appendCellContent(cellElement: HTMLElement, cell: CellModel, placement:
   overlay.style.left = `${-spill.offset - 1}px`;
   overlay.style.width = `${spill.width}px`;
   overlay.style.justifyContent = placement.align === "right" ? "flex-end" : placement.align === "center" ? "center" : "flex-start";
+  if (placement.align === "center" && spill.offset !== spill.after) {
+    // Excel centres the text on its own cell, never on the run: each side
+    // spills into its own blank neighbours and is clipped at the first cell
+    // with content. Read off Excel's PDF export: a word that fits stays
+    // centred in its cell beside an empty one, and an overflowing line keeps
+    // the same position whether its left or its right neighbour holds text,
+    // only cut at that neighbour. Padding the shorter side by the difference
+    // puts the centring box's middle on the cell's middle; the overlay still
+    // clips at the run's ends.
+    const shift = Math.abs(spill.offset - spill.after);
+    if (spill.offset > spill.after) overlay.style.paddingLeft = `${CELL_PAD_PX + shift}px`;
+    else overlay.style.paddingRight = `${CELL_PAD_PX + shift}px`;
+  }
   overlay.style.alignItems = placement.vertical === "top" ? "flex-start" : placement.vertical === "middle" ? "center" : "flex-end";
   text.dir = cellElement.dir;
   text.setAttribute("class", classes(text.getAttribute("class"), SPILL_TEXT));
   overlay.append(text);
   cellElement.append(overlay);
 }
+
+/** A painted cell's box in CSS pixels at 100%: its visible columns and rows, merges included. */
+interface CellSize {
+  width: number;
+  height: number;
+}
+
+/**
+ * Whether any cell of `model` has a gradient or pattern fill, so the shared
+ * fill painter is fetched before the grid paints (a sheet with solid fills
+ * only never loads it). Cells sharing a style share one object, so each style
+ * is checked once.
+ */
+function needsFillPainter(model: SheetModel): boolean {
+  const seen = new Set<object>();
+  for (const row of model.rows) {
+    for (const { cell } of row.cells) {
+      const style = cell.style;
+      if (style === undefined || seen.has(style)) continue;
+      seen.add(style);
+      if (style.fill !== undefined && style.fill.kind !== "solid") return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The colour automatic text reads against over a non-solid fill: a
+ * gradient's middle, blended in sRGB as Excel blends cells, or a pattern's
+ * background (most of its pixels in every pattern but the darkest).
+ */
+function fillInkColor(fill: ShapeFillModel): string | undefined {
+  switch (fill.kind) {
+    case "solid":
+      return fill.color;
+    case "linear-gradient":
+    case "path-gradient": {
+      const first = fill.stops[0];
+      const last = fill.stops[fill.stops.length - 1];
+      return first === undefined || last === undefined ? undefined : mixResolvedColorsSrgb(first.color, last.color, 0.5);
+    }
+    case "pattern":
+      return fill.background;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Paint a gradient or pattern cell fill behind the cell's text: an SVG layer
+ * the cell's size, through the shared fill painter, as PPTX table cells do.
+ * Patterns anchor at the cell's own top-left, as Excel draws them (probe
+ * xlsx-cell-fills). `isolation` keeps the layer's negative z-index inside the
+ * cell, above the grid and under the text. The painter was loaded before the
+ * grid painted (`needsFillPainter`); a fill it cannot paint is marked.
+ */
+function paintCellFill(cellElement: HTMLElement, fill: ShapeFillModel, size: CellSize): void {
+  const painter = loadedFillPainter();
+  if (painter === undefined || !(size.width > 0 && size.height > 0)) {
+    markCellFill(cellElement, painter === undefined ? "painter-unavailable" : "empty-cell");
+    return;
+  }
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("data-aared-element", "cell-fill");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("viewBox", `0 0 ${size.width} ${size.height}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("class", CELL_FILL);
+  const paint = painter.fillPaint(svg, `aared-cell-fill-${++cellFillIds}`, fill, {
+    width: size.width,
+    height: size.height,
+    unitsPerPxX: 1,
+    unitsPerPxY: 1,
+    slideX: 0,
+    slideY: 0,
+  }, { urls: undefined });
+  if (paint === undefined) {
+    markCellFill(cellElement, painter.fillFallbackReason(fill, undefined));
+    return;
+  }
+  const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  rect.setAttribute("width", String(size.width));
+  rect.setAttribute("height", String(size.height));
+  rect.setAttribute("fill", paint);
+  svg.append(rect);
+  cellElement.style.position = "relative";
+  cellElement.style.isolation = "isolate";
+  cellElement.prepend(svg);
+}
+
+/** A cell fill the painter could not draw: its reason, and in development builds a dashed outline. */
+function markCellFill(cellElement: HTMLElement, reason: string): void {
+  cellElement.setAttribute("data-aared-fill-fallback", reason);
+  if (MARK_FALLBACKS) cellElement.style.outline = "1px dashed #d97706";
+}
+
+let cellFillIds = 0;
 
 /**
  * Paint a data cell: the default look is the `CELL` class, and inline style
@@ -648,31 +870,35 @@ function appendCellContent(cellElement: HTMLElement, cell: CellModel, placement:
  * wrapped text gets just enough leading (`CELL_WRAP`) for two lines to fit a
  * row Excel sized for them, cell padding and borders included.
  */
-function paintCell(cellElement: HTMLElement, cell: CellModel, sheetRtl: boolean, paint: GridPaint): CellPlacement {
+function paintCell(cellElement: HTMLElement, cell: CellModel, sheetRtl: boolean, paint: GridPaint, size: CellSize): CellPlacement {
   const style = cell.style;
   const wrap = style?.wrapText === true;
   // Default gridlines are content chrome resolved per gridline mode; an
   // authored border always wins below. Hidden gridlines stay transparent
   // (never `none`) so authored and default borders share one box metric.
-  cellElement.setAttribute("class", classes(CELL, wrap && CELL_WRAP, !paint.showGridlines && NO_GRIDLINES));
+  cellElement.setAttribute("class", classes(CELL, wrap && CELL_WRAP, !paint.showGridlines && NO_GRIDLINES, paint.selectable && SELECTABLE));
   if (style?.fontSizePt !== undefined && style.fontSizePt !== 10) cellElement.style.fontSize = `${style.fontSizePt}pt`;
   if (style?.fontFamily !== undefined) cellElement.style.fontFamily = cssFontFamily(style.fontFamily);
   if (style?.bold === true || cell.conditional?.bold === true) cellElement.style.fontWeight = "700";
   if (style?.italic === true) cellElement.style.fontStyle = "italic";
   if (style?.underline === true) cellElement.style.textDecoration = "underline";
   // Fills are never defaulted: no fill lets the white host surface show
-  // through, preserving provenance.
-  const fill = cell.conditional?.fill ?? style?.fill;
+  // through, preserving provenance. A conditional colour overlays the cell's
+  // own fill; a gradient or pattern paints as a layer behind the text.
+  const ownFill = style?.fill;
+  const fill = cell.conditional?.fill ?? (ownFill?.kind === "solid" ? ownFill.color : undefined);
   if (fill !== undefined) cellElement.style.backgroundColor = fill;
+  else if (ownFill !== undefined) paintCellFill(cellElement, ownFill, size);
   // An authored or conditional color paints verbatim; automatic text is
   // chosen for the fill it sits on (Excel black, `CELL`'s own, without one).
-  const color = cell.conditional?.color ?? style?.color ?? paint.automaticColor(fill);
+  const ink = fill ?? (ownFill === undefined ? undefined : fillInkColor(ownFill));
+  const color = cell.conditional?.color ?? style?.color ?? paint.automaticColor(ink);
   if (color !== paint.automaticColor(undefined)) cellElement.style.color = color;
   const placement: CellPlacement = { align: textAlign(cell, sheetRtl), vertical: style?.verticalAlign ?? "bottom" };
   const hasContent = !isEmptyCell(cell) || style?.indent !== undefined;
   if (hasContent) cellElement.style.textAlign = placement.align;
   if (placement.vertical !== "bottom") cellElement.style.verticalAlign = placement.vertical;
-  if (style?.indent !== undefined) cellElement.style.paddingInlineStart = `calc(4px + ${style.indent * 8}px)`;
+  if (style?.indent !== undefined) cellElement.style.paddingInlineStart = `${CELL_PAD_PX + style.indent * 8}px`;
   // Sheet RTL flips column order via the table's `dir`, but cell text follows
   // Excel's per-cell reading order: 1 = LTR, 2 = RTL, otherwise context. An
   // unspecified order must not inherit the sheet direction, or LTR values
@@ -682,6 +908,10 @@ function paintCell(cellElement: HTMLElement, cell: CellModel, sheetRtl: boolean,
   if (style?.readingOrder === 2) cellElement.dir = "rtl";
   else if (style?.readingOrder === 1) cellElement.dir = "ltr";
   else if (hasContent) cellElement.dir = "auto";
+  // Each cell paints its own four edges. Where neighbours both author the
+  // edge between them (Excel's All Borders writes it on both), the table's
+  // separate borders draw it twice, 2px against Excel's one line; kept by
+  // choice (Notes §116).
   const border = style?.border;
   if (border?.top !== undefined) cellElement.style.borderTop = borderCss(border.top.style, border.top.color);
   if (border?.left !== undefined) cellElement.style.borderLeft = borderCss(border.left.style, border.left.color);
@@ -803,6 +1033,8 @@ interface SheetPaintSession {
   dataRowTop(row: number): number | undefined;
   /** Synchronously re-render the virtualization window (used after programmatic scrolls). */
   renderWindow(): void;
+  /** Resolves once this session's picture effects are painted (or marked). */
+  effectsReady: Promise<void>;
   /**
    * The sheet's used size at 100%, in the host's own pixels: the columns and
    * rows the sheet has plus the headings — never the viewport-fill cells,
@@ -821,6 +1053,14 @@ interface SheetPaintSession {
    * outer clipping ancestor, which is converted into the host's space with it.
    */
   setScale(scale: number): void;
+  /** The cell under a pointer on the viewport fill, numbered past the extent; `null` off the fill. */
+  fillCellAt(target: HTMLElement, clientX: number): { row: number; col: number } | null;
+  /** The fill rows and columns painted now, as the indexes they continue the extent with. */
+  fillSpan(): { rows: number[]; columns: number[] };
+  /** Paint the selection over the cells past the extent; the cells inside it are painted by their own classes. */
+  paintSelection(range: { top: number; bottom: number; left: number; right: number } | null, cursor: { row: number; col: number } | null): void;
+  /** Paint one dashed boundary per same-sheet formula reference range. */
+  paintReferenceRanges(ranges: Array<{ range: { top: number; bottom: number; left: number; right: number }; color: string }>): void;
 }
 
 /** Paint one already-resolved sheet. The caller owns which sheet is visible. */
@@ -885,6 +1125,7 @@ function paintSheet(
 
   const host = document.createElement("div");
   host.dataset.aaredElement = "sheet";
+  host.setAttribute("class", CONTENT_TEXT);
   host.style.position = "relative";
   host.style.width = "100%";
   // Fill a bounded embedder's height so the grid below can scroll; without
@@ -1040,8 +1281,10 @@ function paintSheet(
   // ---- Viewport fill -------------------------------------------------------
   // Excel's grid never ends at the data. When the viewer is bigger than the
   // sheet, keep drawing empty default-size cells (with continuing headings)
-  // until the viewport is full. Viewer chrome only: the cells are inert,
-  // aria-hidden, and never enter the model, extent, selection or navigation.
+  // until the viewport is full. The cells never enter the model or the
+  // extent: they are empty, so they carry no content, and a click on one
+  // selects it by position (`fillCellAt`), with the row and column numbers
+  // continuing past the extent. They are aria-hidden, as the headings are.
   const realWidthPx = geometry.totalWidth + headerWidthPx;
   const realHeightPx = geometry.totalHeight + headerHeightPx;
   const fillRowPx = Math.max(model.defaultRowHeight * PX_PER_INCH, 1);
@@ -1224,7 +1467,7 @@ function paintSheet(
     cell.setAttribute("data-aared-element", "fill-cell");
     cell.setAttribute("aria-hidden", "true");
     const lines = kind === "tracks" ? (model.rightToLeft ? FILL_TRACKS_RTL : FILL_TRACKS) : kind === "row" ? FILL_ROW : undefined;
-    cell.setAttribute("class", classes(FILL_CELL, lines, !paint.showGridlines && NO_GRIDLINES));
+    cell.setAttribute("class", classes(FILL_CELL, lines, !paint.showGridlines && NO_GRIDLINES, paint.selectable && SELECTABLE));
     if (kind !== undefined) cell.setAttribute("data-aared-fill", kind);
     if (span > 1) cell.colSpan = span;
     if (row !== undefined) paintFrozen(cell, row, -1);
@@ -1345,21 +1588,23 @@ function paintSheet(
     const key = `${row}:${col}`;
     if (merges.originOf.has(key) || merges.rangeOf.has(key)) return false;
     const cell = entries?.get(col);
-    return cell === undefined || (cell.value === null && cell.formatted === "" && cell.conditional?.dataBar === undefined);
+    return cell === undefined || (cell.value === null && cell.formatted === "" && cell.conditional?.dataBar === undefined && cell.conditional?.icon === undefined);
   };
 
   /**
    * Excel lets unwrapped text overflow into empty neighbours (toward the end
    * edge for left-aligned text, the start edge for right-aligned, both for
    * centered) and stops at the first cell with content. Numbers never spill.
+   * This is the room the text may take; how far it really reaches, and so
+   * which gridlines it crosses, is read off the painted text
+   * (`settleSpillLines`).
    */
   const spillsForRow = (
     row: number,
     entries: Map<number, CellModel> | undefined,
-  ): { spills: Map<number, TextSpill>; crossed: Set<number> } => {
+  ): Map<number, TextSpill> => {
     const spills = new Map<number, TextSpill>();
-    const crossed = new Set<number>();
-    if (entries === undefined) return { spills, crossed };
+    if (entries === undefined) return spills;
     const rtl = model.rightToLeft;
     for (const [col, cell] of entries) {
       const position = columnPosition.get(col);
@@ -1386,14 +1631,56 @@ function paintSheet(
       const left = align === "right" || align === "center" ? physicalLeft : [];
       if (left.length === 0 && right.length === 0) continue;
       const offset = left.reduce((sum, c) => sum + columnWidthPx(c), 0);
-      const width = offset + columnWidthPx(col) + right.reduce((sum, c) => sum + columnWidthPx(c), 0);
-      spills.set(col, { width, offset });
-      // Everything in the run except its right-most cell loses its right gridline.
-      for (const c of left) crossed.add(c);
-      if (right.length > 0) crossed.add(col);
-      for (const c of right.slice(0, -1)) crossed.add(c);
+      const after = right.reduce((sum, c) => sum + columnWidthPx(c), 0);
+      // `left` and `right` list the nearest neighbour first.
+      spills.set(col, { width: offset + columnWidthPx(col) + after, offset, after, run: [...left].reverse().concat(col, right) });
     }
-    return { spills, crossed };
+    return spills;
+  };
+
+  /** This window's spilled text and the cells of its run (`TextSpill.run`), for `settleSpillLines`. */
+  let windowSpills: Array<{ text: HTMLElement; run: HTMLElement[]; keep: boolean[] }> = [];
+
+  /**
+   * Excel draws no gridline through text that runs across cells, and every
+   * other gridline as usual: a short word beside empty cells keeps all of
+   * them. So the lines are settled from the painted text, not from the room
+   * it may take: one read of every spilled text and run cell in the window,
+   * then one write. A boundary is a cell's right edge; text reaching past it
+   * hides it, unless the cell authors its own right border. Run again when a
+   * font finishes loading, since that changes how far the text reaches.
+   */
+  const settleSpillLines = (): void => {
+    const hide = new Set<HTMLElement>();
+    const show: HTMLElement[] = [];
+    for (const { text, run, keep } of windowSpills) {
+      if (!text.isConnected) continue;
+      const box = text.getBoundingClientRect();
+      for (let i = 0; i < run.length - 1; i++) {
+        if (keep[i]) continue;
+        const cell = run[i]!;
+        const edge = cell.getBoundingClientRect().right;
+        if (box.width > 0 && box.left < edge - 0.5 && box.right > edge + 0.5) hide.add(cell);
+        else show.push(cell);
+      }
+    }
+    for (const cell of show) if (!hide.has(cell)) cell.style.borderRightColor = "";
+    for (const cell of hide) cell.style.borderRightColor = "transparent";
+  };
+
+  /** A cell's painted box in CSS pixels: its visible columns and rows, through a merge's span. */
+  const cellSize = (row: number, col: number, merge: { endRow: number; endCol: number } | undefined): CellSize => {
+    const endRow = Math.min(merge?.endRow ?? row, model.extent.rows - 1);
+    const endCol = Math.min(merge?.endCol ?? col, model.extent.cols - 1);
+    let width = 0;
+    for (let probe = col; probe <= endCol; probe++) {
+      if (!hiddenColumns.has(probe)) width += (model.columnWidths[probe] ?? 0) * PX_PER_INCH;
+    }
+    let height = 0;
+    for (let probe = row; probe <= endRow; probe++) {
+      if (!hiddenRowSet.has(probe)) height += rowHeightOf(probe);
+    }
+    return { width, height };
   };
 
   const paintRow = (row: number): HTMLTableRowElement => {
@@ -1421,7 +1708,8 @@ function paintSheet(
       line.append(number);
     }
     const entries = cellsByRow.get(row);
-    const { spills, crossed } = spillsForRow(row, entries);
+    const spills = spillsForRow(row, entries);
+    const painted = new Map<number, HTMLElement>();
     for (const col of geometry.visibleColumns) {
       const covered = merges.originOf.get(`${row}:${col}`);
       if (covered !== undefined) continue;
@@ -1454,22 +1742,26 @@ function paintSheet(
         cellElement.setAttribute("data-aared-merge", `${merge.row}:${merge.col}:${endRow}:${endCol}`);
       }
       const effective: CellModel = cell ?? { value: null, formatted: "", type: "empty" };
-      const placement = paintCell(cellElement, effective, model.rightToLeft, paint);
+      const placement = paintCell(cellElement, effective, model.rightToLeft, paint, cellSize(row, col, merge));
       const spill = spills.get(col);
-      // Only a data bar or a spill overlay needs the cell as a containing
-      // block (a frozen cell's sticky, set below, is one too).
-      if (spill !== undefined || effective.conditional?.dataBar !== undefined) cellElement.style.position = "relative";
+      // Only a data bar, an icon or a spill overlay needs the cell as a
+      // containing block (a frozen cell's sticky, set below, is one too).
+      if (spill !== undefined || effective.conditional?.dataBar !== undefined || effective.conditional?.icon !== undefined) cellElement.style.position = "relative";
       if (spill !== undefined) {
         cellElement.style.overflow = "visible";
         cellElement.style.zIndex = "1";
       }
-      // Excel draws no gridline through text that runs across cells.
-      if (crossed.has(col) && effective.style?.border?.right === undefined) {
-        cellElement.style.borderRightColor = "transparent";
-      }
       appendCellContent(cellElement, effective, placement, spill);
       paintFrozen(cellElement, row, col);
+      painted.set(col, cellElement);
       line.append(cellElement);
+    }
+    for (const [col, spill] of spills) {
+      const text = painted.get(col)?.querySelector<HTMLElement>('[data-aared-element="cell-text"]');
+      const run = spill.run.map((c) => painted.get(c));
+      if (text == null || run.some((cell) => cell === undefined)) continue;
+      const keep = spill.run.map((c) => entries?.get(c)?.style?.border?.right !== undefined);
+      windowSpills.push({ text, run: run as HTMLElement[], keep });
     }
     if (fillColumnWidths.length > 0) line.append(paintFillCell(row, fillColumnWidths.length, "tracks"));
     return line;
@@ -1479,6 +1771,7 @@ function paintSheet(
   const paintFillRow = (position: number, height: number): HTMLTableRowElement => {
     const line = document.createElement("tr");
     line.setAttribute("data-aared-element", "fill-row");
+    line.setAttribute("data-aared-fill-row", String(position));
     line.setAttribute("aria-hidden", "true");
     line.style.height = `${height}px`;
     if (showHeaders) {
@@ -1499,7 +1792,13 @@ function paintSheet(
     if (columns <= MAX_COL_SPAN) {
       line.append(paintFillCell(undefined, columns, "row"));
     } else {
-      for (let i = 0; i < columns; i++) line.append(paintFillCell(undefined));
+      // One cell per column: each carries its own column, so a click names it.
+      const visible = geometry.visibleColumns.length;
+      for (let i = 0; i < columns; i++) {
+        const cell = paintFillCell(undefined);
+        cell.dataset.aaredCol = String(i < visible ? geometry.visibleColumns[i] : model.extent.cols + i - visible);
+        line.append(cell);
+      }
     }
     return line;
   };
@@ -1529,6 +1828,7 @@ function paintSheet(
     const viewport = windowH;
     measureFill(windowW, fillH);
     body.replaceChildren();
+    windowSpills = [];
     // The rows whose box meets the window plus a pixel margin: they run from the
     // first row ending below its top to the last row starting above its bottom.
     const windowTop = scrollTop - ROW_OVERSCAN * 20;
@@ -1577,6 +1877,7 @@ function paintSheet(
     }
     // Empty rows below the data, only when the whole sheet fits the viewport.
     fillRowHeights.forEach((height, position) => body.append(paintFillRow(position, height)));
+    settleSpillLines();
     // The controller re-applies ephemeral state (selection) that a fresh
     // window would otherwise drop. Windowed Worker re-reads on scroll are
     // deliberately out of scope: the grid only ever paints the model it was
@@ -1602,6 +1903,9 @@ function paintSheet(
   const resizer = new ResizeObserver(() => {
     viewportCache = null;
     schedule();
+    // A picture box still waiting for attach (see `settleEffects`) paints
+    // its effects once layout exists; drained lists make this a no-op.
+    settleEffects();
   });
   // The document-viewport room has no element to observe; the window resize
   // covers it (harmlessly duplicated when a clipping ancestor is observed).
@@ -1612,6 +1916,9 @@ function paintSheet(
     schedule();
   };
   window.addEventListener("resize", onWindowResize);
+  // A face that loads after the first paint changes how far spilled text reaches.
+  const fonts = typeof document === "undefined" ? undefined : document.fonts;
+  fonts?.addEventListener("loadingdone", settleSpillLines);
   // Fill rows draw their column lines from these properties even when no fill
   // column ever appears, so they are set before the first window paints.
   syncFillLines();
@@ -1679,10 +1986,20 @@ function paintSheet(
     });
   };
 
+  // Picture effects resolve in the Worker to the shared vocabulary; the
+  // effect painter loads on demand and paints them here, with cleanups owned
+  // by this paint session (sheet switches and appearance repaints destroy
+  // and repaint, so observers never outlive their box).
+  const effectCleanups: Array<() => void> = [];
+  const effectTargets: Array<{ box: HTMLElement; drawing: SheetPictureModel }> = [];
   const paintPicture = (drawing: SheetPictureModel): void => {
     const box = paintDrawingBox(drawing);
     box.dataset.aaredElement = "picture";
     box.dataset.aaredMedia = drawing.mediaId;
+    // A rotated picture turns with its shadow's frame: the transform paints
+    // here while the shadow math reads it from the model.
+    paintTransform(box, drawing.transform);
+    if (drawing.effects !== undefined) effectTargets.push({ box, drawing });
     const placeholder = document.createElement("div");
     placeholder.dataset.aaredElement = "picture-placeholder";
     placeholder.style.width = "100%";
@@ -1697,28 +2014,66 @@ function paintSheet(
     box.append(placeholder);
     drawingsLayer.append(box);
     if (urls === undefined) return;
-    void urls.url(drawing.mediaId, drawing.contentType).then(
-      (url) => {
-        if (url === undefined || !box.isConnected) return;
-        const image = document.createElement("img");
-        image.src = url;
-        image.alt = drawing.name;
-        image.style.width = "100%";
-        image.style.height = "100%";
-        image.style.objectFit = "contain";
-        box.replaceChildren(image);
-      },
-      () => {
-        if (urls.closed || !box.isConnected) return;
-        placeholder.textContent = `${drawing.name} (unavailable)`;
-      },
-    );
+    const image = document.createElement("img");
+    image.alt = drawing.name;
+    image.style.width = "100%";
+    image.style.height = "100%";
+    image.style.objectFit = "contain";
+    // The SVG source paints first; Office's raster fallback covers a read or
+    // decode failure, and the named placeholder stays for neither.
+    const showPlaceholder = (text: string): void => {
+      box.replaceChildren(placeholder);
+      placeholder.textContent = text;
+    };
+    // An `<img>` with no `src` yet paints nothing, so the box stays empty
+    // until the source arrives; the placeholder returns only when neither
+    // source paints.
+    box.replaceChildren(image);
+    paintImageSource(image, urls, {
+      mediaId: drawing.mediaId,
+      contentType: drawing.contentType,
+      ...(drawing.fallbackMediaId === undefined || drawing.fallbackContentType === undefined ? {} : {
+        fallbackMediaId: drawing.fallbackMediaId,
+        fallbackContentType: drawing.fallbackContentType,
+      }),
+    }, () => showPlaceholder(`${drawing.name} (unavailable)`));
   };
 
   for (const drawing of model.drawings) {
     if (drawing.kind === "chart") paintChartDrawing(drawing);
     else paintPicture(drawing);
   }
+  // Effects paint once their painter arrives; a failed fetch marks rather
+  // than drops them, and a torn-down session paints nothing. A box not yet
+  // attached (the painter was already loaded, so this pass runs before the
+  // host is placed) goes back on the list: the resize observer below settles
+  // it once layout exists, so it is never skipped for good.
+  let effectsUnavailable = false;
+  const settleEffects = (): void => {
+    if (destroyed || effectTargets.length === 0) return;
+    const painter = loadedEffectPainter();
+    // renderWindow also calls this while the lazy chunk is still in flight.
+    // Keep the targets until it settles; absence during download is not a
+    // failed painter, and draining them here loses the effects permanently.
+    if (painter === undefined && !effectsUnavailable) return;
+    for (const target of effectTargets.splice(0)) {
+      if (destroyed) return;
+      if (target.drawing.effects === undefined) continue;
+      if (!target.box.isConnected) {
+        effectTargets.push(target);
+        continue;
+      }
+      if (painter === undefined) target.box.dataset.aaredEffectFallback = "painter-unavailable";
+      else painter.paintDrawingEffects(target.box, target.drawing.effects, drawingsLayer, target.drawing.transform, effectCleanups);
+    }
+  };
+  const effectsReady: Promise<void> = (async () => {
+    if (effectTargets.length === 0) return;
+    if (loadedEffectPainter() === undefined) {
+      await loadEffectPainter().then(() => undefined, () => { effectsUnavailable = true; });
+    }
+    settleEffects();
+  })();
 
   container.replaceChildren(host);
   // Observe attached: an observer added while the tree is detached never
@@ -1741,8 +2096,260 @@ function paintSheet(
     resizer.disconnect();
     scroller.removeEventListener("scroll", onScroll);
     window.removeEventListener("resize", onWindowResize);
+    fonts?.removeEventListener("loadingdone", settleSpillLines);
+    for (const cleanup of effectCleanups.splice(0)) cleanup();
     urls?.close();
   };
+  // ---- Selection past the data ---------------------------------------------
+  // Fill cells are not in the model, so a click on one is placed by geometry:
+  // the same column and row offsets the drawings and the spacers use.
+  const selectionLayer = document.createElement("div");
+  selectionLayer.dataset.aaredElement = "sheet-selection";
+  selectionLayer.style.position = "absolute";
+  selectionLayer.style.inset = "0";
+  selectionLayer.style.pointerEvents = "none";
+  canvas.append(selectionLayer);
+  const visibleColumnIndex = new Map<number, number>();
+  geometry.visibleColumns.forEach((col, index) => visibleColumnIndex.set(col, index));
+  const visibleRowIndex = new Map<number, number>();
+  const visibleRowTops: number[] = [];
+  let visibleRowsHeight = 0;
+  geometry.visibleRows.forEach((row, index) => {
+    visibleRowIndex.set(row, index);
+    visibleRowTops.push(visibleRowsHeight);
+    visibleRowsHeight += rowHeightOf(row);
+  });
+
+  const fillSpan = (): { rows: number[]; columns: number[] } => ({
+    rows: fillRowHeights.map((_, position) => model.extent.rows + position),
+    columns: fillColumnWidths.map((_, index) => model.extent.cols + index),
+  });
+
+  const fillCellAt = (target: HTMLElement, clientX: number): { row: number; col: number } | null => {
+    const cell = target.closest<HTMLElement>('td[data-aared-element="fill-cell"]');
+    const line = target.closest<HTMLElement>("tr");
+    if (cell === null || line === null) return null;
+    let row = Number.NaN;
+    if (line.dataset.aaredRow !== undefined) row = Number(line.dataset.aaredRow);
+    else if (line.dataset.aaredFillRow !== undefined) row = model.extent.rows + Number(line.dataset.aaredFillRow);
+    if (!Number.isInteger(row)) return null;
+    // A cell that is one column in the DOM names its column; the others
+    // are runs of columns, walked from the cell's start edge.
+    if (cell.dataset.aaredCol !== undefined) return { row, col: Number(cell.dataset.aaredCol) };
+    const runs: Array<{ col: number; width: number }> = [];
+    if (cell.dataset.aaredFill === "row") {
+      for (const col of geometry.visibleColumns) runs.push({ col, width: columnWidthPx(col) });
+    }
+    fillColumnWidths.forEach((width, index) => runs.push({ col: model.extent.cols + index, width }));
+    const total = runs.reduce((sum, run) => sum + run.width, 0);
+    const rect = cell.getBoundingClientRect();
+    if (total <= 0 || rect.width <= 0) return null;
+    // The host may be zoomed: the pointer's visual distance is scaled back to layout pixels.
+    const offset = (model.rightToLeft ? rect.right - clientX : clientX - rect.left) * (total / rect.width);
+    let start = 0;
+    for (const run of runs) {
+      if (offset < start + run.width) return { row, col: run.col };
+      start += run.width;
+    }
+    return null;
+  };
+
+  const extentRows = model.extent.rows;
+  const extentCols = model.extent.cols;
+  const fillColumnStarts: number[] = [];
+  let fillX = geometry.totalWidth;
+  for (const width of fillColumnWidths) {
+    fillColumnStarts.push(fillX);
+    fillX += width;
+  }
+  const fillRowStarts: number[] = [];
+  let fillY = geometry.totalHeight;
+  for (const height of fillRowHeights) {
+    fillRowStarts.push(fillY);
+    fillY += height;
+  }
+
+  const rangeBounds = (range: { top: number; bottom: number; left: number; right: number }) => {
+    let left = Number.POSITIVE_INFINITY;
+    let right = Number.NEGATIVE_INFINITY;
+    for (let index = 0; index < geometry.visibleColumns.length; index++) {
+      const col = geometry.visibleColumns[index]!;
+      if (col < range.left || col > range.right) continue;
+      const x = geometry.columnOffsets[index]!;
+      left = Math.min(left, x);
+      right = Math.max(right, x + columnWidthPx(col));
+    }
+    for (let index = 0; index < fillColumnWidths.length; index++) {
+      const col = extentCols + index;
+      if (col < range.left || col > range.right) continue;
+      const x = fillColumnStarts[index]!;
+      left = Math.min(left, x);
+      right = Math.max(right, x + fillColumnWidths[index]!);
+    }
+
+    let top = Number.POSITIVE_INFINITY;
+    let bottom = Number.NEGATIVE_INFINITY;
+    for (let index = 0; index < geometry.visibleRows.length; index++) {
+      const row = geometry.visibleRows[index]!;
+      if (row < range.top || row > range.bottom) continue;
+      const y = visibleRowTops[index]!;
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y + rowHeightOf(row));
+    }
+    for (let index = 0; index < fillRowHeights.length; index++) {
+      const row = extentRows + index;
+      if (row < range.top || row > range.bottom) continue;
+      const y = fillRowStarts[index]!;
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y + fillRowHeights[index]!);
+    }
+
+    if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+    return { x: left, y: top, width: right - left, height: bottom - top };
+  };
+
+  const placeSelectionOverlay = (element: HTMLElement, box: { x: number; width: number; y: number; height: number }): void => {
+    element.style.position = "absolute";
+    element.style[model.rightToLeft ? "right" : "left"] = `${headerWidthPx + box.x}px`;
+    element.style.width = `${box.width}px`;
+    element.style.top = `${headerHeightPx + box.y}px`;
+    element.style.height = `${box.height}px`;
+    selectionLayer.append(element);
+  };
+
+  const appendRangeBoundary = (
+    range: { top: number; bottom: number; left: number; right: number },
+    elementName: string,
+    color: string,
+    offsetX = 0,
+    offsetY = 0,
+  ): void => {
+    const bounds = rangeBounds(range);
+    if (bounds === null) return;
+    const frame = document.createElement("div");
+    frame.dataset.aaredElement = elementName;
+    placeSelectionOverlay(frame, { ...bounds, x: bounds.x + offsetX, y: bounds.y + offsetY });
+    frame.style.boxSizing = "border-box";
+    frame.style.border = `2px dashed ${color}`;
+    frame.style.zIndex = "2";
+    frame.style.pointerEvents = "none";
+  };
+
+  const paintReferenceRanges = (
+    ranges: Array<{ range: { top: number; bottom: number; left: number; right: number }; color: string }>,
+  ): void => {
+    selectionLayer.querySelectorAll('[data-aared-element="sheet-reference-boundary"]').forEach((frame) => frame.remove());
+    for (const [index, { range, color }] of ranges.entries()) {
+      let offsetX = 0;
+      let offsetY = 0;
+      const origin = host.querySelector<HTMLElement>(`td[data-aared-formula-reference="true"][data-aared-reference-index="${index}"]`);
+      const originRow = Number(origin?.dataset.aaredRow);
+      const originCol = Number(origin?.dataset.aaredCol);
+      const cellBounds = origin === null ? null : rangeBounds({ top: originRow, bottom: originRow, left: originCol, right: originCol });
+      if (origin !== null && cellBounds !== null) {
+        // Table layout can offset a cell slightly from the model geometry
+        // (notably at a frozen-pane boundary); align the full frame to a real
+        // cell in the referenced range while preserving its geometry-derived
+        // width and height.
+        const canvasRect = canvas.getBoundingClientRect();
+        const cellRect = origin.getBoundingClientRect();
+        offsetX = model.rightToLeft
+          ? canvasRect.right - cellRect.right - headerWidthPx - cellBounds.x
+          : cellRect.left - canvasRect.left - headerWidthPx - cellBounds.x;
+        offsetY = cellRect.top - canvasRect.top - headerHeightPx - cellBounds.y;
+      }
+      appendRangeBoundary(range, "sheet-reference-boundary", color, offsetX, offsetY);
+    }
+  };
+
+  const paintSelection = (
+    range: { top: number; bottom: number; left: number; right: number } | null,
+    cursor: { row: number; col: number } | null,
+  ): void => {
+    selectionLayer.replaceChildren();
+    /** A cell's box in sheet pixels, or `null` when it is inside the extent and painted by its own cell, or not painted at all. */
+    const boxOf = (row: number, col: number): { x: number; width: number; y: number; height: number } | null => {
+      const inside = row < extentRows && col < extentCols;
+      if (inside) return null;
+      let x: number;
+      let width: number;
+      if (col < extentCols) {
+        const index = visibleColumnIndex.get(col);
+        if (index === undefined) return null;
+        x = geometry.columnOffsets[index]!;
+        width = columnWidthPx(col);
+      } else {
+        const index = col - extentCols;
+        if (index >= fillColumnWidths.length) return null;
+        x = fillColumnStarts[index]!;
+        width = fillColumnWidths[index]!;
+      }
+      let y: number;
+      let height: number;
+      if (row < extentRows) {
+        const index = visibleRowIndex.get(row);
+        if (index === undefined) return null;
+        y = visibleRowTops[index]!;
+        height = rowHeightOf(row);
+      } else {
+        const index = row - extentRows;
+        if (index >= fillRowHeights.length) return null;
+        y = fillRowStarts[index]!;
+        height = fillRowHeights[index]!;
+      }
+      return { x, width, y, height };
+    };
+    // The range wash goes in one box per run of cells in a row: a drag over
+    // empty cells is a handful of boxes, not one per cell.
+    if (range !== null) {
+      for (let row = range.top; row <= range.bottom; row++) {
+        let run: { x: number; end: number; y: number; height: number } | undefined;
+        let connected = false;
+        for (let col = range.left; col <= range.right; col++) {
+          const isCursor = cursor !== null && cursor.row === row && cursor.col === col;
+          const box = boxOf(row, col);
+          if (box === null || isCursor) {
+            connected = false;
+            continue;
+          }
+          if (connected && run !== undefined && run.y === box.y) {
+            run.end = box.x + box.width;
+          } else {
+            if (run !== undefined) {
+              const element = document.createElement("div");
+              element.dataset.aaredElement = "sheet-selection-range";
+              element.style.boxShadow = RANGE_WASH;
+              placeSelectionOverlay(element, { x: run.x, width: run.end - run.x, y: run.y, height: run.height });
+            }
+            run = { x: box.x, end: box.x + box.width, y: box.y, height: box.height };
+          }
+          connected = true;
+        }
+        if (run !== undefined) {
+          const element = document.createElement("div");
+          element.dataset.aaredElement = "sheet-selection-range";
+          element.style.boxShadow = RANGE_WASH;
+          placeSelectionOverlay(element, { x: run.x, width: run.end - run.x, y: run.y, height: run.height });
+        }
+      }
+
+    }
+    // The active empty cell keeps its solid cursor frame, also when it is
+    // inside an extended range; formula-reference ranges use dashed frames.
+    if (cursor !== null) {
+      const box = boxOf(cursor.row, cursor.col);
+      if (box !== null) {
+        const element = document.createElement("div");
+        element.dataset.aaredElement = "sheet-selection-cursor";
+        element.style.backgroundColor = "#ffffff";
+        element.style.zIndex = "1";
+        element.style.outline = "2px solid var(--aared-selection)";
+        element.style.outlineOffset = "-2px";
+        placeSelectionOverlay(element, box);
+      }
+    }
+  };
+
   const cellElement = (row: number, col: number): HTMLElement | null => {
     const direct = body.querySelector<HTMLElement>(
       `td[data-aared-element="cell"][data-aared-row="${row}"][data-aared-col="${col}"]`,
@@ -1766,8 +2373,13 @@ function paintSheet(
     rowHeightOf,
     model,
     cellElement,
+    fillCellAt,
+    fillSpan,
+    paintSelection,
+    paintReferenceRanges,
     dataRowTop,
     renderWindow,
+    effectsReady,
     naturalSize: () => ({ width: realWidthPx, height: realHeightPx + (notices?.offsetHeight ?? 0) }),
     paintedOverflowY: () => {
       let fill = 0;
@@ -1804,16 +2416,19 @@ interface NormalizedAppearance {
   fill: boolean;
   selection: boolean;
   gridlines: GridlineMode;
+  formulaBar: boolean;
 }
 
 function normalizeAppearance(appearance: Appearance | undefined): NormalizedAppearance {
+  const defaults = APPEARANCE_DEFAULTS.spreadsheet;
   return {
-    dark: resolveTheme(appearance?.theme ?? "light") === "dark",
-    headers: appearance?.spreadsheet?.headers ?? true,
-    sheetTabs: appearance?.spreadsheet?.sheetTabs ?? false,
-    fill: appearance?.spreadsheet?.fill ?? true,
-    selection: appearance?.spreadsheet?.selection ?? true,
-    gridlines: appearance?.spreadsheet?.gridlines ?? "source",
+    dark: resolveTheme(appearance?.theme ?? APPEARANCE_DEFAULTS.theme) === "dark",
+    headers: appearance?.spreadsheet?.headers ?? defaults.headers,
+    sheetTabs: appearance?.spreadsheet?.sheetTabs ?? defaults.sheetTabs,
+    fill: appearance?.spreadsheet?.fill ?? defaults.fill,
+    selection: appearance?.spreadsheet?.selection ?? defaults.selection,
+    gridlines: appearance?.spreadsheet?.gridlines ?? defaults.gridlines,
+    formulaBar: appearance?.spreadsheet?.formulaBar ?? defaults.formulaBar,
   };
 }
 
@@ -1830,6 +2445,7 @@ function resolveGridPaint(model: SheetModel, appearance: NormalizedAppearance): 
     // Automatic text follows its fill (Word/Excel Automatic); unfilled cells are Excel black.
     automaticColor: (fill) => (fill === undefined ? "#000000" : automaticInk(fill)),
     frozenFill: "white",
+    selectable: appearance.selection,
     headerFill: HEADER_FILL,
     headerColor: HEADER_COLOR,
     chromeLine: GRIDLINE_COLOR,
@@ -1849,7 +2465,7 @@ const targetLayouts = new WeakMap<HTMLElement, { display: string; flexDirection:
 const MIN_FIT_SCALE = 0.25;
 
 /**
- * The `render()` controller: zoom, cell navigation, single-cell selection,
+ * The `render()` controller: zoom, cell navigation, cursor-plus-range selection,
  * sheet tabs, and lifecycle over one target element. Owns a stable tab bar
  * plus grid container; each painted sheet swaps the grid host in place.
  */
@@ -1857,13 +2473,32 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
   readonly #target: HTMLElement;
   readonly #gridBox: HTMLDivElement;
   #tabsBar: HTMLDivElement | null = null;
+  /** Read-only Excel-like chrome, built only when the appearance asks for it. */
+  #formulaBar: HTMLDivElement | null = null;
+  #nameBox: HTMLDivElement | null = null;
+  #formulaText: HTMLDivElement | null = null;
+  #aggregateButton: HTMLButtonElement | null = null;
+  #aggregateSummary: HTMLSpanElement | null = null;
+  #aggregateChevron: HTMLSpanElement | null = null;
+  #aggregateMenu: HTMLDivElement | null = null;
+  #aggregateKey: "sum" | "average" | "min" | "max" | "count" = "sum";
+  #aggregateMenuOpen = false;
   #session: SheetPaintSession | null = null;
   #model: SheetModel;
   readonly #handle: SheetHandle | undefined;
   readonly #document: XlsxDocument | undefined;
   readonly #mediaResolver: MediaResolver | undefined;
   #appearance: NormalizedAppearance;
+  /** The appearance as given (merged across `setAppearance()` calls), before defaults fill it in. */
+  #givenAppearance: Appearance | undefined;
   #selection: CellRef | null = null;
+  /** The range anchor: where an extension started. The cursor (`#selection`) is its moving end. */
+  #anchor: CellRef | null = null;
+  #range: { start: CellRef; end: CellRef } | null = null;
+  /** A drag-select in flight (pointer down on a cell, not yet up). */
+  #dragging = false;
+  /** Set once the pointer moves past the anchor, so the release click does not collapse the range. */
+  #dragged = false;
   #sheet: SheetInfo;
   #sheetGeneration = 0;
   #sheetController: AbortController | null = null;
@@ -1892,6 +2527,7 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     this.#handle = handle;
     this.#document = handle?.sheetDocument();
     this.#mediaResolver = mediaResolver;
+    this.#givenAppearance = appearance;
     this.#appearance = normalizeAppearance(appearance);
     this.#sheet = handle === undefined
       ? { index: 0, title: model.name, state: "visible" }
@@ -1914,8 +2550,12 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     this.#gridBox.style.minHeight = "0";
     this.#gridBox.style.minWidth = "0";
     this.#buildTabs();
-    if (this.#tabsBar !== null) target.replaceChildren(this.#tabsBar, this.#gridBox);
-    else target.replaceChildren(this.#gridBox);
+    this.#syncChrome();
+    const children: HTMLElement[] = [];
+    if (this.#formulaBar !== null) children.push(this.#formulaBar);
+    if (this.#tabsBar !== null) children.push(this.#tabsBar);
+    children.push(this.#gridBox);
+    target.replaceChildren(...children);
     // A newer render into the same target replaced this one: tear it down, as every format does.
     this.#stopWatching = onReplaced(target, this.#gridBox, () => this.destroy());
     const signal = this.#listeners.signal;
@@ -1923,8 +2563,18 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     // Middle-clicks bypass `click`: the same interception applies so a link
     // can never navigate automatically.
     this.#gridBox.addEventListener("auxclick", (event) => this.#handleClick(event), { signal });
+    this.#gridBox.addEventListener("mousedown", (event) => this.#handlePointerDown(event), { signal });
+    this.#gridBox.addEventListener("mousemove", (event) => this.#handlePointerMove(event), { signal });
+    this.#gridBox.addEventListener("mouseup", (event) => this.#handlePointerUp(event), { signal });
     this.#gridBox.addEventListener("dblclick", (event) => this.#handleDoubleClick(event), { signal });
     this.#gridBox.addEventListener("keydown", (event) => this.#handleKeyDown(event), { signal });
+    document.addEventListener("pointerdown", (event) => {
+      const bar = this.#formulaBar;
+      if (this.#aggregateMenuOpen && (bar === null || !event.composedPath().includes(bar))) this.#closeAggregateMenu();
+    }, { signal });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && this.#aggregateMenuOpen) this.#closeAggregateMenu();
+    }, { signal });
     this.#fitObserver = new ResizeObserver(() => {
       // The target may have been attached (or moved into a shadow root) since render().
       this.#classes.follow();
@@ -1940,8 +2590,10 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
 
   setAppearance(appearance: Appearance): void {
     if (this.destroyed) return;
-    this.#appearance = normalizeAppearance(appearance);
+    this.#givenAppearance = mergeAppearance(this.#givenAppearance, appearance);
+    this.#appearance = normalizeAppearance(this.#givenAppearance);
     this.#syncTabsChrome();
+    this.#syncChrome();
     // Preserve scroll across the repaint: the grid paints a fresh scroller.
     const scroller = this.#session?.scroller;
     const scrollTop = scroller?.scrollTop ?? 0;
@@ -1959,8 +2611,17 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     return { ...this.#sheet };
   }
 
+  /** Resolves once the current paint session's picture effects are painted (or marked). */
+  get effectsReady(): Promise<void> {
+    return this.#session?.effectsReady ?? Promise.resolve();
+  }
+
   get selection(): CellRef | null {
     return this.#selection === null ? null : { ...this.#selection };
+  }
+
+  get range(): { start: CellRef; end: CellRef } | null {
+    return this.#range === null ? null : { start: { ...this.#range.start }, end: { ...this.#range.end } };
   }
 
   async goToCell(cell: string): Promise<void> {
@@ -2029,8 +2690,10 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     let model: SheetRangeModel;
     try {
       model = await handle.read({ signal });
-      // As `render()` does: a delivered font loads only when text paints with it.
+      // As `render()` does: a delivered font loads only when text paints with it,
+      // and the fill painter only for a sheet with a gradient or pattern cell.
       await awaitDocumentFonts(model);
+      if (needsFillPainter(model)) await loadFillPainter().catch(() => undefined);
     } catch (error) {
       // A stale switch (aborted by a newer one or by destroy) stays silent.
       if (generation !== this.#sheetGeneration) return;
@@ -2042,11 +2705,14 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     this.#sheet = { ...handle.info };
     const hadSelection = this.#selection !== null;
     this.#selection = null;
+    this.#anchor = null;
+    this.#range = null;
     this.#repaintCurrent();
     this.setWarnings(sheetWarnings(model));
+    this.#refreshChrome();
     // Reset the grid scroll: the new sheet paints a fresh scroller at origin.
     if (hadSelection) {
-      this.dispatchEvent(new CustomEvent("selectionchange", { detail: { sheet: this.#sheetRef(), selection: null } }));
+      this.dispatchEvent(new CustomEvent("selectionchange", { detail: { sheet: this.#sheetRef(), selection: null, range: null } }));
     }
     this.dispatchEvent(new CustomEvent("sheetchange", { detail: this.#sheetRef() }));
   }
@@ -2077,6 +2743,363 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     this.#classes.release();
   }
 
+  /**
+   * Read-only Excel-like chrome: a formula bar (name box, formula/value, and
+   * range aggregates) above the grid. Built only when the appearance asks,
+   * kept in step on selection, sheet and appearance changes.
+   */
+  #syncChrome(): void {
+    if (this.#appearance.formulaBar && this.#formulaBar === null) {
+      const bar = document.createElement("div");
+      bar.dataset.aaredElement = "sheet-formula-bar";
+      bar.style.display = "flex";
+      bar.style.flex = "none";
+      bar.style.alignItems = "center";
+      bar.style.position = "relative";
+      // Keep the open aggregate menu above sticky sheet headings, which use
+      // their own z-index to stay visible while the grid scrolls.
+      bar.style.zIndex = "10";
+      bar.style.direction = "ltr";
+      bar.style.height = "44px";
+      bar.style.borderBottom = "1px solid var(--aared-gridline)";
+      bar.style.backgroundColor = "var(--aared-surface)";
+      const name = document.createElement("div");
+      name.dataset.aaredElement = "sheet-name-box";
+      name.style.minWidth = "92px";
+      name.style.boxSizing = "border-box";
+      name.style.alignSelf = "stretch";
+      name.style.display = "flex";
+      name.style.alignItems = "center";
+      name.style.textAlign = "center";
+      name.style.justifyContent = "center";
+      name.style.font = "500 13px ui-monospace, monospace";
+      name.style.color = "var(--aared-ink)";
+      name.style.borderRight = "1px solid var(--aared-gridline)";
+      const fx = document.createElement("div");
+      fx.textContent = "fx";
+      fx.setAttribute("aria-hidden", "true");
+      fx.style.display = "flex";
+      fx.style.alignItems = "center";
+      fx.style.alignSelf = "stretch";
+      fx.style.padding = "0 14px";
+      fx.style.borderRight = "1px solid var(--aared-gridline)";
+      fx.style.font = "italic 500 16px Georgia, 'Times New Roman', serif";
+      fx.style.color = "var(--aared-muted-text)";
+      const text = document.createElement("div");
+      text.dataset.aaredElement = "sheet-formula-text";
+      text.style.flex = "1 1 auto";
+      text.style.minWidth = "0";
+      text.style.overflow = "hidden";
+      text.style.textOverflow = "ellipsis";
+      text.style.whiteSpace = "nowrap";
+      text.style.padding = "0 16px";
+      text.style.fontSize = "14px";
+      text.style.color = "var(--aared-ink)";
+      const aggregate = document.createElement("button");
+      aggregate.type = "button";
+      aggregate.dataset.aaredElement = "sheet-aggregate-button";
+      aggregate.setAttribute("aria-haspopup", "menu");
+      aggregate.setAttribute("aria-expanded", "false");
+      aggregate.style.display = "none";
+      aggregate.style.alignItems = "center";
+      aggregate.style.gap = "7px";
+      aggregate.style.alignSelf = "stretch";
+      aggregate.style.padding = "0 14px";
+      aggregate.style.border = "0";
+      aggregate.style.borderLeft = "1px solid var(--aared-gridline)";
+      aggregate.style.background = "transparent";
+      aggregate.style.color = "var(--aared-muted-text)";
+      aggregate.style.font = "13px system-ui, sans-serif";
+      aggregate.style.whiteSpace = "nowrap";
+      aggregate.style.cursor = "pointer";
+      const summary = document.createElement("span");
+      const chevron = document.createElement("span");
+      chevron.setAttribute("aria-hidden", "true");
+      chevron.style.width = "6px";
+      chevron.style.height = "6px";
+      chevron.style.borderRight = "1.5px solid var(--aared-muted-text)";
+      chevron.style.borderBottom = "1.5px solid var(--aared-muted-text)";
+      chevron.style.transform = "translateY(-2px) rotate(45deg)";
+      aggregate.append(summary, chevron);
+      aggregate.addEventListener("click", () => this.#toggleAggregateMenu());
+      const menu = document.createElement("div");
+      menu.dataset.aaredElement = "sheet-aggregate-menu";
+      menu.setAttribute("role", "menu");
+      menu.hidden = true;
+      menu.style.position = "absolute";
+      menu.style.top = "calc(100% + 6px)";
+      menu.style.right = "6px";
+      menu.style.width = "240px";
+      menu.style.maxWidth = "calc(100% - 12px)";
+      menu.style.boxSizing = "border-box";
+      menu.style.minWidth = "0";
+      menu.style.padding = "4px";
+      menu.style.zIndex = "20";
+      menu.style.background = "var(--aared-surface)";
+      menu.style.color = "var(--aared-ink)";
+      menu.style.border = "1px solid var(--aared-border)";
+      menu.style.borderRadius = "8px";
+      menu.style.boxShadow = "0 10px 28px rgba(0,0,0,.12), 0 2px 6px rgba(0,0,0,.06)";
+      menu.addEventListener("click", (event) => {
+        const item = (event.target as Element).closest<HTMLButtonElement>("[data-aggregate]");
+        if (item === null) return;
+        this.#aggregateKey = item.dataset.aggregate as "sum" | "average" | "min" | "max" | "count";
+        this.#closeAggregateMenu();
+        this.#refreshChrome();
+      });
+      bar.append(name, fx, text, aggregate, menu);
+      paintTokens(bar, this.#appearance.dark ? "dark" : "light");
+      paintSheetTokens(bar, {
+        dark: this.#appearance.dark,
+        gridline: this.#appearance.dark ? GRIDLINE_DARK : GRIDLINE_COLOR,
+        headerFill: this.#appearance.dark ? HEADER_FILL_DARK : HEADER_FILL,
+      });
+      this.#formulaBar = bar;
+      this.#nameBox = name;
+      this.#formulaText = text;
+      this.#aggregateButton = aggregate;
+      this.#aggregateSummary = summary;
+      this.#aggregateChevron = chevron;
+      this.#aggregateMenu = menu;
+      this.#target.prepend(bar);
+    } else if (!this.#appearance.formulaBar && this.#formulaBar !== null) {
+      this.#formulaBar.remove();
+      this.#formulaBar = null;
+      this.#nameBox = null;
+      this.#formulaText = null;
+      this.#aggregateButton = null;
+      this.#aggregateSummary = null;
+      this.#aggregateChevron = null;
+      this.#aggregateMenu = null;
+      this.#aggregateMenuOpen = false;
+    }
+    this.#refreshChrome();
+  }
+
+  /** The cursor cell's label: its address, or the extended range when one stands. */
+  #rangeLabel(): string {
+    if (this.#selection === null) return "";
+    if (this.#range === null) return this.#selection.address;
+    const { top, bottom, left, right } = this.#rangeRect();
+    const first = cellAddress(top, left);
+    const last = cellAddress(bottom, right);
+    return first === last ? first : `${first}:${last}`;
+  }
+
+  /** The normalized rectangle of the cursor or the extended range. */
+  #rangeRect(): { top: number; bottom: number; left: number; right: number } {
+    const start = this.#range?.start ?? this.#selection;
+    const end = this.#range?.end ?? this.#selection;
+    // `#refreshChrome` returns early without a cursor.
+    const first = start ?? { row: 0, col: 0 };
+    const last = end ?? first;
+    return {
+      top: Math.min(first.row, last.row),
+      bottom: Math.max(first.row, last.row),
+      left: Math.min(first.col, last.col),
+      right: Math.max(first.col, last.col),
+    };
+  }
+
+  #refreshChrome(): void {
+    if (this.#nameBox !== null) this.#nameBox.textContent = this.#rangeLabel();
+    if (this.#formulaText !== null) {
+      const cursor = this.#selection;
+      if (cursor === null) this.#formulaText.textContent = "";
+      else {
+        const cell = this.#cellModel(cursor.row, cursor.col);
+        this.#formulaText.textContent = cell.formula ?? cell.formatted;
+      }
+    }
+    this.#refreshAggregates();
+  }
+
+  #aggregateValues(): { sum: string; average: string; min: string; max: string; count: string } | null {
+    if (this.#range === null) return null;
+    const { top, bottom, left, right } = this.#rangeRect();
+    const numbers: number[] = [];
+    let filled = 0;
+    let allPercent = true;
+    for (let row = top; row <= bottom; row++) {
+      for (let col = left; col <= right; col++) {
+        const cell = this.#cellModel(row, col);
+        if (cell.value !== null && cell.value !== "") filled++;
+        if (typeof cell.value === "number" && Number.isFinite(cell.value)) {
+          numbers.push(cell.value);
+          if (!cell.style?.numberFormat?.includes("%")) allPercent = false;
+        }
+      }
+    }
+    const format = (value: number): string => {
+      if (numbers.length === 0) return "-";
+      if (allPercent) return `${(value * 100).toFixed(1)}%`;
+      return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+    };
+    const sum = numbers.reduce((total, value) => total + value, 0);
+    const min = numbers.reduce((smallest, value) => Math.min(smallest, value), Number.POSITIVE_INFINITY);
+    const max = numbers.reduce((largest, value) => Math.max(largest, value), Number.NEGATIVE_INFINITY);
+    return {
+      sum: format(sum),
+      average: format(numbers.length === 0 ? 0 : sum / numbers.length),
+      min: format(numbers.length === 0 ? 0 : min),
+      max: format(numbers.length === 0 ? 0 : max),
+      count: String(filled),
+    };
+  }
+
+  #refreshAggregates(): void {
+    const button = this.#aggregateButton;
+    const summary = this.#aggregateSummary;
+    const menu = this.#aggregateMenu;
+    if (button === null || summary === null || menu === null) return;
+    const values = this.#aggregateValues();
+    if (values === null) {
+      button.style.display = "none";
+      summary.textContent = "";
+      this.#closeAggregateMenu();
+      return;
+    }
+    const labels = { sum: "Sum", average: "Average", min: "Min", max: "Max", count: "Count" };
+    button.style.display = "flex";
+    summary.textContent = `${labels[this.#aggregateKey]}: ${values[this.#aggregateKey]}`;
+    button.setAttribute("aria-label", `Selection ${labels[this.#aggregateKey]} ${values[this.#aggregateKey]}`);
+    menu.replaceChildren();
+    for (const key of ["sum", "average", "min", "max", "count"] as const) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.dataset.aggregate = key;
+      item.setAttribute("role", "menuitemradio");
+      item.setAttribute("aria-checked", String(key === this.#aggregateKey));
+      item.style.display = "grid";
+      item.style.gridTemplateColumns = "14px minmax(0, 1fr) auto";
+      item.style.alignItems = "center";
+      item.style.gap = "10px";
+      item.style.width = "100%";
+      item.style.boxSizing = "border-box";
+      item.style.minWidth = "0";
+      item.style.padding = "7px 10px";
+      item.style.border = "0";
+      item.style.borderRadius = "5px";
+      item.style.background = "transparent";
+      item.style.color = key === this.#aggregateKey ? "var(--aared-ink)" : "var(--aared-muted-text)";
+      item.style.font = "13px system-ui, sans-serif";
+      item.style.textAlign = "start";
+      item.style.cursor = "pointer";
+      const check = document.createElement("span");
+      check.textContent = key === this.#aggregateKey ? "x" : "";
+      check.style.color = "var(--aared-accent)";
+      const label = document.createElement("span");
+      label.textContent = labels[key];
+      const value = document.createElement("span");
+      value.textContent = values[key];
+      value.style.font = "12px ui-monospace, monospace";
+      value.style.color = "var(--aared-ink)";
+      value.style.whiteSpace = "nowrap";
+      value.dir = "ltr";
+      item.append(check, label, value);
+      menu.append(item);
+    }
+  }
+
+  #toggleAggregateMenu(): void {
+    if (this.#aggregateMenu === null) return;
+    this.#aggregateMenuOpen = !this.#aggregateMenuOpen;
+    this.#aggregateMenu.hidden = !this.#aggregateMenuOpen;
+    this.#aggregateButton?.setAttribute("aria-expanded", String(this.#aggregateMenuOpen));
+  }
+
+  #closeAggregateMenu(): void {
+    this.#aggregateMenuOpen = false;
+    if (this.#aggregateMenu !== null) this.#aggregateMenu.hidden = true;
+    this.#aggregateButton?.setAttribute("aria-expanded", "false");
+  }
+
+  /** Repaint the extended-range wash over the window the grid paints. */
+  #paintRange(): void {
+    const session = this.#session;
+    if (session === null) return;
+    for (const element of session.host.querySelectorAll(`.${inRangeClass}, .${activeInRangeClass}`)) {
+      const cell = element as HTMLElement;
+      cell.classList.remove(inRangeClass, activeInRangeClass);
+      cell.removeAttribute("data-aared-in-range");
+    }
+    if (this.#range !== null && this.#appearance.selection) {
+      const { top, bottom, left, right } = this.#rangeRect();
+      for (let row = top; row <= bottom; row++) {
+        for (let col = left; col <= right; col++) {
+          const element = session.cellElement(row, col);
+          if (element === null) continue;
+          const active = this.#selection !== null && row === this.#selection.row && col === this.#selection.col;
+          // The cursor cell turns white only when it has no fill of its own (see `activeInRangeClass`).
+          if (!active) element.classList.add(inRangeClass);
+          else if (element.style.backgroundColor === "") element.classList.add(activeInRangeClass);
+          element.setAttribute("data-aared-in-range", "true");
+        }
+      }
+    }
+    // Cells past the data have no cell element to carry a class: the session paints them as boxes.
+    const selected = this.#appearance.selection && this.#selection !== null;
+    session.paintSelection(selected && this.#range !== null ? this.#rangeRect() : null, selected ? this.#selection : null);
+    this.#paintFormulaReferences();
+  }
+
+  /** Highlight visible same-sheet precedents of the active formula, not text or foreign-sheet references. */
+  #paintFormulaReferences(): void {
+    const session = this.#session;
+    if (session === null) return;
+    for (const element of session.host.querySelectorAll('[data-aared-formula-reference="true"]')) {
+      element.classList.remove(...referenceClasses);
+      element.removeAttribute("data-aared-formula-reference");
+      element.removeAttribute("data-aared-reference-index");
+    }
+    // A range is its own highlight: its cells would otherwise carry the reference outline on top of the range shading.
+    if (this.#selection === null || this.#range !== null) return;
+    const formula = this.#cellModel(this.#selection.row, this.#selection.col).formula;
+    if (formula === undefined) return;
+    // Quoted string literals are not references (for example, "A1").
+    const source = formula.replace(/"(?:[^"]|"")*"/g, (literal) => " ".repeat(literal.length));
+    const pattern = /(^|[^A-Za-z0-9_.])(?:(?:'((?:[^']|'')+)'|([A-Za-z_][A-Za-z0-9_.]*))!)?(\$?[A-Z]{1,3}\$?\d+)(?::(\$?[A-Z]{1,3}\$?\d+))?(?![A-Za-z0-9_]|\s*\()/gi;
+    const ranges: Array<{ top: number; bottom: number; left: number; right: number }> = [];
+    // The same range written twice is one range, with one colour.
+    const seen = new Set<string>();
+    for (const match of source.matchAll(pattern)) {
+      const sheetName = match[2]?.replace(/''/g, "'") ?? match[3];
+      if (match[1] === "!" || (sheetName !== undefined && sheetName.toLocaleLowerCase() !== this.#sheet.title.toLocaleLowerCase())) continue;
+      const start = match[4]?.replace(/\$/g, "");
+      const end = (match[5] ?? match[4])?.replace(/\$/g, "");
+      if (start === undefined || end === undefined) continue;
+      try {
+        const reference = parseA1Range(`${start}:${end}`);
+        const range = {
+          top: Math.min(reference.start.row, reference.end.row),
+          bottom: Math.max(reference.start.row, reference.end.row),
+          left: Math.min(reference.start.col, reference.end.col),
+          right: Math.max(reference.start.col, reference.end.col),
+        };
+        const key = `${range.top}:${range.bottom}:${range.left}:${range.right}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        ranges.push(range);
+      } catch {
+        // A token that resembles a reference but is outside Aared's address space is ignored.
+      }
+    }
+    if (ranges.length === 0) return;
+    for (const element of session.host.querySelectorAll<HTMLElement>('td[data-aared-element="cell"]')) {
+      const row = Number(element.getAttribute("data-aared-row"));
+      const col = Number(element.getAttribute("data-aared-col"));
+      const index = ranges.findIndex((range) => row >= range.top && row <= range.bottom && col >= range.left && col <= range.right);
+      if (index === -1) continue;
+      element.classList.add(referenceClasses[index % referenceClasses.length]!);
+      element.setAttribute("data-aared-formula-reference", "true");
+      element.setAttribute("data-aared-reference-index", String(index));
+    }
+    session.paintReferenceRanges(ranges.map((range, index) => ({
+      range,
+      color: REFERENCE_COLORS[index % REFERENCE_COLORS.length]!.solid,
+    })));
+  }
+
   #buildTabs(): void {
     // Tabs need the owning document (handle inputs only) and list visible
     // sheets: hidden sheets stay reachable via goToSheet(), never via tabs.
@@ -2105,7 +3128,7 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
       tab.setAttribute("aria-selected", selected ? "true" : "false");
       tab.tabIndex = selected ? 0 : -1;
       tab.textContent = handle.info.title;
-      tab.style.font = "12px system-ui, sans-serif";
+      tab.style.font = "13px system-ui, sans-serif";
       tab.style.color = "var(--aared-ink)";
       tab.style.background = "transparent";
       tab.style.border = "none";
@@ -2116,9 +3139,11 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
       tab.style.whiteSpace = "nowrap";
       const sheetIndex = handle.info.index;
       tab.addEventListener("click", () => {
-        // Tabs derive from the live collection, so not-found cannot happen;
-        // abort rejections from a superseded switch stay silent in goToSheet.
-        void this.goToSheet(sheetIndex).catch(() => {});
+        // The tab owns this action: unlike a public call, its failure has no
+        // caller to reject to. Superseded switches and destroyed views stay quiet.
+        void this.goToSheet(sheetIndex).catch((error: unknown) => {
+          if (!this.destroyed) reportBackgroundError(this, "aared/xlsx", error);
+        });
       });
       bar.append(tab);
     }
@@ -2238,12 +3263,18 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     else host.style.setProperty("zoom", value);
   }
 
-  #select(selection: CellRef | null, emit: boolean): void {
+  #select(selection: CellRef | null, emit: boolean, range: { start: CellRef; end: CellRef } | null = null): void {
     this.#selection = selection === null ? null : { ...selection };
+    this.#range = range === null ? null : { start: { ...range.start }, end: { ...range.end } };
+    this.#anchor = range === null
+      ? (selection === null ? null : { ...selection })
+      : { ...range.start };
     this.#restoreSelection();
+    this.#paintRange();
+    this.#refreshChrome();
     if (emit && this.#appearance.selection) {
       this.dispatchEvent(new CustomEvent("selectionchange", {
-        detail: { sheet: this.#sheetRef(), selection: this.selection },
+        detail: { sheet: this.#sheetRef(), selection: this.selection, range: this.range },
       }));
     }
   }
@@ -2270,6 +3301,8 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     const lostGridFocus = document.activeElement === document.body || document.activeElement === null;
     if (element === null) {
       if (lostGridFocus) session.host.focus({ preventScroll: true });
+      // A cell past the data has no element; its box is still painted.
+      this.#paintRange();
       return;
     }
     element.setAttribute("data-aared-selected", "true");
@@ -2278,6 +3311,9 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     element.style.outlineOffset = "-2px";
     element.tabIndex = 0;
     if (lostGridFocus) element.focus({ preventScroll: true });
+    // The range wash rides the same funnel: repaints and scroll windows
+    // rebuild row DOM, so both re-apply here or neither survives scrolling.
+    this.#paintRange();
   }
 
   #cellModel(row: number, col: number): CellModel {
@@ -2285,7 +3321,61 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     return found ?? { value: null, formatted: "", type: "empty" };
   }
 
+  #cellFromEvent(event: MouseEvent): CellRef | null {
+    const target = event.target as HTMLElement | null;
+    // Links keep the click path (which reports `linkactivate`); a drag never
+    // starts on one.
+    if (target?.closest?.('a[data-aared-element="cell-link"]') !== null) return null;
+    // The empty area past the data selects by position, numbered past the extent.
+    if (target !== null && target.closest?.('td[data-aared-element="fill-cell"]') != null) {
+      const at = this.#session?.fillCellAt(target, event.clientX) ?? null;
+      return at === null ? null : { address: cellAddress(at.row, at.col), row: at.row, col: at.col };
+    }
+    const cell = target?.closest?.('td[data-aared-element="cell"]') ?? null;
+    if (cell === null || !(cell instanceof HTMLElement)) return null;
+    const row = Number(cell.getAttribute("data-aared-row"));
+    const col = Number(cell.getAttribute("data-aared-col"));
+    if (!Number.isInteger(row) || !Number.isInteger(col)) return null;
+    return { address: cellAddress(row, col), row, col };
+  }
+
+  #handlePointerDown(event: MouseEvent): void {
+    if (this.destroyed || !this.#appearance.selection || event.button !== 0) return;
+    const cell = this.#cellFromEvent(event);
+    if (cell === null) return;
+    this.#dragging = true;
+    this.#dragged = false;
+    // Native text selection would paint over the range wash while dragging.
+    this.#gridBox.style.userSelect = "none";
+    this.#select(cell, true);
+  }
+
+  #handlePointerMove(event: MouseEvent): void {
+    if (!this.#dragging || this.destroyed) return;
+    const cell = this.#cellFromEvent(event);
+    if (cell === null) return;
+    const cursor = this.#selection;
+    if (cursor !== null && cell.row === cursor.row && cell.col === cursor.col) return;
+    // No auto-scroll past the window edge: cells outside the painted window
+    // have no element to extend to, so the range ends at the window.
+    this.#dragged = true;
+    const anchor = this.#anchor ?? cell;
+    this.#select({ ...cell }, true, { start: anchor, end: { ...cell } });
+    this.#ensureVisible(cell.row, cell.col, "start", true);
+  }
+
+  #handlePointerUp(_event: MouseEvent): void {
+    if (!this.#dragging) return;
+    this.#dragging = false;
+    this.#gridBox.style.userSelect = "";
+  }
+
   #handleClick(event: MouseEvent): void {
+    // The release click after a drag-select must not collapse the range it made.
+    if (this.#dragged) {
+      this.#dragged = false;
+      return;
+    }
     if (this.destroyed) return;
     const target = event.target as HTMLElement | null;
     const link = target?.closest?.('a[data-aared-element="cell-link"]') ?? null;
@@ -2308,12 +3398,9 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
       return;
     }
     if (!this.#appearance.selection) return;
-    const cell = target?.closest?.('td[data-aared-element="cell"]') ?? null;
-    if (cell === null || !(cell instanceof HTMLElement)) return;
-    const row = Number(cell.getAttribute("data-aared-row"));
-    const col = Number(cell.getAttribute("data-aared-col"));
-    if (!Number.isInteger(row) || !Number.isInteger(col)) return;
-    this.#select({ address: cellAddress(row, col), row, col }, true);
+    const cell = this.#cellFromEvent(event);
+    if (cell === null) return;
+    this.#select(cell, true);
   }
 
   #handleDoubleClick(event: MouseEvent): void {
@@ -2365,25 +3452,30 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
       col: columns[0]!,
     };
     const rtl = this.#model.rightToLeft;
+    // The arrows walk on into the empty area past the data, as far as it is
+    // painted; Home, End and the page keys stay on the data, as Ctrl+End does.
+    const fill = session.fillSpan();
+    const reachRows = [...rows, ...fill.rows];
+    const reachColumns = [...columns, ...fill.columns];
     let next: { row: number; col: number } | null = null;
     let align: "start" | "end" = "start";
     switch (event.key) {
       case "ArrowUp":
-        next = { row: rows[Math.max(0, clampIndex(rows, current.row) - 1)]!, col: current.col };
+        next = { row: reachRows[Math.max(0, clampIndex(reachRows, current.row) - 1)]!, col: current.col };
         align = "start";
         break;
       case "ArrowDown":
-        next = { row: rows[Math.min(rows.length - 1, clampIndex(rows, current.row) + 1)]!, col: current.col };
+        next = { row: reachRows[Math.min(reachRows.length - 1, clampIndex(reachRows, current.row) + 1)]!, col: current.col };
         align = "end";
         break;
       case "ArrowLeft":
         // Visual movement: in RTL sheets the inline-start edge is physical
         // right, so Left advances the column and Right retreats it.
-        next = { row: current.row, col: columns[Math.max(0, Math.min(columns.length - 1, clampIndex(columns, current.col) + (rtl ? 1 : -1)))]! };
+        next = { row: current.row, col: reachColumns[Math.max(0, Math.min(reachColumns.length - 1, clampIndex(reachColumns, current.col) + (rtl ? 1 : -1)))]! };
         align = rtl ? "end" : "start";
         break;
       case "ArrowRight":
-        next = { row: current.row, col: columns[Math.max(0, Math.min(columns.length - 1, clampIndex(columns, current.col) + (rtl ? -1 : 1)))]! };
+        next = { row: current.row, col: reachColumns[Math.max(0, Math.min(reachColumns.length - 1, clampIndex(reachColumns, current.col) + (rtl ? -1 : 1)))]! };
         align = rtl ? "start" : "end";
         break;
       case "Home":
@@ -2420,9 +3512,18 @@ class XlsxViewer extends RenderHandleBase<Appearance> implements XlsxRenderHandl
     event.preventDefault();
     // Clamp the column into the visible list: the current cell may sit in a
     // hidden column after a model change, and rows move within one column.
-    const column = columns.includes(next.col) ? next.col : columns[clampIndex(columns, next.col)]!;
+    const column = reachColumns.includes(next.col) ? next.col : reachColumns[clampIndex(reachColumns, next.col)]!;
     const selection = { address: cellAddress(next.row, column), row: next.row, col: column };
-    this.#select(selection, true);
+    // `Shift` extends the range from its anchor instead of moving the cursor
+    // alone; any plain move re-anchors. The anchor is the cursor as it stood
+    // when `Shift` went down, kept across repeated extends.
+    const extendKeys = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
+    if (event.shiftKey && extendKeys.has(event.key)) {
+      const anchor = this.#anchor ?? { ...current };
+      this.#select(selection, true, { start: anchor, end: { ...selection } });
+    } else {
+      this.#select(selection, true);
+    }
     this.#ensureVisible(selection.row, selection.col, align, true);
     // The move may have scrolled and re-rendered the window, destroying the
     // focused cell. Re-focus the selected cell so the next keydown lands
@@ -2507,15 +3608,18 @@ function isSheetHandle(sheet: SheetHandle | SheetModel | SheetRangeModel): sheet
 }
 
 /**
- * Paint one sheet. Accepts a `SheetHandle` (read from the Worker on demand)
+ * Paint one sheet. Accepts a `SheetHandle` or borrowed `SheetContent` (read from the Worker on demand)
  * or an already-resolved model; when the input is a handle, drawing media
  * resolves through its session unless an explicit `mediaResolver` is given.
  * Painting itself is synchronous — only the handle read awaits.
  */
 export async function render(input: XlsxRenderInput): Promise<XlsxRenderHandle> {
-  const { signal } = input;
-  throwIfAborted(signal);
-  const requested = input.sheet;
+  throwIfAborted(input.signal);
+  const requested = contentSource<SheetHandle>(input.sheet) ?? (input.sheet as SheetHandle | SheetModel | SheetRangeModel);
+  if (!(requested instanceof SheetHandle) && "read" in requested) {
+    throw new AaredError("invalid-argument", "aared/xlsx: render() takes a sheet from open() or viewer.content.sheets, or a resolved sheet model");
+  }
+  const signal = contentSignal(input.sheet, input.signal);
   let mediaResolver = input.mediaResolver;
   let model: SheetModel | SheetRangeModel;
   let handle: SheetHandle | undefined;
@@ -2526,15 +3630,20 @@ export async function render(input: XlsxRenderInput): Promise<XlsxRenderHandle> 
   } else {
     model = requested;
   }
+  // A gradient or pattern cell paints through the shared fill painter, which
+  // loads only for a sheet that has one; a painter that fails to load leaves
+  // those cells marked, never blank.
+  if (needsFillPainter(model)) await loadFillPainter().catch(() => undefined);
   // The last moment a cancel can still leave the target untouched: the viewer paints as it is built.
   throwIfAborted(signal);
   const viewer = new XlsxViewer(input.target, model, handle, mediaResolver, input.appearance, input.zoom ?? DEFAULT_ZOOM.xlsx);
   // As in PPTX and DOCX: which fonts painted can only be read once they have
   // arrived (a delivered face loads only when text needs it), so the warnings wait, bounded.
-  // A first chart waits for the layout code too (DECISION_LOG §71).
+  // A first chart waits for the layout code too (Notes §71), and a
+  // first picture effect for its painter: a resolved render has both drawn.
   // Cancelled during that wait, the render takes the sheet back out (its
   // destroy gives the target its own layout back) and rejects (`settleRender`).
-  const settled = Promise.all([awaitDocumentFonts(model), chartsSettled()]).then(() => undefined);
+  const settled = Promise.all([awaitDocumentFonts(model), chartsSettled(), viewer.effectsReady]).then(() => undefined);
   await settleRender(viewer, input.target, [...input.target.childNodes], settled, signal);
   if (!viewer.destroyed) viewer.setWarnings(sheetWarnings(model));
   return viewer;
@@ -2551,6 +3660,9 @@ function sheetWarnings(model: { name: string; missingIds?: number }): RenderWarn
   );
   return [...(noId === undefined ? [] : [noId]), ...fontFidelityWarnings(model)];
 }
-export { preview } from "./viewer.js";
+/** Load the embed controller only when the convenience preview API is used. */
+export async function preview(input: import("./viewer.js").XlsxPreviewInput): Promise<import("../preview/index.js").XlsxPreview> {
+  return (await import("./viewer.js")).preview(input);
+}
 export type { XlsxPreviewInput } from "./viewer.js";
-export type { XlsxPreview, PreviewSearchOptions, PreviewEventMap, SearchNavigation, SearchNavigationState } from "../preview/index.js";
+export type { XlsxPreview, PreviewSearchMatch, PreviewSearchOptions, PreviewEventMap, SearchNavigation, SearchNavigationState } from "../preview/index.js";

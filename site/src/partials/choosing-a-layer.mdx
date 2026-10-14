@@ -5,20 +5,33 @@ drive yourself, not in how well a file renders — they all paint through the
 same renderers.
 
 The viewer levels (`<aared-viewer>`, `preview()`, the hooks) show a file,
-move around it and find places in it. Anything you build from the file's
-contents (a thumbnail strip, an export, a picture gallery, several slides at
-once) uses the low-level API: `open()` and `render()`, where you own every
-step.
+move around it and find places in it. They also lend out read/render capabilities
+(`viewer.content`), so a thumbnail strip, a data reader or a picture
+gallery beside the viewer uses the same parse. The low-level API, `open()` and
+`render()`, is for when you own every step: your own paging, or a document
+kept past any viewer.
 
 | You want to… | Use |
 |---|---|
 | Show a file with no UI work | `<aared-viewer>` |
-| Same, in a React app | `aared/react` hooks |
+| A viewer in React, with your own UI | `aared/react` hooks |
 | A viewer for one known format, with navigation and one-call cleanup | `preview({ source, target })` from `aared/pptx`, `aared/xlsx`, or `aared/docx` |
 | A viewer for an arbitrary file type | `preview({ source, target })` from `aared/preview` |
 | Your own toolbar or tab strip over it | the same viewer: `next()`, `previous()`, `zoomIn()`, `resetZoom()`, `goTo()` |
-| A search box over it | the same viewer: `viewer.search()` |
-| Build from the file's contents: thumbnails, exports, pictures, several units at once | `open()` + `render()` from `aared/pptx`, `aared/xlsx`, or `aared/docx` |
+| A search box or results list over it | the same viewer: `viewer.search()`, `viewer.goToSearchMatch()` |
+| Thumbnails, data reads or pictures beside the viewer | the same viewer's `viewer.content`, with the format's `render()` |
+| Build from the file's contents with no viewer, paging yourself | `open()` + `read()` / `render()` from `aared/pptx`, `aared/xlsx`, or `aared/docx` |
 
-Mixing works: `preview()` for the main view plus `open()` for a thumbnail
-strip, at the price of parsing the file twice.
+Each format entry exports **both** `preview()` and the low-level `open()` /
+`render()` functions. The function you import chooses how much you own; the
+subpath chooses the format. Use `aared/preview` when that format is unknown.
+
+For bundle size, direct format entries include only that renderer. The element,
+auto-detect preview and React hooks emit lazy chunks for all formats and fetch
+only the chosen one; a format hook narrows the handle but does not isolate the
+build to one renderer.
+
+Mixing works with one parse: `preview()` for the main view, and
+`render({ slide: viewer.content.slides.get(i), target })` for each thumbnail.
+The viewer owns the document; content exposes no `close()` or session. Destroy
+the thumbnails before the viewer, and keep search on `viewer.search()`.

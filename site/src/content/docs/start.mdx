@@ -24,8 +24,9 @@ cd packages/aared && npm pack      # writes aared-0.0.0.tgz
 npm install <path>/aared-0.0.0.tgz # in your app
 ```
 
-Import the element once from your app's code, which your bundler (Vite,
-webpack, Next.js) builds; a plain `<script type="module">` cannot resolve
+For the built-in-controls route, import the element once from your app's code,
+which your bundler (Vite, webpack, Next.js) builds; a plain
+`<script type="module">` cannot resolve
 `aared/element` without one:
 
 ```ts check
@@ -52,7 +53,30 @@ The playground's tabs are the same entries: **HTML** is `<aared-viewer>`,
 **React** the hooks, **JS · auto-detect** is auto-detect preview, and **JS · low-level** is
 `open()` + `render()`. Format-local `preview()` is single-format preview.
 
+Choose the source separately: all routes accept a URL string, `File`, `Blob`,
+`ArrayBuffer` or typed-array view. The element uses `src` for URLs and `file`
+for files/bytes; functions and hooks use `source`. A URL must be same-origin or
+CORS-enabled. For custom headers, use the [authenticated fetch recipe](#fetch-a-file-that-needs-a-login).
+
 ## Recipes
+
+### Show any supported format from JavaScript
+
+Use this for uploads that could be PowerPoint, Excel or Word. It opens a viewer
+without building a toolbar; the [toolbar recipe](#build-your-own-toolbar) adds
+your own controls:
+
+```ts check
+import { preview } from "aared/preview";
+
+const viewer = await preview({ source: file, target: container });
+console.log(viewer.format, viewer.info.count);
+// When the feature unmounts: viewer.destroy();
+```
+
+You can also pass a URL as `source`. Detection and opening share the same
+download. Use `detect()` only when you need to inspect the type without opening
+a viewer ([API reference](/api/#auto-detect-preview-aaredpreview)).
 
 ### Show one known format
 
@@ -65,13 +89,13 @@ import { preview } from "aared/pptx";
 const viewer = await preview({ source: file, target: container });
 await viewer.next();
 const matches = await viewer.search("budget");
-viewer.destroy(); // Removes rendering and closes the owned document
+// When the feature unmounts: viewer.destroy();
 ```
 
 Change the import to `aared/xlsx` or `aared/docx` for those formats. The same
 object-form input returns their precisely typed controls. For an arbitrary file
-type, use `aared/preview`; for model reads or several units sharing one parsed
-document, use `open()` + `render()`. See [Single-format preview](/api/#single-format-preview)
+type, use `aared/preview`. For model reads or thumbnails beside the viewer, use
+its `viewer.content` (below). See [Single-format preview](/api/#single-format-preview)
 for sheet and page navigation examples.
 
 ### Open a file the user picks
@@ -82,7 +106,8 @@ import "aared/element";
 const viewer = document.querySelector("aared-viewer")!;
 const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
 input.addEventListener("change", () => {
-  // A newer pick replaces one still opening; clearing the input empties the viewer.
+  // A newer pick replaces one still opening; clearing the input empties the
+  // viewer unless the element has a `src` attribute, which then shows again.
   viewer.file = input.files?.[0] ?? null;
 });
 ```
@@ -101,6 +126,32 @@ const response = await fetch("/files/q3-report.xlsx", {
 if (!response.ok) throw new Error(`Download failed: ${response.status}`);
 document.querySelector("aared-viewer")!.file = await response.blob();
 ```
+
+### Mount a viewer in React
+
+The hook owns loading and cleanup. Keep the host mounted while displaying
+loading/error UI, and use `status` to access the ready viewer:
+
+```tsx check
+import { usePreview } from "aared/react";
+import { messageFor } from "aared/core";
+
+function Preview({ file }: { file: File }) {
+  const { ref, status, viewer, index, error, retry } = usePreview({ source: file });
+  return (
+    <>
+      <div ref={ref} style={{ height: 600 }} />
+      {status === "loading" && <p>Loading...</p>}
+      {status === "error" && <p>{messageFor(error)} <button onClick={retry}>Retry</button></p>}
+      {status === "ready" && <p>{viewer.info.titles[index]}</p>}
+    </>
+  );
+}
+```
+
+Use `usePptx()`, `useXlsx()` or `useDocx()` for a typed format handle. Keep the
+same file/bytes object across renders. These hooks mount the viewer and own its
+lifecycle; they do not draw the element's built-in controls.
 
 ### Add a search box
 
@@ -124,16 +175,9 @@ import { preview } from "aared/preview";
 const viewer = await preview({ source: file, target: container });
 const box = document.querySelector<HTMLInputElement>("#search")!;
 box.addEventListener("change", async () => {
-  if (viewer.format === "pptx") {
-    const [hit] = await viewer.search(box.value);
-    if (hit) await viewer.goTo(hit.slide.index);
-  } else if (viewer.format === "xlsx") {
-    const [hit] = await viewer.search(box.value);
-    if (hit) await viewer.xlsx.goToCell(hit.address);
-  } else {
-    const [hit] = await viewer.search(box.value);
-    if (hit) await viewer.docx.goToSearchMatch(hit);
-  }
+  // Any format's result: its slide, its sheet and cell, or its place in a document.
+  const [hit] = await viewer.search(box.value);
+  if (hit) await viewer.goToSearchMatch(hit);
 });
 ```
 
@@ -181,6 +225,7 @@ zoom the format opens at:
 
 ```ts check
 import { preview } from "aared/preview";
+import { messageFor } from "aared/core";
 
 const viewer = await preview({ source: file, target: container });
 const position = document.querySelector("#position")!;
@@ -193,16 +238,18 @@ update();
 const on = (selector: string, run: () => void): void => {
   document.querySelector(selector)!.addEventListener("click", run);
 };
-// A failed move is also reported through the viewer's `error` event.
-on("#previous", () => void viewer.previous().catch(() => {}));
-on("#next", () => void viewer.next().catch(() => {}));
+// App-owned actions report through their promises, not an error event.
+const status = document.querySelector("#status")!;
+const report = (error: unknown): void => { status.textContent = messageFor(error); };
+on("#previous", () => void viewer.previous().catch(report));
+on("#next", () => void viewer.next().catch(report));
 on("#zoom-out", () => viewer.zoomOut(0.1));
 on("#zoom-in", () => viewer.zoomIn(0.1));
 on("#fit", () => viewer.resetZoom());
 ```
 
 With `open()` and `render()` instead, paging is one render per slide into
-the same box, each cancelling the one before: the pattern is under
+the same box, and you abort the one before yourself: the pattern is under
 [Cancellation](/api/#cancellation).
 
 ### Show errors to people
@@ -225,7 +272,84 @@ viewer.addEventListener("error", (event) => {
 });
 ```
 
-The codes and when each happens are in [Errors](/api/#errors).
+Events report automatic loads, attribute changes and built-in controls.
+When you call a method yourself, handle its promise instead; it does not
+also emit `error`. The same rule covers search and navigation. The codes
+and examples are in [Errors](/api/#errors).
+
+### Read cell data without a viewer
+
+Use the low-level API when the job needs contents rather than viewer controls:
+
+```ts check
+import { open } from "aared/xlsx";
+
+const workbook = await open(file);
+try {
+  const data = await workbook.sheets.get(0).read({ range: "A1:D20" });
+  for (const row of data.rows) {
+    for (const { col, cell } of row.cells) {
+      console.log(row.index, col, cell.formatted);
+    }
+  }
+} finally {
+  workbook.close();
+}
+```
+
+Rows are sparse `{ col, cell }` entries. Values are those saved by Excel; formulas
+are never recalculated. Read slides through `slide.read()`; DOCX sections already
+contain resolved content at open. See [format APIs](/api/#pptx-aaredpptx).
+
+### Render several slides from one document
+
+For thumbnails beside the main view, render from the viewer's borrowed content,
+`viewer.content`. It exposes reads/render inputs, not the document's `close()`
+or session. Prepare one attached host per slide:
+
+```ts check
+import { preview, render, type PptxRenderHandle } from "aared/pptx";
+import { messageFor } from "aared/core";
+
+const viewer = await preview({ source: file, target: container });
+const strip = document.querySelector<HTMLElement>("#thumbnails")!;
+const thumbnails: PptxRenderHandle[] = [];
+for (const slide of viewer.content.slides.list()) {
+  const host = document.createElement("button");
+  host.style.width = "160px";
+  host.onclick = () => void viewer.goTo(slide.info.index).catch((error: unknown) => {
+    strip.title = messageFor(error);
+  });
+  strip.append(host);
+  thumbnails.push(await render({ slide, target: host }));
+}
+
+// Call when the feature unmounts: thumbnails first, then the viewer (it closes the document).
+function cleanup(): void {
+  for (const thumbnail of thumbnails) thumbnail.destroy();
+  viewer.destroy();
+}
+```
+
+This opens once. For large decks, mount visible thumbnails on demand instead of
+painting all slides at startup. The same pattern works for sheets
+(`viewer.content.sheets`) and for range reads. DOCX can render a second view with
+`render({ document: viewer.content, target })`, including its images. Search stays
+on `viewer.search()`. To page through a document with
+no viewer at all, use `open()` + `render()`, where you own `close()`.
+
+### Next tasks
+
+| You need | Reference |
+|---|---|
+| File drop | Set the element's `file` to `event.dataTransfer.files[0]`; prevent default on `dragover` and `drop` |
+| Sheet tabs, cell navigation, Word outline or pages | [Single-format preview](/api/#single-format-preview), [navigation](/api/#navigation) |
+| Media or detached models | [Media](/api/#media), [resolved models](/api/#resolved-models) |
+| Data-only / workbook-wide search | [Searching a workbook](/api/#searching-a-workbook), [search grammar](/api/#search-grammar) |
+| Element CSS or spreadsheet chrome | [Styling](/api/#styling), [appearance](/api/#appearance) |
+| Cancel stale low-level renders | [Cancellation](/api/#cancellation) |
+| CDN / single-file Worker setup | [Worker override](/api/#worker-override) |
+| Deliver substitute fonts | [Sources and options](/api/#sources-and-options) |
 
 ## Sizing
 
@@ -274,5 +398,5 @@ export function Preview({ file }: { file: File }) {
 | `error` with `unsupported-format` | The file isn't a PowerPoint, Excel or Word file, or `type` names a different format | Check the file, or drop `type` and let aared detect it |
 | `document` or `HTMLElement is not defined` on the server | Something opens or paints aared during server rendering | Keep the import, but open and paint in the browser ([Next.js](#nextjs)) |
 
-A strict CSP needs no `'unsafe-inline'` for aared's styles: nothing writes
-inline style text ([Styling and CSP](/api/#styling-and-csp)).
+A strict CSP needs no `'unsafe-inline'` for aared's styles or search
+highlights: nothing writes inline style text ([Styling and CSP](/api/#styling-and-csp)).

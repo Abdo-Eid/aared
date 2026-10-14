@@ -1,5 +1,10 @@
 # tools/font-calibration
 
+> **Frozen research, not the normal development workflow.** `aared-fonts`
+> remains unpublished and receives no new calibration work (Notes §53).
+> Scripts and pinned evidence are retained for an explicitly reopened need.
+> Import/root-path repairs and typechecking do not change calibration values.
+
 Ground-truth probes for the substitution table in `packages/aared-fonts/src/
 index.ts` (`FONT_SUBSTITUTIONS`, `FONT_CALIBRATION`, `ARABIC_SCRIPT_FALLBACKS`).
 Not OOXML probes: they measure real fonts installed on the calibration machine
@@ -43,7 +48,7 @@ numbers are pinned in code, not derived at build or run time.
   them come from the alias's Latin face (Arimo, Tinos, Caladea, Carlito). So it
   is fitted through the real alias (two `size-adjust` probes; width is linear
   in it), never with `arabic-survey.ts --calib`, which measures the face alone
-  and left Arial's Arabic 3% too wide (DECISION_LOG §46). Then checks line
+  and left Arial's Arabic 3% too wide (Notes §46). Then checks line
   breaks: every paragraph with Arabic laid out at 11pt across seven widths in
   the real font vs the shipped and the refitted alias.
 - `vertical-check.ts` — every calibrated face's line box at `line-height:
@@ -86,7 +91,7 @@ carries none; Arimo and Tinos have no Arabic subset (Google Fonts metadata). Ara
 Typesetting is a modern reading of Naskh (Microsoft Typography), not
 "decorative/Diwani" as an earlier comment claimed.
 
-## Aptos (DECISION_LOG §49)
+## Aptos (Notes §49)
 
 The real Aptos, Aptos Display and Aptos Narrow come from Office's cloud-font
 cache (`%LOCALAPPDATA%\Microsoft\FontCache\4\CloudFonts`, filled once a document

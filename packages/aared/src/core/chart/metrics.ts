@@ -345,7 +345,11 @@ export function textWidth(text: string, look: TextLook): number {
 /** Distance between baselines of consecutive lines, in points. */
 export function lineHeight(look: TextLook): number {
   const face = faceFor(look.family);
-  return (face.ascent + face.descent) * look.size;
+  const natural = (face.ascent + face.descent) * look.size;
+  // A stored `normAutofit/@lnSpcReduction` removes this share of the leading
+  // without shrinking the glyphs (Excel 16.0 build 20430, probe
+  // `chart-txpr-autofit`: 25.39pt -> 20.30pt with 20000).
+  return look.lineSpacingReduction === undefined ? natural : natural * (1 - look.lineSpacingReduction);
 }
 
 /** Baseline offset below the top of a line box, in points. */

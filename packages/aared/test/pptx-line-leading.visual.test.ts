@@ -1,6 +1,5 @@
-import { expect, test } from "bun:test";
-
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
+import { expect } from "bun:test";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 
 // Ground truth, PowerPoint's own PDF (probe first-line-leading): Arial 40pt in a
 // top-anchored box puts its first line, against the same box at 100% spacing,
@@ -12,14 +11,10 @@ const SPACINGS = [0.9, 1, 2, 3];
 const POWERPOINT_SHIFT_PT: Record<string, number> = { "0.9": -4.8, "1": 0, "2": 33.14, "3": 69.14 };
 
 visual("visual DOM output: PPTX places a line inside its box as PowerPoint does when the spacing is not 100%", async () => {
-  const build = await Bun.build({ entrypoints: [`${import.meta.dir}/../src/pptx/index.ts`], target: "browser", format: "esm" });
-  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
-  const module = await build.outputs[0]!.text();
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      if (new URL(request.url).pathname === "/pptx.mjs") return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      return new Response(`<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  await withVisualPage({
+    modules: { "/pptx.mjs": module },
+    page: `<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">
         import { render } from "/pptx.mjs";
         window.rendered = null;
         window.renderFixture = async (model) => {
@@ -39,12 +34,10 @@ visual("visual DOM output: PPTX places a line inside its box as PowerPoint does 
             position: getComputedStyle(paragraph).position,
           }];
         }));
-      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
+      </script>`,
+    width: 1280,
+    height: 720,
+  }, async (view) => {
     const model = {
       size: { width: 13.333, height: 7.5 },
       elements: SPACINGS.map((spacing, index) => ({
@@ -70,7 +63,5 @@ visual("visual DOM output: PPTX places a line inside its box as PowerPoint does 
       expect(line.paragraphHeight / lines["1"]!.paragraphHeight).toBeCloseTo(Math.max(spacing * 1.2, 1.1) / 1.2, 1);
       expect(line.position).toBe(spacing === 1 ? "static" : "relative");
     }
-  } finally {
-    server.stop();
-  }
+  });
 });

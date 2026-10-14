@@ -1,7 +1,11 @@
 import { OpcPackage, officeFormatOf } from "./opc.js";
 import type { OfficeFormat } from "./opc.js";
+import { indexPptx, parsePptxLayout, parsePptxSlide, readPptxSlideText } from "./pptx.js";
 import type { PptxDeck } from "./pptx.js";
-import type { XlsxWorkbook, XlsxWorkbookIndex } from "./xlsx/index.js";
+import { indexXlsx, readWorkbook } from "./xlsx/workbook.js";
+import type { XlsxWorkbook, XlsxWorkbookIndex } from "./xlsx/workbook.js";
+import { parseXlsxSheet, sheetText, sliceSheetToRange } from "./xlsx/sheet.js";
+import { indexDocx, parseDocxSections } from "./docx/document.js";
 import type { DocxIndex } from "./docx/document.js";
 import type { DocumentInfo } from "./index.js";
 import type { SheetModel, SheetRangeModel, SlideLayoutModel, SlideModel, UnitModel } from "./model.js";
@@ -46,17 +50,10 @@ interface DocxSession extends SessionBase {
 
 type FormatSession = PptxSession | XlsxSession | DocxSession;
 
-/**
- * Format parsers load on first use through dynamic `import()`. The published
- * `dist/core/worker.mjs` is bundled flat (`codeSplitting: false`), so all
- * three resolve in place inside the one file — the worker needs no sibling
- * chunks and also backs Blob-URL workers directly.
- */
-const formats = {
-  pptx: () => import("./pptx.js"),
-  xlsx: () => import("./xlsx/index.js"),
-  docx: () => import("./docx/document.js"),
-};
+/** The worker is emitted as one non-splitting bundle, so direct symbol imports
+ * let the bundler tree-shake parser modules as one program without dynamic-import
+ * namespace wrappers. There is no lost runtime laziness: all bytes are already in
+ * the single worker file. */
 
 const scope = globalThis as unknown as WorkerScope;
 const sessions = new Map<number, FormatSession>();
@@ -160,9 +157,13 @@ function seedMediaParts(pkg: OpcPackage): Set<string> {
 /** Units whose `mediaId`s are already recorded; keyed by object, so a cache hit skips the walk. */
 const mediaCollected = new WeakSet<object>();
 
-/** Record every `mediaId` a resolved unit references so the media route can serve it. */
+/** Record every media part a resolved unit references so the media route can serve it. */
 function collectMediaIds(unit: UnitModel | SlideLayoutModel, into: Set<string>): void {
-  collectStrings(unit, "mediaId", into);
+  // Picture bullets name theirs `pictureMediaId`; every SVG source keeps its
+  // raster beside it under a `fallbackMediaId` (bullets: `pictureFallbackMediaId`).
+  for (const key of ["mediaId", "pictureMediaId", "fallbackMediaId", "pictureFallbackMediaId"] as const) {
+    collectStrings(unit, key, into);
+  }
 }
 
 function deleteSession(sessionId: number, openRequestId?: number): void {
@@ -193,7 +194,7 @@ async function xlsxWorkbookOf(session: XlsxSession, signal: AbortSignal): Promis
   // The worker handles one request at a time, so there is never a concurrent
   // first read to share; caching the finished value (not the promise) keeps a
   // cancelled first read from failing every later sheet read.
-  session.workbook ??= await (await formats.xlsx()).readWorkbook(session.pkg, signal, session.index);
+  session.workbook ??= await readWorkbook(session.pkg, signal, session.index);
   return session.workbook;
 }
 
@@ -202,7 +203,7 @@ async function pptxSlideOf(session: PptxSession, index: number, signal: AbortSig
   session.slides ??= new UnitCache(PPTX_SLIDE_CACHE);
   const cached = session.slides.get(index);
   if (cached !== undefined) return cached;
-  const slide = await (await formats.pptx()).parsePptxSlide(session.pkg, session.deck, index, signal);
+  const slide = await parsePptxSlide(session.pkg, session.deck, index, signal);
   session.slides.set(index, slide);
   return slide;
 }
@@ -218,7 +219,7 @@ async function xlsxSheetOf(session: XlsxSession, index: number, retain: boolean,
   if (cached !== undefined) return cached;
   const workbook = await xlsxWorkbookOf(session, signal);
   throwIfAborted(signal);
-  const sheet = await (await formats.xlsx()).parseXlsxSheet(session.pkg, workbook, index, signal);
+  const sheet = await parseXlsxSheet(session.pkg, workbook, index, signal);
   if (retain) session.sheets.set(index, sheet);
   return sheet;
 }
@@ -260,15 +261,15 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
       let session: FormatSession;
       let info: DocumentInfo;
       if (format === "pptx") {
-        const deck = await (await formats.pptx()).indexPptx(pkg, signal);
+        const deck = await indexPptx(pkg, signal);
         session = { ...base, format, deck };
         info = infoForPptx(deck);
       } else if (format === "xlsx") {
-        const index = await (await formats.xlsx()).indexXlsx(pkg, signal);
+        const index = await indexXlsx(pkg, signal);
         session = { ...base, format, index };
         info = infoForXlsx(index);
       } else {
-        const index = await (await formats.docx()).indexDocx(pkg, signal);
+        const index = await indexDocx(pkg, signal);
         session = { ...base, format, index };
         info = infoForDocx(index);
       }
@@ -299,7 +300,7 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
         let windowed: SheetModel | SheetRangeModel = sheet;
         if (request.range !== undefined) {
           checkRange(request.range);
-          windowed = (await formats.xlsx()).sliceSheetToRange(sheet, request.range);
+          windowed = sliceSheetToRange(sheet, request.range);
         }
         unit = windowed;
       } else {
@@ -317,7 +318,7 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
         }
         // Not cached: `aared/docx` reads unit 0 once at open and the page keeps
         // the sections, so the Worker keeps nothing the page already holds.
-        unit = await (await formats.docx()).parseDocxSections(session.pkg, session.index, signal);
+        unit = await parseDocxSections(session.pkg, session.index, signal);
       }
       throwIfAborted(signal);
       // Cached units (PPTX slides, XLSX sheets) come back as the same object; walk each one only once.
@@ -334,9 +335,9 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
       // its model; a sheet's are taken from the parsed sheet the Worker keeps.
       let text: string[] | SheetText;
       if (session.format === "pptx") {
-        text = await (await formats.pptx()).readPptxSlideText(session.pkg, session.deck, request.index, signal);
+        text = await readPptxSlideText(session.pkg, session.deck, request.index, signal);
       } else if (session.format === "xlsx") {
-        text = (await formats.xlsx()).sheetText(await xlsxSheetOf(session, request.index, false, signal));
+        text = sheetText(await xlsxSheetOf(session, request.index, false, signal));
       } else {
         throw new AaredError("unsupported-feature", "aared/core: a DOCX document has no text read; its page holds the whole document");
       }
@@ -352,7 +353,7 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
       if (!session.pkg.hasPart(request.layoutId) || !session.pkg.contentTypeOf(request.layoutId)?.endsWith("slideLayout+xml")) {
         throw new AaredError("not-found", `aared/core: "${request.layoutId}" is not a slide layout in this presentation`);
       }
-      const layout = await (await formats.pptx()).parsePptxLayout(session.pkg, session.deck, request.layoutId, signal);
+      const layout = await parsePptxLayout(session.pkg, session.deck, request.layoutId, signal);
       throwIfAborted(signal);
       if (!mediaCollected.has(layout)) {
         collectMediaIds(layout, session.mediaParts);

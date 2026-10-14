@@ -13,21 +13,13 @@ function invalidRange(reference: string): AaredError {
   throw new Error(`expected parseA1Range(${JSON.stringify(reference)}) to throw`);
 }
 
-test("parses a single cell to a one-cell window", () => {
+test("parses one cell, a bounded range, and the loose corners Excel accepts", () => {
   expect(parseA1Range("D14")).toEqual({ start: { row: 13, col: 3 }, end: { row: 13, col: 3 } });
-  expect(parseA1Range("A1")).toEqual({ start: { row: 0, col: 0 }, end: { row: 0, col: 0 } });
-});
-
-test("parses a bounded range", () => {
   expect(parseA1Range("A1:M200")).toEqual({ start: { row: 0, col: 0 }, end: { row: 199, col: 12 } });
-});
-
-test("tolerates lowercase, whitespace, and absolute markers", () => {
+  // Lowercase, surrounding whitespace, absolute markers and reversed corners
+  // all name the same window Excel's own reference box would.
   expect(parseA1Range("  a1:m200 ")).toEqual(parseA1Range("A1:M200"));
   expect(parseA1Range("$D$14")).toEqual(parseA1Range("D14"));
-});
-
-test("normalizes reversed corners to logical order", () => {
   expect(parseA1Range("M200:A1")).toEqual(parseA1Range("A1:M200"));
 });
 

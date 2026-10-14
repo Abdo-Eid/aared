@@ -7,9 +7,9 @@
 // measure a generic font and look plausible.
 //
 //   bun tools/font-calibration/arabic-survey.ts [--bold] [--refs a,b] [--cands x,y]
-import { OpcPackage } from "../../../packages/aared/src/core/opc.ts";
-import { indexDocx, parseDocxSections } from "../../../packages/aared/src/core/docx/document.ts";
-import { indexPptx, parsePptxSlide } from "../../../packages/aared/src/core/pptx.ts";
+import { OpcPackage } from "../../packages/aared/src/core/opc.ts";
+import { indexDocx, parseDocxSections } from "../../packages/aared/src/core/docx/document.ts";
+import { indexPptx, parsePptxSlide } from "../../packages/aared/src/core/pptx.ts";
 
 const BOLD = process.argv.includes("--bold");
 const arg = (name: string): string[] | undefined => {

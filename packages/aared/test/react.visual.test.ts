@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
-import { browserModule } from "./harness.js";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const PPTX_FIXTURE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 const XLSX_FIXTURE = `${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`;
 const DOCX_FIXTURE = `${import.meta.dir}/../../../fixtures/docx-coverage.docx`;
@@ -13,7 +12,6 @@ interface Probe {
   index: number | null;
   zoom: unknown;
   error: string | null;
-  navigationError: string | null;
 }
 
 interface Snapshot {
@@ -52,42 +50,35 @@ async function withHarness(run: (view: {
     Bun.file(XLSX_FIXTURE).arrayBuffer(),
     Bun.file(DOCX_FIXTURE).arrayBuffer(),
   ]);
-  const server = Bun.serve({
-    port: 0,
-    async fetch(request) {
-      const url = new URL(request.url);
-      if (url.pathname === "/react-harness.mjs") {
-        return new Response(harnessModule, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      }
-      if (url.pathname === "/worker.mjs" || url.pathname === "/custom-worker.mjs") {
-        requests.set(url.pathname, (requests.get(url.pathname) ?? 0) + 1);
-        return new Response(workerModule, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      }
-      if (url.pathname === "/arabic.pptx") return new Response(pptx);
-      if (url.pathname === "/slow.pptx") {
-        await Bun.sleep(300);
-        return new Response(pptx);
-      }
-      if (url.pathname === "/arabic.xlsx") return new Response(xlsx);
-      if (url.pathname === "/arabic.docx") return new Response(docx);
-      return new Response(`<!doctype html><main id="stage"></main><script type="module">
+  await withVisualPage({
+    modules: {
+      "/react-harness.mjs": harnessModule,
+      "/worker.mjs": workerModule,
+      "/custom-worker.mjs": workerModule,
+    },
+    files: { "/arabic.pptx": pptx, "/slow.pptx": pptx, "/arabic.xlsx": xlsx, "/arabic.docx": docx },
+    page: `<!doctype html><main id="stage"></main><script type="module">
         window.pageErrors = [];
         window.addEventListener("error", (event) => window.pageErrors.push(String(event.message)));
         window.addEventListener("unhandledrejection", (event) => window.pageErrors.push(String(event.reason)));
         await import("/react-harness.mjs");
-      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
+      </script>`,
+    onRequest: async (url) => {
+      if (url.pathname === "/worker.mjs" || url.pathname === "/custom-worker.mjs") {
+        requests.set(url.pathname, (requests.get(url.pathname) ?? 0) + 1);
+      } else if (url.pathname === "/slow.pptx") {
+        await Bun.sleep(300);
+      }
+      return undefined;
     },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
+    width: 1280,
+    height: 720,
+  }, async (view) => {
     await waitFor(view, `typeof window.mountHook === "function"`);
     await run(view);
     const pageErrors = (await view.evaluate(`window.pageErrors`)) as string[];
     expect(pageErrors).toEqual([]);
-  } finally {
-    server.stop();
-  }
+  });
 }
 
 visual("visual react hooks: usePptx mounts, navigates and zooms through its viewer, and unmounts", async () => {
@@ -96,7 +87,7 @@ visual("visual react hooks: usePptx mounts, navigates and zooms through its view
     await waitFor(view, `window.probe?.status === "ready"`);
     const opened = (await view.evaluate(`window.probe`)) as Probe;
     expect(opened.format).toBe("pptx");
-    expect(opened.count).toBe(18);
+    expect(opened.count).toBe(20);
     expect(opened.index).toBe(0);
     expect(opened.error).toBeNull();
     const first = (await view.evaluate(`snapshot()`)) as Snapshot;
@@ -131,28 +122,70 @@ visual("visual react hooks: usePptx mounts, navigates and zooms through its view
   });
 });
 
-visual("visual react hooks: a failed viewer.goTo() keeps the page and lands in navigationError", async () => {
+visual("visual react hooks: a failed public call keeps the page and rejects only to its caller", async () => {
   await withHarness(async (view) => {
     await view.evaluate(`mountHook("pptx", "/arabic.pptx")`);
     await waitFor(view, `window.probe?.status === "ready"`);
-    expect(((await view.evaluate(`window.probe`)) as Probe).navigationError).toBeNull();
+    expect(((await view.evaluate(`window.probe`)) as Probe).error).toBeNull();
 
-    // A unit that cannot be shown: the promise rejects, and the hook hears the
-    // viewer's `error` event, so it says so too while staying ready on slide 1.
+    // A unit that cannot be shown rejects to the app without changing hook state.
     const failed = (await view.evaluate(`viewerGoToFailure(99)`)) as { code: unknown; message: string } | null;
     expect(failed?.code).toBe("not-found");
-    await waitFor(view, `window.probe?.navigationError !== null`);
     const after = (await view.evaluate(`snapshot()`)) as Snapshot;
     expect(after.probe?.status).toBe("ready");
     expect(after.probe?.error).toBeNull();
     expect(after.probe?.index).toBe(0);
-    expect(after.probe?.navigationError).toContain("99");
     expect(after.text).toContain("تقرير الإنتاج الأسبوعي");
 
-    // The next successful move clears it.
+    // The next successful move still works.
     await view.evaluate(`viewerGoTo(1)`);
-    await waitFor(view, `window.probe?.index === 1 && window.probe?.navigationError === null`);
+    await waitFor(view, `window.probe?.index === 1 && window.probe?.error === null`);
     await view.evaluate(`unmountHook()`);
+  });
+});
+
+visual("visual react hooks: a failed built-in sheet tab lands in error while keeping the view ready", async () => {
+  await withHarness(async (view) => {
+    await view.evaluate(`(() => {
+      const NativeWorker = window.Worker;
+      window.Worker = class extends NativeWorker {
+        constructor(...args) { super(...args); window.testWorker = this; }
+      };
+    })()`);
+    await view.evaluate(`mountHook("xlsx", "/arabic.xlsx")`);
+    await waitFor(view, `window.probe?.status === "ready"`);
+    const before = await view.evaluate(`snapshot()`) as Snapshot;
+    await view.evaluate(`(() => {
+      window.testWorker.terminate();
+      window.testWorker.dispatchEvent(new ErrorEvent('error', {message:'test Worker failure'}));
+      document.querySelectorAll('[data-aared-element="sheet-tab"]')[1].click();
+    })()`);
+    await waitFor(view, `window.probe?.error !== null`);
+    const after = await view.evaluate(`snapshot()`) as Snapshot;
+    expect(after.probe?.status).toBe("ready");
+    expect(after.probe?.index).toBe(0);
+    expect(after.probe?.error).toContain("test Worker failure");
+    expect(after.text).toBe(before.text);
+    expect(after.cells).toBe(before.cells);
+    await view.evaluate(`unmountHook()`);
+  });
+});
+
+visual("visual react hooks: borrowed content has no lifecycle and ends at unmount for every format", async () => {
+  await withHarness(async (view) => {
+    for (const format of ["pptx", "xlsx", "docx"]) {
+      await view.evaluate(`mountHook(${JSON.stringify(format)}, '/arabic.${format}')`);
+      await waitFor(view, `window.probe?.status === "ready"`);
+      expect(await view.evaluate(`(() => {
+        const viewer = window.hookViewer;
+        const content = viewer.content;
+        window.readContent = viewer.format === 'pptx' ? content.slides.get(0).read
+          : viewer.format === 'xlsx' ? content.sheets.get(0).read : content.sections.list;
+        return !('document' in viewer) && !('close' in content) && !('search' in content);
+      })()`)).toBe(true);
+      await view.evaluate(`unmountHook()`);
+      expect(await view.evaluate(`Promise.resolve().then(() => window.readContent()).then(() => 'resolved', error => error.code)`)).toBe("closed");
+    }
   });
 });
 
@@ -226,6 +259,14 @@ visual("visual react hooks: appearance follows values across formats and preserv
         expect(await view.evaluate(`hookViewer.xlsx.selection?.address`)).toBe("B2");
         expect(await view.evaluate(`document.querySelector('[data-aared-element="sheet-tabs"]') === null`)).toBe(true);
         expect(await view.evaluate(`document.querySelector('[data-aared-element="column-headers"]') === null`)).toBe(true);
+        // The chrome flag flows through the same key: toggling it paints
+        // and removes the bar on the same viewer, never remounting.
+        await view.evaluate(`setStartProps({ appearance: { theme: "dark", spreadsheet: { sheetTabs: false, headers: false, formulaBar: true } } })`);
+        await waitFor(view, `document.querySelector('[data-aared-element="sheet-formula-bar"]') !== null`);
+        expect(await view.evaluate(`hookViewer === savedViewer && seen.viewers === savedSeen`)).toBe(true);
+        await view.evaluate(`setStartProps({ appearance: { theme: "dark", spreadsheet: { sheetTabs: false, headers: false } } })`);
+        await waitFor(view, `document.querySelector('[data-aared-element="sheet-formula-bar"]') === null`);
+        expect(await view.evaluate(`hookViewer === savedViewer && seen.viewers === savedSeen`)).toBe(true);
       }
       // Unchanged values, even with different property order, must not undo
       // a consumer's imperative appearance change on an unrelated render.

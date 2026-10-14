@@ -6,7 +6,7 @@
  * machines with Office have those fonts: anywhere else the marker paints as
  * the letter, or as an empty box. A stand-in paints the same shape in any
  * font that has it. Each entry was matched by eye against the real glyph
- * (DECISION_LOG §52); a character with no entry keeps its font and code.
+ * (Notes §52); a character with no entry keeps its font and code.
  *
  * Code points, never literals: shipped JS stays Latin-1 (see `chars.ts`,
  * which holds the one fixed character this needs).

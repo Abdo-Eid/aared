@@ -25,9 +25,10 @@
  */
 
 /** Matches every element; adds two IDs' worth of specificity to a rule. */
-const BUMP = ":not(#aared-0#aared-1)";
+export const CLASS_SPECIFICITY = ":not(#aared-0#aared-1)";
 
 const registry = new Map<string, string>();
+const keysByName = new Map<string, string>();
 let rules = "";
 let version = 0;
 
@@ -50,14 +51,20 @@ function hash(text: string): string {
  * the declarations style those pseudo-elements instead of the element.
  */
 export function cssClass(declarations: string, pseudoElements: readonly ("::before" | "::after")[] = []): string {
-  const key = `${pseudoElements.join("")}${declarations.trim()}`;
+  const key = JSON.stringify([pseudoElements, declarations.trim()]);
   let name = registry.get(key);
   if (name === undefined) {
     name = `aared-${hash(key)}`;
+    // Never silently attach a different declaration block to an existing name.
+    // Keep names deterministic across bundle copies; order-based suffixes would
+    // merely turn a collision into different meanings in different registries.
+    const previous = keysByName.get(name);
+    if (previous !== undefined && previous !== key) throw new Error("aared: renderer style hash collision");
+    keysByName.set(name, key);
     registry.set(key, name);
     const selectors = pseudoElements.length === 0
-      ? `.${name}${BUMP}`
-      : pseudoElements.map((pseudo) => `.${name}${BUMP}${pseudo}`).join(",");
+      ? `.${name}${CLASS_SPECIFICITY}`
+      : pseudoElements.map((pseudo) => `.${name}${CLASS_SPECIFICITY}${pseudo}`).join(",");
     rules += `${selectors}{${declarations.trim()}}\n`;
     version += 1;
   }

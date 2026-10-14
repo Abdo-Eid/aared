@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { OpcPackage } from "../src/core/opc.js";
 import { indexXlsx, readSharedStrings, readWorkbook } from "../src/core/xlsx/workbook.js";
 import { columnCharsToInches, parseXlsxSheet } from "../src/core/xlsx/sheet.js";
-import { layoutChart } from "../src/core/chart/draw.js";
 import { applySpreadsheetTint } from "../src/core/theme.js";
 import { findCoverageSheet, xlsxCoverageManifest } from "./xlsx-fixture.js";
 import type { SheetModel } from "../src/core/model.js";
@@ -93,7 +92,7 @@ describe("XLSX workbook index", () => {
   test("indexes the Arabic coverage fixture", async () => {
     const pkg = await OpcPackage.open(await Bun.file(COVERAGE_PATH).arrayBuffer());
     const index = await indexXlsx(pkg);
-    expect(index.sheets.map((sheet) => sheet.name)).toEqual(["الميزانية", "Summary", "Shot Log", "Notes"]);
+    expect(index.sheets.map((sheet) => sheet.name)).toEqual(["الميزانية", "Summary", "Shot Log", "Notes", "CF Rules", "Fills"]);
   });
 
   test("rejects out-of-range sheet indexes with an actionable error", async () => {
@@ -119,12 +118,12 @@ describe("XLSX styles, values, and formats on the real tracker", () => {
     const dashboard = await sheetOf(workbook, pkg, 0);
     const header = cellAt(dashboard, 10, 0);
     expect(header.formatted).toBe("Episode");
-    expect(header.style).toMatchObject({ fill: "#12171F", bold: true, align: "center" });
+    expect(header.style).toMatchObject({ fill: { kind: "solid", color: "#12171F" }, bold: true, align: "center" });
     expect(header.style?.border?.bottom?.style).toBe("thin");
     expect(header.style?.border?.bottom?.color).toBe("#D8D3C9");
     const kpi = cellAt(dashboard, 4, 0);
     expect(kpi.formatted).toBe("Shots tracked · عدد اللقطات");
-    expect(kpi.style).toMatchObject({ fill: "#F4F1EC" });
+    expect(kpi.style).toMatchObject({ fill: { kind: "solid", color: "#F4F1EC" } });
   });
 
   test("shows cached formula results and keeps their source, never evaluating", async () => {
@@ -143,7 +142,8 @@ describe("XLSX styles, values, and formats on the real tracker", () => {
   test("applies percent sections with parentheses and zero dashes", async () => {
     const { pkg, workbook } = await tracker();
     const budget = await sheetOf(workbook, pkg, 2);
-    expect(cellAt(budget, 4, 3).formatted).toBe("(81.5)%");
+    // Excel prints `0.0%;\(0.0%\);\-` with the sign inside the brackets.
+    expect(cellAt(budget, 4, 3).formatted).toBe("(81.5%)");
     expect(cellAt(budget, 8, 3).formatted).toBe("24.4%");
     expect(cellAt(budget, 9, 3).formatted).toBe("-");
     expect(cellAt(budget, 4, 1).formatted).toBe("180,000");
@@ -170,7 +170,17 @@ describe("XLSX styles, values, and formats on the real tracker", () => {
     const locked = log.rows.flatMap((row) => row.cells).find(({ cell }) => cell.formatted === "Locked");
     expect(locked?.cell.conditional).toMatchObject({ fill: "#DDEBE8", color: "#2E7D74", bold: true });
     const bar = log.rows.flatMap((row) => row.cells).find(({ cell }) => cell.conditional?.dataBar !== undefined);
-    expect(bar?.cell.conditional?.dataBar).toMatchObject({ ratio: 0.325, color: "#2E7D74" });
+    expect(bar?.cell.conditional?.dataBar).toMatchObject({
+      ratio: 0.36,
+      color: "#2E7D74",
+      gradient: true,
+      showValue: true,
+      direction: "context",
+      border: false,
+      axisPosition: "none",
+      axisColor: "#000000",
+      negativeFillColor: "#2E7D74",
+    });
   });
 
   test("resolves hyperlinks and keeps rich text concatenated", async () => {
@@ -193,10 +203,9 @@ describe("XLSX styles, values, and formats on the real tracker", () => {
     expect(chart.spec!.groups[0]!.series[0]!.values).toEqual([39, 27, 8]);
     expect(chart.bounds.width).toBeGreaterThan(0);
     expect(chart.bounds.height).toBeGreaterThan(0);
-    // Excel draws this 5.1 x 2.95in chart with an axis of 0.0-45.0 by 5.
-    const texts = layoutChart(chart.spec!, chart.bounds).primitives.flatMap((p) => (p.kind === "text" ? [p.text] : []));
-    expect(texts).toEqual(expect.arrayContaining(["Hours logged by episode", "Hours", "Episode 4", "0.0", "5.0", "45.0"]));
-    expect(texts).not.toContain("50.0");
+    // The axis Excel lays out for this chart (0.0-45.0 by 5) is read from the
+    // painted DOM in xlsx-render.visual.test.ts: it is a layout rule, not a
+    // reader one, and this layer only owns reading the chart.
   });
 
   test("records non-goals visibly instead of dropping them", async () => {
@@ -272,18 +281,105 @@ describe("XLSX Arabic RTL coverage fixture", () => {
 
   test("keeps title and header styling with RTL reading order", async () => {
     const sheet = (await findCoverageSheet(await coverage(), "rtl-grid")).sheet;
-    expect(cellAt(sheet, 0, 0).style).toMatchObject({ fill: "#12171F", bold: true, align: "center", readingOrder: 2 });
-    expect(cellAt(sheet, 2, 0).style).toMatchObject({ fill: "#156082", bold: true, align: "center" });
+    expect(cellAt(sheet, 0, 0).style).toMatchObject({ fill: { kind: "solid", color: "#12171F" }, bold: true, align: "center", readingOrder: 2 });
+    expect(cellAt(sheet, 2, 0).style).toMatchObject({ fill: { kind: "solid", color: "#156082" }, bold: true, align: "center" });
     expect(cellAt(sheet, 2, 0).style?.border?.bottom?.style).toBe("thin");
-    expect(cellAt(sheet, 8, 0).style).toMatchObject({ fill: "#F4F1EC", bold: true });
+    expect(cellAt(sheet, 8, 0).style).toMatchObject({ fill: { kind: "solid", color: "#F4F1EC" }, bold: true });
   });
 
-  test("parses the LTR summary sheet without frozen columns", async () => {
+  // The Fills sheet, authored through Excel's COM object model: each value cell
+  // (column B) carries a fill Excel wrote itself. Excel blends cell gradients in
+  // sRGB, so every gradient is marked so.
+  test("reads Excel's gradient and pattern cell fills into the shared fill model", async () => {
+    const sheet = (await findCoverageSheet(await coverage(), "fills")).sheet;
+    expect(sheet.rightToLeft).toBe(true);
+    const fill = (row: number) => cellAt(sheet, row, 1).style?.fill;
+    expect(fill(1)).toEqual({
+      kind: "linear-gradient", angle: 90, scaled: true, rotatesWithShape: true, blend: "srgb",
+      stops: [{ position: 0, color: "#FFFFFF" }, { position: 1, color: "#F4B183" }],
+    });
+    expect(fill(2)).toMatchObject({ kind: "linear-gradient", angle: 0, blend: "srgb" });
+    // From the centre: the first stop at the centre point, reaching the last at the edges.
+    expect(fill(3)).toEqual({
+      kind: "path-gradient", path: "rect", blend: "srgb",
+      focus: { left: 0.5, top: 0.5, right: 0.5, bottom: 0.5 },
+      extent: { left: 0, top: 0, right: 0, bottom: 0 },
+      stops: [{ position: 0, color: "#FFFFFF" }, { position: 1, color: "#A9D08E" }],
+    });
+    expect(fill(4)).toEqual({ kind: "pattern", preset: "darkGrid", foreground: "#BF9000", background: "#FFF2CC" });
+    expect(fill(5)).toEqual({ kind: "pattern", preset: "gray125", foreground: "#7F7F7F", background: "#FFFFFF" });
+    expect(fill(6)).toEqual({ kind: "pattern", preset: "lightDown", foreground: "#2E7D74", background: "#E2F0D9" });
+  });
+
+  test("parses the bilingual sales summary with cached formulas", async () => {
     const sheet = (await findCoverageSheet(await coverage(), "summary")).sheet;
-    expect(sheet.rightToLeft).toBe(false);
-    expect(sheet.frozen).toEqual({ rows: 2, cols: 0 });
-    expect(sheet.merges).toEqual([{ start: { row: 0, col: 0 }, end: { row: 0, col: 2 } }]);
-    expect(cellAt(sheet, 4, 1).formatted).toBe("430,000 EGP");
+    expect(sheet.name).toBe("Summary");
+    expect(sheet.rightToLeft).toBe(true);
+    expect(sheet.showGridlines).toBe(false);
+    // A merged two-row title band and a spacer sit above the table (A4:G9),
+    // frozen with its header row; a merged footnote closes it at A11.
+    expect(sheet.frozen).toEqual({ rows: 4, cols: 0 });
+    expect(sheet.extent).toEqual({ rows: 11, cols: 7 });
+    expect(sheet.merges).toEqual([
+      { start: { row: 0, col: 0 }, end: { row: 0, col: 6 } },
+      { start: { row: 1, col: 0 }, end: { row: 1, col: 6 } },
+      { start: { row: 10, col: 0 }, end: { row: 10, col: 6 } },
+    ]);
+    expect(cellAt(sheet, 0, 0).style).toMatchObject({ fill: { kind: "solid", color: "#1F5C55" }, bold: true, fontSizePt: 18, align: "right" });
+    expect(cellAt(sheet, 4, 4)).toMatchObject({
+      value: expect.closeTo(0.06048387096774199),
+      formatted: "+6.0%",
+      formula: "D5/C5-1",
+    });
+    expect(cellAt(sheet, 4, 5)).toMatchObject({
+      value: "نمو قوي",
+      formatted: "نمو قوي",
+      formula: 'IF(E5>5%,"نمو قوي",IF(E5>0,"زيادة طفيفة","انخفاض"))',
+    });
+    expect(cellAt(sheet, 4, 4).conditional?.color).toBe("#2E7A3B");
+    expect(cellAt(sheet, 6, 4)).toMatchObject({ formatted: "-7.8%", conditional: { color: "#B03F2E" } });
+    // The status column's cellIs-equal rules paint each status as a chip.
+    expect([4, 5, 6].map((row) => cellAt(sheet, row, 5).conditional?.fill)).toEqual(["#DDF1E4", "#FFF1D2", "#FBE2DD"]);
+    // Every cell states its alignment, so Latin and Arabic text share a side
+    // in Excel and in aared alike, and in Segoe UI, whose Arabic is drawn at
+    // the size of its Latin.
+    expect(cellAt(sheet, 5, 0).style).toMatchObject({ align: "right", fontFamily: "Segoe UI" });
+    expect(cellAt(sheet, 4, 6).style).toMatchObject({ align: "right", fontFamily: "Segoe UI" });
+    expect(cellAt(sheet, 4, 1).style).toMatchObject({ align: "center", fontFamily: "Consolas" });
+    // Rules are single edges: Excel wrote the header's bottom rule as the top
+    // edge of the first row, and no cell carries a side edge.
+    expect(cellAt(sheet, 4, 4).style?.border).toEqual({ top: { style: "medium", color: "#1F5C55" } });
+    expect(cellAt(sheet, 8, 2)).toMatchObject({ value: 2950, formatted: "2,950", formula: "SUM(C5:C8)" });
+    expect(cellAt(sheet, 8, 3)).toMatchObject({ value: 3089, formatted: "3,089", formula: "SUM(D5:D8)" });
+  });
+
+  test("an Office-inserted SVG picture resolves to its SVG part with the PNG fallback", async () => {
+    // Excel 16.0 COM-inserted SVG drawings carry the raster beside the vector
+    // (probe `svg-pictures`): the SVG paints, the PNG covers a decode failure.
+    const sheet = (await findCoverageSheet(await coverage(), "notes")).sheet;
+    expect(sheet.name).toBe("Notes");
+    const pictures = sheet.drawings.filter((drawing) => drawing.kind === "picture");
+    expect(pictures).toHaveLength(1);
+    const picture = pictures[0]!;
+    if (picture.kind !== "picture") throw new Error("fixture structure changed: expected a Notes picture");
+    expect(picture.name).toBe("SVG picture");
+    expect(picture.contentType).toBe("image/svg+xml");
+    expect(picture.mediaId.endsWith(".svg")).toBe(true);
+    expect(picture.fallbackMediaId?.endsWith(".png")).toBe(true);
+    expect(picture.fallbackContentType).toBe("image/png");
+    // The floating picture sits outside the sheet's A-C content, so no grid
+    // test moves: its anchor starts at column E.
+    expect(picture.anchor.start.col).toBeGreaterThanOrEqual(4);
+    // Excel's natively-authored shadow and rotation resolve through the same
+    // shared effect reader as PPTX/DOCX pictures (probe `svg-pictures`).
+    expect(picture.effects?.outerShadow).toMatchObject({
+      blurPt: 8,
+      rotatesWithShape: false,
+    });
+    expect(picture.effects?.outerShadow?.color).toContain("128 128 128");
+    expect(picture.effects?.outerShadow?.dxPt).toBeCloseTo(6, 1);
+    expect(picture.effects?.outerShadow?.dyPt).toBeCloseTo(6, 1);
+    expect(picture.transform).toMatchObject({ rotation: 12 });
   });
 
   test("keeps the deep shot log with live cost formulas", async () => {
@@ -345,11 +441,18 @@ describe("XLSX worksheet structure the file states loosely", () => {
   });
 
   test("an 8-digit rgb is read without its alpha byte, as the worksheet's own colours are", async () => {
-    const pkg = await withPart("xlsx-coverage.xlsx", "xl/styles.xml", (xml) => xml.replace(/(<fgColor rgb=")FF/, "$100"));
-    const workbook = await readWorkbook(pkg);
-    const fills = [...Array(40).keys()].map((index) => workbook.styles.cellStyle(index).fill).filter((fill): fill is string => fill !== undefined);
-    expect(fills.length).toBeGreaterThan(0);
-    expect(fills.every((fill) => /^#[0-9A-F]{6}$/.test(fill))).toBe(true);
+    const fillsOf = async (pkg: OpcPackage): Promise<unknown[]> => {
+      const workbook = await readWorkbook(pkg);
+      return [...Array(40).keys()].map((index) => workbook.styles.cellStyle(index).fill);
+    };
+    const clean = await fillsOf(await OpcPackage.open(await Bun.file(COVERAGE_PATH).arrayBuffer()));
+    // Every authored fgColor's alpha byte becomes 00, which a naive reader would
+    // keep. The fills must be identical to the unmutated package's, because the
+    // worksheet's colours carry no alpha.
+    const mutated = await fillsOf(await withPart("xlsx-coverage.xlsx", "xl/styles.xml", (xml) =>
+      xml.replace(/(<fgColor rgb=")FF/g, "$100")));
+    expect(mutated).toEqual(clean);
+    expect(clean.some((fill) => (fill as { kind?: string } | undefined)?.kind === "solid")).toBe(true);
   });
 });
 

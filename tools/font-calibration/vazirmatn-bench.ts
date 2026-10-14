@@ -12,12 +12,12 @@
 //   vazir0    Vazirmatn as-is, one family, same size, no overrides
 //
 //   bun tools/font-calibration/vazirmatn-bench.ts
-import { OpcPackage } from "../../../packages/aared/src/core/opc.ts";
-import { indexDocx, parseDocxSections } from "../../../packages/aared/src/core/docx/document.ts";
-import { indexPptx, parsePptxSlide } from "../../../packages/aared/src/core/pptx.ts";
-import { ARABIC_UNICODE_RANGE, ARABIC_SCRIPT_FALLBACKS, parseFontCss } from "../../../packages/aared-fonts/src/index.ts";
+import { OpcPackage } from "../../packages/aared/src/core/opc.ts";
+import { indexDocx, parseDocxSections } from "../../packages/aared/src/core/docx/document.ts";
+import { indexPptx, parsePptxSlide } from "../../packages/aared/src/core/pptx.ts";
+import { ARABIC_UNICODE_RANGE, ARABIC_SCRIPT_FALLBACKS, parseFontCss } from "../../packages/aared-fonts/src/index.ts";
 
-const ROOT = "D:/work/aared";
+const ROOT = `${import.meta.dir}/../..`;
 const SIZE = 14.67; // 11pt
 const WIDTHS = [240, 320, 400, 480, 560, 640, 720];
 const WEIGHTS = [400, 700];

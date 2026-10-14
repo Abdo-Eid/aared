@@ -1,13 +1,13 @@
 /**
  * Serves a DOCX fixture to a browser page, for the visual tests and for
- * `tools/word-render/capture.ts`. Not a test itself (no `.test.` in the name).
+ * `tools/review/docx/capture.ts`. Not a test itself (no `.test.` in the name).
  * The page is the caller's: this only provides what every DOCX page needs.
  */
 
 import type { DocumentSection } from "../src/core/model.js";
 import { indexDocx, parseDocxSections } from "../src/core/docx/document.js";
 import { OpcPackage } from "../src/core/opc.js";
-import { browserModule } from "./harness.js";
+import { browserModule, serveVisual } from "./harness.js";
 
 const DOCX_ENTRY = `${import.meta.dir}/../src/docx/index.ts`;
 
@@ -15,8 +15,9 @@ const DOCX_ENTRY = `${import.meta.dir}/../src/docx/index.ts`;
  * Parse the fixture, bundle the renderer, and serve them: the renderer at
  * `/docx.mjs`, the fixture's media parts at `/media/<file>`, and `page` (an
  * HTML document that imports `/docx.mjs`) for every other path, plus any
- * extra `modules` (path to JavaScript source). The caller stops the server
- * and hands the returned sections to its page to render.
+ * extra `modules` (path to JavaScript source). The caller owns the server:
+ * it either stops the server itself and hands the sections to its own page,
+ * or passes the server to `withVisualPage`, which drives and stops it.
  */
 export async function serveDocx(
   fixturePath: string,
@@ -30,15 +31,14 @@ export async function serveDocx(
     if (part.startsWith("word/media/")) media.set(part, await pkg.readPart(part));
   }
   const renderer = await browserModule(DOCX_ENTRY);
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      const url = new URL(request.url);
-      if (url.pathname === "/docx.mjs") {
-        return new Response(renderer, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      }
-      const module = modules[url.pathname];
-      if (module !== undefined) return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
+  // Static handling (renderer, extra modules, fallback page) is shared with
+  // every other visual test; only the media route keeps its own content-type
+  // sniffing and missing-media 404, unchanged from the direct server.
+  const server = serveVisual({
+    // The renderer wins its own path: extra `modules` are additional scripts.
+    modules: { ...modules, "/docx.mjs": renderer },
+    page,
+    onRequest: (url) => {
       if (url.pathname.startsWith("/media/")) {
         const id = `word/media/${url.pathname.slice("/media/".length)}`;
         const data = media.get(id);
@@ -47,7 +47,7 @@ export async function serveDocx(
           headers: { "content-type": id.endsWith(".png") ? "image/png" : "image/jpeg" },
         });
       }
-      return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
+      return undefined;
     },
   });
   return { server, sections };

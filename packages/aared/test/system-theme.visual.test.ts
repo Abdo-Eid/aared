@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { browserModule } from "./harness.js";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
+
 const FIXTURES = `${import.meta.dir}/../../../fixtures`;
 
 // A page whose OS colour scheme the test controls: `matchMedia` is replaced
@@ -32,7 +32,7 @@ const MARKS = `
     .map((element) => element.dataset.aaredTheme);
 `;
 
-async function serve(entry: "preview" | "element", body: string, script: string) {
+async function page(entry: "preview" | "element", body: string, script: string) {
   const [module, worker, pptx, xlsx, docx] = await Promise.all([
     browserModule(`${import.meta.dir}/../src/${entry}/index.ts`),
     browserModule(`${import.meta.dir}/../src/core/worker.ts`),
@@ -40,28 +40,19 @@ async function serve(entry: "preview" | "element", body: string, script: string)
     Bun.file(`${FIXTURES}/xlsx-coverage.xlsx`).arrayBuffer(),
     Bun.file(`${FIXTURES}/docx-coverage.docx`).arrayBuffer(),
   ]);
-  const js = { headers: { "content-type": "text/javascript; charset=utf-8" } };
-  return Bun.serve({
-    port: 0,
-    fetch(request) {
-      const { pathname } = new URL(request.url);
-      if (pathname === `/${entry}.mjs`) return new Response(module, js);
-      if (pathname === "/worker.mjs") return new Response(worker, js);
-      if (pathname === "/a.pptx") return new Response(pptx);
-      if (pathname === "/a.xlsx") return new Response(xlsx);
-      if (pathname === "/a.docx") return new Response(docx);
-      return new Response(
-        `<!doctype html><body style="margin:0"><script>${FAKE_OS}</script>${body}<script type="module">${MARKS}${script}</script>`,
-        { headers: { "content-type": "text/html; charset=utf-8" } },
-      );
-    },
-  });
+  return {
+    modules: { [`/${entry}.mjs`]: module, "/worker.mjs": worker },
+    files: { "/a.pptx": pptx, "/a.xlsx": xlsx, "/a.docx": docx },
+    page: `<!doctype html><body style="margin:0"><script>${FAKE_OS}</script>${body}<script type="module">${MARKS}${script}</script>`,
+    width: 1280,
+    height: 720,
+  } as const;
 }
 
 interface Reading { marks: string[]; index: number; zoom: unknown }
 
 visual("the system theme follows the OS in preview() for every format, and an explicit theme never does", async () => {
-  const server = await serve(
+  await withVisualPage(await page(
     "preview",
     `<main id="host" style="height:600px"></main>`,
     `import { preview } from "/preview.mjs";
@@ -69,10 +60,7 @@ visual("the system theme follows the OS in preview() for every format, and an ex
        window.handle = await preview({ source, target: document.querySelector("#host"), appearance: { theme } });
      };
      window.read = () => ({ marks: marks(document.querySelector("#host")), index: handle.index, zoom: handle.zoom });`,
-  );
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
+  ), async (view) => {
     const read = async (): Promise<Reading> => await view.evaluate(`frame().then(() => read())`) as Reading;
     const flip = async (scheme: string): Promise<void> => void await view.evaluate(`flip(${JSON.stringify(scheme)})`);
     /** Statements, run in the page (an evaluate takes one expression). */
@@ -120,13 +108,11 @@ visual("the system theme follows the OS in preview() for every format, and an ex
       expect(new Set((await read()).marks), theme).toEqual(new Set([theme]));
       await view.evaluate(`handle.destroy()`);
     }
-  } finally {
-    server.stop(true);
-  }
+  });
 });
 
 visual("<aared-viewer theme=system> follows the OS in its content and its chrome, and stops when the theme is set", async () => {
-  const server = await serve(
+  await withVisualPage(await page(
     "element",
     `<aared-viewer id="viewer" style="height:600px"></aared-viewer>`,
     `import "/element.mjs";
@@ -142,10 +128,7 @@ visual("<aared-viewer theme=system> follows the OS in its content and its chrome
        index: viewer.viewer?.index,
        zoom: viewer.viewer?.zoom,
      });`,
-  );
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
+  ), async (view) => {
     type ElementReading = { chrome: string; content: string[]; index: number; zoom: unknown };
     const read = async (): Promise<ElementReading> => await view.evaluate(`frame().then(() => read())`) as ElementReading;
     const run = async (code: string): Promise<void> => void await view.evaluate(`(async () => { ${code} })()`);
@@ -184,7 +167,5 @@ visual("<aared-viewer theme=system> follows the OS in its content and its chrome
     // Removing the element drops both.
     await view.evaluate(`document.querySelector("#viewer").remove()`);
     expect(await attached()).toBe(0);
-  } finally {
-    server.stop(true);
-  }
+  });
 });

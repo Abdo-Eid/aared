@@ -1,7 +1,6 @@
-import { expect, test } from "bun:test";
-import { browserModule } from "./harness.js";
+import { expect } from "bun:test";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const FIXTURES = {
   pptx: `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`,
   xlsx: `${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`,
@@ -31,15 +30,10 @@ visual("visual DOM output: a replaced render destroys itself and a cancelled one
   ]);
   const scripts: Record<string, string> = { "/pptx.mjs": pptx, "/xlsx.mjs": xlsx, "/docx.mjs": docx, "/worker.mjs": worker };
   const files: Record<string, ArrayBuffer> = { "/deck.pptx": deck, "/book.xlsx": book, "/doc.docx": doc };
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      const { pathname } = new URL(request.url);
-      const script = scripts[pathname];
-      if (script !== undefined) return new Response(script, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      const file = files[pathname];
-      if (file !== undefined) return new Response(file);
-      return new Response(`<!doctype html><body style="margin:0"><main id="host" style="width:900px;height:600px"></main><script type="module">
+  await withVisualPage({
+    modules: scripts,
+    files,
+    page: `<!doctype html><body style="margin:0"><main id="host" style="width:900px;height:600px"></main><script type="module">
         import * as pptx from "/pptx.mjs";
         import * as xlsx from "/xlsx.mjs";
         import * as docx from "/docx.mjs";
@@ -128,6 +122,7 @@ visual("visual DOM output: a replaced render destroys itself and a cancelled one
         window.cancelPainted = async () => {
           const deck = await pptx.open("/deck.pptx");
           const book = await xlsx.open("/book.xlsx");
+          const doc = await docx.open("/doc.docx");
           const out = {};
           const attempt = async (start, replaceFirst) => {
             host.replaceChildren();
@@ -155,18 +150,19 @@ visual("visual DOM output: a replaced render destroys itself and a cancelled one
           };
           out.pptx = await attempt((signal) => pptx.render({ slide: deck.slides.get(0), target: host, signal }), false);
           out.xlsx = await attempt((signal) => xlsx.render({ sheet: book.sheets.get(0), target: host, signal }), false);
+          out.docx = await attempt((signal) => docx.render({ document: doc, target: host, signal }), false);
+          out.docxLayout = await attempt((signal) => docx.render({ document: doc, target: host, pagination: { mode: "layout" }, signal }), false);
           out.othersKept = await attempt((signal) => pptx.render({ slide: deck.slides.get(1), target: host, signal }), true);
           host.replaceChildren();
           deck.close();
           book.close();
+          doc.close();
           return out;
         };
-      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 700 });
-    await view.navigate(server.url.href);
+      </script>`,
+    width: 1000,
+    height: 700,
+  }, async (view) => {
     const out = await view.evaluate(`replace()`) as Record<string, unknown>;
     expect(out).toEqual({
       pptx: [true, false],
@@ -193,9 +189,9 @@ visual("visual DOM output: a replaced render destroys itself and a cancelled one
     expect(await view.evaluate(`cancelPainted()`) as Record<string, unknown>).toEqual({
       pptx: takenBack,
       xlsx: takenBack,
+      docx: takenBack,
+      docxLayout: takenBack,
       othersKept: { painted: true, code: "aborted", children: 1, kept: true, display: "" },
     });
-  } finally {
-    server.stop();
-  }
+  });
 }, 60000);

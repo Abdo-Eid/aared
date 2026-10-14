@@ -25,10 +25,10 @@ import { BULLET } from "../core/chars.js";
 import { clipSnippet, foldQuery, searchKey } from "../core/search.js";
 import { SessionMedia, WorkerSession } from "../core/session.js";
 import { presetPrograms } from "../core/presets.js";
-import { itemAt, throwIfAborted } from "../core/errors.js";
-import { resolveTheme } from "../appearance.js";
+import { AaredError, itemAt, throwIfAborted } from "../core/errors.js";
+import { mergeAppearance, resolveTheme } from "../appearance.js";
 import { chartsSettled, paintChart } from "../chart-svg.js";
-import { MediaUrls } from "../media-url.js";
+import { MediaUrls, paintImageSource } from "../media-url.js";
 import { EMU_PER_INCH, PX_PER_INCH, inchesToCss } from "../core/units.js";
 import { parseResolvedColor } from "../core/color.js";
 import { DEFAULT_ZOOM, RenderHandleBase, fitScale, measureFitRoom, missingIdWarning, onReplaced, safeScale, settleRender } from "../render-handle.js";
@@ -37,11 +37,16 @@ import { createTableCell, createTableGrid } from "../table-dom.js";
 import { groupChildMapping } from "./group-mapping.js";
 import { applyParagraphBox, applyRunBase, exactLinePitch, pt } from "../text-style.js";
 import { awaitDocumentFonts, fontFidelityWarnings } from "../font-fidelity.js";
-import { adoptClassSheet } from "../class-sheet.js";
+import { adoptClassSheet, cssClass } from "../class-sheet.js";
+import { resourceId } from "../resource-id.js";
+import { CONTENT_TEXT, FRAME_PAINT } from "../render-defaults.js";
 import { MINIMUM_LINE_HEIGHT, cssFontFamily, lineFontSizePt } from "../core/typography.js";
 import { MARK_FALLBACKS } from "../diagnostics.js";
 import { fillFallbackReason, fillPaint, officeGradientStops, type FillBox } from "../fill-paint.js";
+import { paintDrawingEffects } from "../effect-paint.js";
+import { paintTransform } from "../transform-paint.js";
 import { hollowText } from "./text-outline.js";
+import { contentSignal, contentSource } from "../content-view.js";
 
 /**
  * The line pitch PowerPoint gives 100% (`a:lnSpc/a:spcPct val="100000"`)
@@ -93,6 +98,19 @@ export interface PptxInfo extends DocumentInfo {
  */
 export interface SlideInfo extends UnitRef {
   size: { width: number; height: number };
+}
+
+/** Viewer-owned slide input: metadata and reads, with no lifecycle/session access. */
+export interface SlideContent {
+  readonly info: SlideInfo;
+  read(options?: ReadOptions): Promise<SlideModel>;
+}
+
+/** Read/render capabilities borrowed from a preview; search stays on the viewer. */
+export interface PptxContent {
+  readonly info: PptxInfo;
+  readonly slides: Collection<SlideContent, number>;
+  readonly media: MediaCollectionShape;
 }
 
 /** One text occurrence from `deck.search()`. */
@@ -174,6 +192,9 @@ export class PptxDocument {
   private readonly searchIndex = new Map<number, SlideParagraph[]>();
 
   constructor(private readonly session: WorkerSession) {
+    // Both ordinary opens and auto-preview adoption install the table here,
+    // before any slide/layout read. It stays in the PPTX entry only.
+    session.setGeometryPrograms(presetPrograms);
     const info = session.info;
     this.info = { ...info, format: "pptx" };
     const sizes = info.sizes ?? [];
@@ -245,9 +266,7 @@ export class PptxDocument {
  * when the file is not actually a presentation.
  */
 export async function open(source: Source, options?: OpenOptions): Promise<PptxDocument> {
-  // The preset table ships in this entry only; the session evaluates
-  // deferred geometry against it.
-  return new PptxDocument(await WorkerSession.openAs("pptx", source, { ...options, geometryPrograms: presetPrograms }));
+  return new PptxDocument(await WorkerSession.openAs("pptx", source, options));
 }
 
 /** The events a PPTX render handle fires, by name: `addEventListener` types each `event.detail`. */
@@ -276,8 +295,9 @@ export interface PptxRenderHandle extends EventTargetOf<PptxRenderEventMap> {
   /** The slide this handle shows. */
   readonly slide: SlideInfo;
   /**
-   * Replace the viewer appearance in place without re-reading the slide.
-   * Slides are source-faithful by design, so this only refreshes the
+   * Update the viewer appearance in place without re-reading the slide.
+   * Changes only what it sets; a theme it leaves out stays. Slides are
+   * source-faithful by design, so this only refreshes the
    * `data-aared-theme` marker — never recolors authored content.
    */
   setAppearance(appearance: Appearance): void;
@@ -285,9 +305,9 @@ export interface PptxRenderHandle extends EventTargetOf<PptxRenderEventMap> {
   readonly warnings: readonly RenderWarning[];
 }
 
-/** `render()` input: a slide handle (read on demand) or an already-resolved model. */
+/** `render()` input: an opened handle, borrowed slide content, or a resolved model. */
 export interface PptxRenderInput {
-  slide: SlideHandle | SlideModel;
+  slide: SlideHandle | SlideContent | SlideModel;
   target: HTMLElement;
   appearance?: Appearance;
   /** Starting zoom, applied without a `zoomchange`. Default `"fit-page"`. */
@@ -320,13 +340,17 @@ function isSlideHandle(slide: SlideHandle | SlideModel): slide is SlideHandle {
 }
 
 class PptxViewer extends RenderHandleBase<Appearance> implements PptxRenderHandle {
-  constructor(initialZoom: ZoomValue, readonly slide: SlideInfo) {
+  #appearance: Appearance | undefined;
+
+  constructor(initialZoom: ZoomValue, readonly slide: SlideInfo, appearance: Appearance | undefined) {
     super(initialZoom);
+    this.#appearance = appearance;
   }
 
   setAppearance(appearance: Appearance): void {
     if (this.destroyed) return;
-    this.applyAppearance(appearance);
+    this.#appearance = mergeAppearance(this.#appearance, appearance);
+    this.applyAppearance(this.#appearance);
   }
 }
 
@@ -356,15 +380,18 @@ function layoutMediaIds(model: SlideModel): ReadonlySet<string> {
 }
 
 /**
- * Paint one slide. Accepts a `SlideHandle` (read from the Worker on
+ * Paint one slide. Accepts a `SlideHandle` or borrowed `SlideContent` (read from the Worker on
  * demand) or an already-resolved `SlideModel`; when the handle carries
  * its document session, picture media resolves through it unless an
  * explicit `mediaResolver` is given. The caller owns virtualization.
  */
 export async function render(input: PptxRenderInput): Promise<PptxRenderHandle> {
-  const { signal } = input;
-  throwIfAborted(signal);
-  const requested = input.slide;
+  throwIfAborted(input.signal);
+  const requested = contentSource<SlideHandle>(input.slide) ?? (input.slide as SlideHandle | SlideModel);
+  if (!(requested instanceof SlideHandle) && "read" in requested) {
+    throw new AaredError("invalid-argument", "aared/pptx: render() takes a slide from open() or viewer.content.slides, or a resolved SlideModel");
+  }
+  const signal = contentSignal(input.slide, input.signal);
   let mediaResolver = input.mediaResolver;
   let model: SlideModel;
   let info: SlideInfo;
@@ -390,7 +417,7 @@ export async function render(input: PptxRenderInput): Promise<PptxRenderHandle> 
   });
   // The slide is on screen already; its fonts swap in as they arrive. Which
   // of them painted can only be read once they have (a delivered face loads
-  // only when text needs it, DECISION_LOG §50), so the warnings wait, bounded.
+  // only when text needs it, Notes §50), so the warnings wait, bounded.
   // A first chart waits for the layout code too (§71), so a resolved render
   // has its charts drawn. Cancelled during that wait, the render takes its
   // slide back out and rejects, so it never hands back a handle (`settleRender`).
@@ -457,18 +484,20 @@ function appendBulletMarker(
     image.style.width = "auto";
     image.style.verticalAlign = "baseline";
     marker.append(image);
-    urls
-      .url(mediaId, bullet.pictureContentType ?? "image/svg+xml")
-      .then((url) => {
-        if (url === undefined || !image.isConnected) return;
-        image.src = url;
-        image.dataset.aaredMediaLoaded = "true";
-      })
-      .catch(() => {
-        if (urls.closed || !marker.isConnected) return;
-        image.remove();
-        marker.textContent = bullet.char ?? BULLET;
-      });
+    image.addEventListener("load", () => {
+      image.dataset.aaredMediaLoaded = "true";
+    });
+    paintImageSource(image, urls, {
+      mediaId,
+      contentType: bullet.pictureContentType ?? "image/svg+xml",
+      ...(bullet.pictureFallbackMediaId === undefined || bullet.pictureFallbackContentType === undefined ? {} : {
+        fallbackMediaId: bullet.pictureFallbackMediaId,
+        fallbackContentType: bullet.pictureFallbackContentType,
+      }),
+    }, () => {
+      image.remove();
+      marker.textContent = bullet.char ?? BULLET;
+    });
   } else {
     if (mediaId !== undefined) marker.dataset.aaredBulletPictureFallback = "missing-resolver";
     marker.textContent = bullet.char ?? BULLET;
@@ -726,12 +755,39 @@ function appendShapeText(host: HTMLElement, shape: ShapeModel, slideNumber?: num
   }
   const body = shape.text;
   const bounds = shape.bounds;
+  // A preset geometry can reserve a text rectangle of its own, inside the box
+  // and under `a:bodyPr`'s insets: PowerPoint lays text in a rounded
+  // rectangle's narrower column and an ellipse's much narrower one, and the
+  // offsets match the ECMA `a:rect` guides to within 0.01pt (probe
+  // `pptx-text-rectangle`). The two are additive, which is what Word does too.
+  const frame = shape.geometry?.textRect;
+  const viewBox = shape.geometry?.viewBox;
+  // An unresolved preset keeps a rectangular fallback whose `textRect` is
+  // absent; a hand-built geometry may state one without a viewBox.
+  const share = frame !== undefined && viewBox !== undefined && viewBox.width > 0 && viewBox.height > 0
+    ? {
+      left: frame.left / viewBox.width,
+      right: 1 - frame.right / viewBox.width,
+      top: frame.top / viewBox.height,
+      bottom: 1 - frame.bottom / viewBox.height,
+    }
+    : undefined;
   if (bounds !== undefined && body.insets !== undefined) {
     // Parsed models state all four sides; a hand-built one may omit some.
-    text.style.paddingLeft = inchesToCss(body.insets.left ?? 0);
-    text.style.paddingRight = inchesToCss(body.insets.right ?? 0);
-    text.style.paddingTop = inchesToCss(body.insets.top ?? 0);
-    text.style.paddingBottom = inchesToCss(body.insets.bottom ?? 0);
+    // Absolute pixels on all four, not percentages: CSS resolves a vertical
+    // percentage against the containing block's *width*, which would stretch
+    // the shape's top and bottom insets on anything but a square. The host is
+    // the shape's own bounds, so the geometry share is exact here even for a
+    // `resizeShape` text layer, whose host keeps its painted height.
+    const authored = (side: "left" | "right" | "top" | "bottom"): number => (body.insets![side] ?? 0) * PX_PER_INCH;
+    const side = (name: "left" | "right" | "top" | "bottom", span: number): string =>
+      `${authored(name) + (share === undefined ? 0 : share[name] * span)}px`;
+    const width = bounds.width * PX_PER_INCH;
+    const height = bounds.height * PX_PER_INCH;
+    text.style.paddingLeft = side("left", width);
+    text.style.paddingRight = side("right", width);
+    text.style.paddingTop = side("top", height);
+    text.style.paddingBottom = side("bottom", height);
   }
   switch (body.verticalAlign) {
     case "middle":
@@ -783,16 +839,16 @@ function appendFillMarker(host: HTMLElement, reason: string): void {
   host.append(marker);
 }
 
+const VISIBLE_PAINT = cssClass("overflow:visible");
+const FALLBACK_BOX = cssClass("position:absolute;inset:0;display:flex;align-items:center;justify-content:center;box-sizing:border-box;border:1px dashed currentColor;font-size:12px;user-select:none");
+const PICTURE_FALLBACK = cssClass("padding:0.5em;text-align:center");
+
 function appendShapeGeometry(host: HTMLElement, shape: ShapeModel, gradientId: string, urls: MediaUrls | undefined): void {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.dataset.aaredElement = "shape-geometry";
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("preserveAspectRatio", "none");
-  svg.style.position = "absolute";
-  svg.style.inset = "0";
-  svg.style.width = "100%";
-  svg.style.height = "100%";
-  svg.style.overflow = "visible";
+  svg.setAttribute("class", `${FRAME_PAINT} ${VISIBLE_PAINT}`);
   const geometry = shape.geometry;
   const viewBox = geometry?.viewBox ?? { width: 100000, height: 100000 };
   const fallback = geometry?.fallback ?? (geometry === undefined ? "missing" : undefined);
@@ -820,12 +876,26 @@ function appendShapeGeometry(host: HTMLElement, shape: ShapeModel, gradientId: s
   }
   const viewportPx = grewViewport ? vbWidth / emuPerPx : shape.bounds === undefined ? 0 : shape.bounds.width * PX_PER_INCH;
   const viewportPxHeight = grewViewport ? vbHeight / emuPerPx : shape.bounds === undefined ? 0 : shape.bounds.height * PX_PER_INCH;
+// A geometry aared cannot draw still paints the shape's own fill, so its text
+  // stays legible: PowerPoint fills the pentagon teal and draws white text, while
+  // aared painted nothing and left black text on a white slide inside a dashed
+  // outline, which reads as a missing shape rather than a missing outline (probe
+  // `pptx-text-rectangle`). A fill the painter cannot draw stays undrawn, so the
+  // stand-in rectangle never claims a shape the fill was never in.
   let paint = "none";
   let fillMarked = false;
-  if (shape.fill !== undefined && !marked) {
+  if (shape.fill !== undefined) {
+    const inherited = shape.fillBounds;
+    const sx = shape.bounds?.width ? vbWidth / shape.bounds.width : EMU_PER_INCH;
+    const sy = shape.bounds?.height ? vbHeight / shape.bounds.height : EMU_PER_INCH;
     const painted = fillPaint(svg, gradientId, shape.fill, {
-      width: vbWidth,
-      height: vbHeight,
+      width: inherited === undefined ? vbWidth : inherited.width * sx,
+      height: inherited === undefined ? vbHeight : inherited.height * sy,
+      ...(inherited === undefined ? {} : {
+        originX: (inherited.x - (shape.bounds?.x ?? 0)) * sx,
+        originY: (inherited.y - (shape.bounds?.y ?? 0)) * sy,
+        scaledToUserSpace: true,
+      }),
       unitsPerPxX: viewportPx > 0 ? vbWidth / viewportPx : emuPerPx,
       unitsPerPxY: viewportPxHeight > 0 ? vbHeight / viewportPxHeight : emuPerPx,
       // Group children use their child-space position: an approximation of
@@ -836,7 +906,7 @@ function appendShapeGeometry(host: HTMLElement, shape: ShapeModel, gradientId: s
       urls,
       ...(shape.transform === undefined ? {} : { transform: shape.transform }),
       // A `path="shape"` gradient follows this shape's own outline.
-      ...(geometry?.path === undefined ? {} : { outline: geometry.path }),
+      ...(geometry?.path === undefined || inherited !== undefined ? {} : { outline: geometry.path }),
     });
     if (painted === undefined) {
       // The outline is right but the fill cannot be drawn faithfully:
@@ -848,9 +918,10 @@ function appendShapeGeometry(host: HTMLElement, shape: ShapeModel, gradientId: s
       paint = painted;
     }
   }
-  // A filled rectangle reads as a wrong shape. Development builds mark
-  // unpaintable geometry with an empty dashed outline (the picture/chart
-  // convention); shipped builds render no box at all — text still paints.
+  // The stand-in rectangle stands in for the *outline* only. Development builds
+  // mark it dashed (the picture/chart convention); shipped builds draw no
+  // outline. The authored fill still paints, so an unrenderable geometry reads
+  // as a shape rather than as nothing.
   const dashed = MARK_FALLBACKS && (marked || fillMarked);
   const outlined = marked ? MARK_FALLBACKS : shape.stroke !== undefined || dashed;
   // `a:ln w="0"` is PowerPoint's thinnest line, not an invisible one: it
@@ -896,13 +967,6 @@ function position(bounds: BoundsModel | undefined, element: HTMLElement): void {
   }
 }
 
-/** A per-document-unique SVG id: `owner` is the slide part or the layout id the shape belongs to. */
-function gradientId(owner: string | undefined, shape: Pick<ShapeModel, "id">, index: number | string): string {
-  let hash = 0;
-  for (const char of typeof owner === "string" ? owner : "inline") hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return `aared-gradient-${hash.toString(36)}-${shape.id}-${index}`;
-}
-
 /**
  * Paint a non-solid cell fill behind the cell's text: an SVG layer sized to
  * the cell in CSS pixels at slide scale, through the shared fill painter.
@@ -915,10 +979,7 @@ function appendCellFill(cell: HTMLElement, fill: ShapeFillModel, id: string, box
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("viewBox", `0 0 ${box.width} ${box.height}`);
   svg.setAttribute("preserveAspectRatio", "none");
-  svg.style.position = "absolute";
-  svg.style.inset = "0";
-  svg.style.width = "100%";
-  svg.style.height = "100%";
+  svg.setAttribute("class", FRAME_PAINT);
   svg.style.zIndex = "-1";
   cell.style.position = "relative";
   cell.style.isolation = "isolate";
@@ -968,9 +1029,7 @@ function appendTable(scene: HTMLElement, table: TableModel, fillId: string, slid
   const cellBoxes = tableCellBoxes(table);
   const grid = createTableGrid(table.direction, table.columns);
   grid.style.position = "absolute";
-  grid.style.transformOrigin = "center";
-  const tableTransform = transformFor(table.transform);
-  if (tableTransform !== "") grid.style.transform = tableTransform;
+  paintTransform(grid, table.transform);
   // Styled tables carry resolved per-cell borders and PowerPoint draws no
   // frame around them. Only a table with none gets this explicit neutral
   // frame (never `currentColor`, so it cannot inherit embedding chrome).
@@ -1125,11 +1184,7 @@ function cellEdgeOverlay(borders: NonNullable<TableCellModel["borders"]>, gridRo
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 1 1");
     svg.setAttribute("preserveAspectRatio", "none");
-    svg.style.position = "absolute";
-    svg.style.inset = "0";
-    svg.style.width = "100%";
-    svg.style.height = "100%";
-    svg.style.overflow = "visible";
+    svg.setAttribute("class", `${FRAME_PAINT} ${VISIBLE_PAINT}`);
     const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
     line.setAttribute("d", path);
     line.setAttribute("stroke", stroke.color);
@@ -1145,38 +1200,19 @@ function cellEdgeOverlay(borders: NonNullable<TableCellModel["borders"]>, gridRo
   return overlay;
 }
 
-function transformFor(transform: { rotation?: number; flipHorizontal?: boolean; flipVertical?: boolean } | undefined): string {
-  const parts: string[] = [];
-  if (transform?.rotation !== undefined) parts.push(`rotate(${transform.rotation}deg)`);
-  if (transform?.flipHorizontal === true || transform?.flipVertical === true) {
-    parts.push(`scale(${transform.flipHorizontal === true ? -1 : 1}, ${transform.flipVertical === true ? -1 : 1})`);
-  }
-  return parts.join(" ");
-}
-
 function appendPictureFallback(host: HTMLElement, picture: PictureModel, reason: string): void {
   host.dataset.aaredPictureFallback = reason;
   const fallback = document.createElement("div");
   fallback.dataset.aaredElement = "picture-fallback";
-  fallback.style.position = "absolute";
-  fallback.style.inset = "0";
-  fallback.style.display = "flex";
-  fallback.style.alignItems = "center";
-  fallback.style.justifyContent = "center";
-  fallback.style.boxSizing = "border-box";
-  fallback.style.border = "1px dashed currentColor";
-  fallback.style.fontSize = "12px";
-  fallback.style.padding = "0.5em";
-  fallback.style.textAlign = "center";
+  fallback.setAttribute("class", `${FALLBACK_BOX} ${PICTURE_FALLBACK}`);
   // Placeholder chrome, not content: the shape name must never leak into
   // clipboard text (select-all + copy otherwise yields "Ink 52…").
-  fallback.style.userSelect = "none";
   fallback.setAttribute("aria-hidden", "true");
   fallback.textContent = picture.name === "" ? "Image unavailable" : picture.name;
   host.append(fallback);
 }
 
-function appendPicture(scene: HTMLElement, picture: PictureModel, urls: MediaUrls | undefined): void {
+function appendPicture(scene: HTMLElement, picture: PictureModel, urls: MediaUrls | undefined, effectCleanups: Array<() => void>): void {
   const wrapper = document.createElement("div");
   wrapper.dataset.aaredElement = "picture";
   wrapper.dataset.aaredPictureId = picture.id;
@@ -1184,14 +1220,13 @@ function appendPicture(scene: HTMLElement, picture: PictureModel, urls: MediaUrl
   wrapper.dataset.aaredContentType = picture.contentType;
   wrapper.style.position = "absolute";
   wrapper.style.overflow = "hidden";
-  wrapper.style.transformOrigin = "center";
   wrapper.style.background = "transparent";
   // Pictures (and ink rasters) are not text: keep them out of selections so
   // select-all copies slide text only.
   wrapper.style.userSelect = "none";
-  const transform = transformFor(picture.transform);
-  if (transform !== "") wrapper.style.transform = transform;
+  paintTransform(wrapper, picture.transform);
   position(picture.bounds, wrapper);
+  paintDrawingEffects(wrapper, picture.effects, scene, picture.transform, effectCleanups);
   if (picture.crop !== undefined) {
     wrapper.dataset.aaredCropLeft = String(picture.crop.left);
     wrapper.dataset.aaredCropTop = String(picture.crop.top);
@@ -1239,21 +1274,20 @@ function appendPicture(scene: HTMLElement, picture: PictureModel, urls: MediaUrl
   wrapper.append(image);
   scene.append(wrapper);
 
-  let settled = false;
-  urls
-    .url(picture.mediaId, picture.contentType)
-    .then((url) => {
-      if (settled || url === undefined || !wrapper.isConnected) return;
-      settled = true;
-      image.src = url;
-      image.dataset.aaredMediaLoaded = "true";
-    })
-    .catch(() => {
-      if (settled || urls.closed || !wrapper.isConnected) return;
-      settled = true;
-      image.remove();
-      appendPictureFallback(wrapper, picture, "load-error");
-    });
+  image.addEventListener("load", () => {
+    image.dataset.aaredMediaLoaded = "true";
+  });
+  paintImageSource(image, urls, {
+    mediaId: picture.mediaId,
+    contentType: picture.contentType,
+    ...(picture.fallbackMediaId === undefined || picture.fallbackContentType === undefined ? {} : {
+      fallbackMediaId: picture.fallbackMediaId,
+      fallbackContentType: picture.fallbackContentType,
+    }),
+  }, () => {
+    image.remove();
+    appendPictureFallback(wrapper, picture, "load-error");
+  });
 }
 
 /** The dashed box a chart shows when it cannot be drawn: `reason` is `unsupported` (its type) or `load-error` (the layout code did not arrive). */
@@ -1261,15 +1295,7 @@ function appendChartFallback(wrapper: HTMLElement, chart: ChartModel, reason: "u
   wrapper.dataset.aaredChartFallback = reason;
   const fallback = document.createElement("div");
   fallback.dataset.aaredElement = "chart-fallback";
-  fallback.style.position = "absolute";
-  fallback.style.inset = "0";
-  fallback.style.display = "flex";
-  fallback.style.alignItems = "center";
-  fallback.style.justifyContent = "center";
-  fallback.style.boxSizing = "border-box";
-  fallback.style.border = "1px dashed currentColor";
-  fallback.style.fontSize = "12px";
-  fallback.style.userSelect = "none";
+  fallback.setAttribute("class", FALLBACK_BOX);
   fallback.setAttribute("aria-hidden", "true");
   // The name, then why it is not drawn ("Map charts are not previewed"), as XLSX shows it.
   const name = chart.name === "" ? "Chart" : chart.name;
@@ -1290,10 +1316,8 @@ function appendChart(scene: HTMLElement, chart: ChartModel, urls: MediaUrls | un
   if (chart.sourceChartId !== undefined) wrapper.dataset.aaredSourceChartId = chart.sourceChartId;
   wrapper.style.position = "absolute";
   wrapper.style.overflow = "hidden";
-  wrapper.style.transformOrigin = "center";
   wrapper.style.userSelect = "none";
-  const transform = transformFor(chart.transform);
-  if (transform !== "") wrapper.style.transform = transform;
+  paintTransform(wrapper, chart.transform);
   position(chart.bounds, wrapper);
   scene.append(wrapper);
   if (chart.spec === undefined) {
@@ -1302,10 +1326,7 @@ function appendChart(scene: HTMLElement, chart: ChartModel, urls: MediaUrls | un
   }
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.dataset.aaredElement = "chart-geometry";
-  svg.style.position = "absolute";
-  svg.style.inset = "0";
-  svg.style.width = "100%";
-  svg.style.height = "100%";
+  svg.setAttribute("class", FRAME_PAINT);
   wrapper.append(svg);
   paintChart(svg, chart.spec, {
     frame: chart.bounds,
@@ -1342,11 +1363,8 @@ function paintBackground(viewport: HTMLElement, model: SlideModel, urls: MediaUr
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("preserveAspectRatio", "none");
-  svg.style.position = "absolute";
-  svg.style.inset = "0";
-  svg.style.width = "100%";
-  svg.style.height = "100%";
-  const paint = fillPaint(svg, gradientId(model.part, { id: "background" }, -1), fill, {
+  svg.setAttribute("class", FRAME_PAINT);
+  const paint = fillPaint(svg, resourceId("gradient"), fill, {
     width,
     height,
     unitsPerPxX: 1,
@@ -1376,25 +1394,23 @@ interface ElementPaintContext {
   slideNumber: number | undefined;
   /** Media URLs for pictures and picture bullets; absent when the embedder gave no resolver. */
   urls: MediaUrls | undefined;
-  /** SVG gradient-id owner: slide part or layout id; groups keep their children on the same owner. */
-  owner: string;
+  effectCleanups: Array<() => void>;
 }
 
 /**
  * Append elements back-to-front into the scene. Slide elements and shared
- * layout graphics both go through here; `owner` (slide part or layout id)
- * keeps their SVG gradient ids apart. Groups recurse through `appendGroup`.
+ * layout graphics both go through here. Each painted fill owns a fresh name;
+ * source part paths and shape IDs repeat across documents. Groups recurse.
  */
-function paintElements(context: ElementPaintContext, elements: readonly SlideModel["elements"][number][], path = ""): void {
-  const { scene, slideNumber, urls, owner } = context;
-  for (const [index, element] of elements.entries()) {
-    const gradientKey = path === "" ? `${index}` : `${path}.${index}`;
+function paintElements(context: ElementPaintContext, elements: readonly SlideModel["elements"][number][]): void {
+  const { scene, slideNumber, urls } = context;
+  for (const element of elements) {
     if (element.kind === "table") {
-      appendTable(scene, element, gradientId(owner, element, gradientKey), slideNumber, urls);
+      appendTable(scene, element, resourceId("gradient"), slideNumber, urls);
       continue;
     }
     if (element.kind === "picture") {
-      appendPicture(scene, element, urls);
+      appendPicture(scene, element, urls, context.effectCleanups);
       continue;
     }
     if (element.kind === "chart") {
@@ -1402,7 +1418,7 @@ function paintElements(context: ElementPaintContext, elements: readonly SlideMod
       continue;
     }
     if (element.kind === "group") {
-      appendGroup(context, element, gradientKey);
+      appendGroup(context, element);
       continue;
     }
     if (element.kind !== "shape") continue;
@@ -1411,12 +1427,11 @@ function paintElements(context: ElementPaintContext, elements: readonly SlideMod
     shape.dataset.aaredShapeId = element.id;
     shape.style.position = "absolute";
     shape.style.overflow = "visible";
-    shape.style.transformOrigin = "center";
-    const shapeTransform = transformFor(element.transform);
-    if (shapeTransform !== "") shape.style.transform = shapeTransform;
+    paintTransform(shape, element.transform);
     position(element.bounds, shape);
-    appendShapeGeometry(shape, element, gradientId(owner, element, gradientKey), urls);
+    appendShapeGeometry(shape, element, resourceId("gradient"), urls);
     appendShapeText(shape, element, slideNumber, urls);
+    paintDrawingEffects(shape, element.effects, scene, element.transform, context.effectCleanups);
     scene.append(shape);
   }
 }
@@ -1427,17 +1442,16 @@ function paintElements(context: ElementPaintContext, elements: readonly SlideMod
  * the authored child space onto the wrapper so children keep their
  * authored coordinates.
  */
-function appendGroup(context: ElementPaintContext, group: GroupModel, path: string): void {
+function appendGroup(context: ElementPaintContext, group: GroupModel): void {
   const { scene, slideNumber, urls } = context;
   const wrapper = document.createElement("div");
   wrapper.dataset.aaredElement = "group";
   wrapper.dataset.aaredGroupId = group.id;
   wrapper.style.position = "absolute";
   wrapper.style.overflow = "visible";
-  wrapper.style.transformOrigin = "center";
-  const groupTransform = transformFor(group.transform);
-  if (groupTransform !== "") wrapper.style.transform = groupTransform;
+  paintTransform(wrapper, group.transform);
   position(group.bounds, wrapper);
+  paintDrawingEffects(wrapper, group.effects, scene, group.transform, context.effectCleanups);
 
   const inner = document.createElement("div");
   inner.dataset.aaredElement = "group-children";
@@ -1450,7 +1464,7 @@ function appendGroup(context: ElementPaintContext, group: GroupModel, path: stri
   }
   wrapper.append(inner);
   scene.append(wrapper);
-  paintElements({ ...context, scene: inner }, group.children, path);
+  paintElements({ ...context, scene: inner }, group.children);
 }
 
 /**
@@ -1487,8 +1501,9 @@ function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxViewer {
   // A slide opens whole, as a slideshow viewer shows it: fit its container's
   // height as well as its width (falling back to width when the container
   // has no height of its own).
-  const viewer = new PptxViewer(input.zoom ?? DEFAULT_ZOOM.pptx, info);
+  const viewer = new PptxViewer(input.zoom ?? DEFAULT_ZOOM.pptx, info, input.appearance);
   const viewport = document.createElement("div");
+  viewport.setAttribute("class", CONTENT_TEXT);
   viewport.dataset.aaredElement = "slide";
   viewport.style.position = "relative";
   viewport.style.overflow = "hidden";
@@ -1514,6 +1529,7 @@ function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxViewer {
   // synchronous. The URLs are owned by one `MediaUrls`: a late resolution after
   // `destroy()` paints nothing, and `destroy()` revokes every URL.
   let destroyed = false;
+  const effectCleanups: Array<() => void> = [];
   const urls = mediaResolver === undefined ? undefined : new MediaUrls(mediaResolver);
   // Shared run defaults (the left-to-right run marks) live in the class sheet;
   // adopt it on the target's root before the slide attaches.
@@ -1522,9 +1538,9 @@ function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxViewer {
   paintBackground(viewport, model, urls);
   // Shared layout/master graphics sit under the slide's own content.
   if (model.layout !== undefined && model.hideBackgroundGraphics !== true) {
-    paintElements({ scene, slideNumber: model.number, urls, owner: model.layout.id }, model.layout.graphics);
+    paintElements({ scene, slideNumber: model.number, urls, effectCleanups }, model.layout.graphics);
   }
-  paintElements({ scene, slideNumber: model.number, urls, owner: model.part }, model.elements);
+  paintElements({ scene, slideNumber: model.number, urls, effectCleanups }, model.elements);
   // The scene is absolutely positioned, so the viewport has no height of its
   // own until the fit below sizes it. It goes in at its full-width box — the
   // largest any fit makes it — and the fit sizes it, so a page whose height
@@ -1595,6 +1611,7 @@ function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxViewer {
     urls?.close();
     classSheet.release();
     observer.disconnect();
+    for (const cleanup of effectCleanups) cleanup();
     stopWatching();
     viewport.removeEventListener("click", onLinkClick);
     viewport.removeEventListener("auxclick", onLinkClick);
@@ -1609,6 +1626,9 @@ function paintSlideAs(info: SlideInfo, input: PaintSlideInput): PptxViewer {
   viewer.refit();
   return viewer;
 }
-export { preview } from "./viewer.js";
+/** Load the embed controller only when the convenience preview API is used. */
+export async function preview(input: import("./viewer.js").PptxPreviewInput): Promise<import("../preview/index.js").PptxPreview> {
+  return (await import("./viewer.js")).preview(input);
+}
 export type { PptxPreviewInput } from "./viewer.js";
-export type { PptxPreview, PreviewSearchOptions, PreviewEventMap, SearchNavigation, SearchNavigationState } from "../preview/index.js";
+export type { PptxPreview, PreviewSearchMatch, PreviewSearchOptions, PreviewEventMap, SearchNavigation, SearchNavigationState } from "../preview/index.js";

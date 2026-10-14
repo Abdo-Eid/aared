@@ -17,12 +17,14 @@ export interface AnchorFrame {
   /** Text column width, and its left edge measured from the page's left edge. */
   columnPx: number;
   columnLeftPx: number;
+  /** Nested text-box content frames notify their placements after a batched width settle. */
+  resized?: Array<() => void>;
   /**
    * Layout mode only. The page, the top margin, and where the nearest
    * positioned ancestor of the paragraph (the page, or a header) has its
    * top-left corner on the page.
    */
-  page?: { widthPx: number; heightPx: number; marginTopPx: number; originXPx: number; originYPx: number };
+  page?: { widthPx: number; heightPx: number; marginTopPx: number; marginBottomPx?: number; originXPx: number; originYPx: number };
 }
 
 export type FloatPlan =
@@ -70,13 +72,15 @@ export function horizontalOffsetPx(image: DocxDrawingNode, frame: AnchorFrame): 
 function pageTopPx(image: DocxDrawingNode, frame: AnchorFrame): number {
   const { vertical } = image.anchor!;
   const page = frame.page!;
+  const marginBox = image.type === "textBox" && vertical.from === "margin";
   const base = vertical.from === "page" ? 0 : page.marginTopPx;
+  const end = marginBox ? page.heightPx - (page.marginBottomPx ?? page.marginTopPx) : page.heightPx;
   const height = px(image.height);
   switch (vertical.align) {
     case "center":
-      return (page.heightPx - height) / 2;
+      return marginBox ? base + (end - base - height) / 2 : (page.heightPx - height) / 2;
     case "bottom":
-      return page.heightPx - height;
+      return end - height;
     case "top":
     case "inside":
     case "outside":

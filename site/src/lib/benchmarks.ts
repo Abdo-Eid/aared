@@ -1,6 +1,6 @@
 /**
  * The home page's "By the numbers" data: pure functions over the generated
- * results in `src/data/benchmarks.json` (`bun tools/bench-measure.ts
+ * results in `src/data/benchmarks.json` (`bun tools/benchmarks/measure.ts
  * --render-site`). Nothing here is typed in by hand — every figure and every
  * caption is computed from a measurement, so a slower result reads as slower.
  */

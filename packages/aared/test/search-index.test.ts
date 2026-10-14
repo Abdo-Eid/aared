@@ -48,18 +48,18 @@ test("XLSX search reads only the words of the sheet it is asked about, once, the
   try {
     const { text, unit } = spyReads();
     const summary = workbook.sheets.get("Summary");
-    const first = await summary.search("budget");
+    const first = await summary.search("Wireless Charger");
     expect(first.length).toBeGreaterThan(0);
     // One sheet read of the four; the other three stay unparsed.
     expect(text).toHaveBeenCalledTimes(1);
     expect(text.mock.calls[0]![0]).toBe(summary.info.index);
 
-    expect(await summary.search("budget")).toEqual(first);
+    expect(await summary.search("Wireless Charger")).toEqual(first);
     expect(await summary.search("a different query")).toEqual([]);
     expect(text).toHaveBeenCalledTimes(1);
 
     // A second sheet is its own read, and its text is not Summary's.
-    expect(await workbook.sheets.get("Shot Log").search("budget")).toEqual([]);
+    expect(await workbook.sheets.get("Shot Log").search("Wireless Charger")).toEqual([]);
     expect(text).toHaveBeenCalledTimes(2);
     expect(unit).not.toHaveBeenCalled();
   } finally {

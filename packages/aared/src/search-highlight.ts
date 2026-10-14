@@ -6,15 +6,29 @@
 
 import { searchKey } from "./core/search.js";
 import { AaredError } from "./core/errors.js";
+import { resourceId } from "./resource-id.js";
 
 /** One viewer owns the controller's lifetime. */
 export interface SearchHighlighter {
   readonly count: number;
   readonly index: number | null;
+  /**
+   * The painted occurrences in `activate()` order, each with the block it
+   * sits in and that block's search key, so a caller can pick the one a
+   * source result names. Read after the query is set; valid until the DOM changes.
+   */
+  readonly occurrences: readonly PaintedOccurrence[];
   setQuery(query: string): void;
   activate(index: number, scroll?: boolean): void;
   activateWithin(selector: string): void;
   destroy(): void;
+}
+
+/** One painted occurrence: its text range, the paragraph/cell/SVG text block holding it, and that block's `searchKey`. */
+export interface PaintedOccurrence {
+  readonly range: Range;
+  readonly block: Element;
+  readonly key: string;
 }
 
 interface HighlightLike {}
@@ -40,7 +54,6 @@ interface SourcePosition {
   end: number;
 }
 
-let nextHighlighterId = 0;
 const BLOCK_SELECTOR = 'p,h1,h2,h3,h4,h5,h6,[role="cell"],[data-aared-element="cell-text"],svg text';
 
 /** True for renderer source/decoration text that should never be searched. */
@@ -141,10 +154,15 @@ export function createSearchHighlighter(root: HTMLElement, changed: () => void =
   const view = root.ownerDocument.defaultView as HighlightWindow | null;
   const registry = view?.CSS?.highlights;
   const HighlightConstructor = view?.Highlight;
-  const name = `aared-search-${++nextHighlighterId}`;
-  const style = root.ownerDocument.createElement("style");
-  style.dataset.aaredSearchHighlightStyle = name;
-  style.textContent = `::highlight(${name}){background-color:rgba(245,158,11,.22);color:inherit}`;
+  const name = resourceId("search");
+  // The rule lives in a constructed stylesheet adopted onto the viewer's scope,
+  // not in a `<style>` element: a strict `style-src` blocks style elements
+  // without a nonce, and aared cannot know the page's nonce. CSSOM is allowed.
+  // The root realm's own constructor, so a viewer inside an iframe works.
+  const realm = root.ownerDocument.defaultView as (Window & typeof globalThis) | null;
+  const sheet = realm === null || typeof realm.CSSStyleSheet !== "function" ? null : new realm.CSSStyleSheet();
+  sheet?.replaceSync(`::highlight(${name}){background-color:rgba(245,158,11,.22);color:inherit}`);
+  let adoptedOn: Document | ShadowRoot | null = null;
   // ::highlight allows colors/text decoration, not borders (MDN ::highlight).
   // These non-interactive rectangles
   // outline the active Range without wrapping text or affecting its layout.
@@ -154,9 +172,16 @@ export function createSearchHighlighter(root: HTMLElement, changed: () => void =
   outline.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483646";
   const attachStyle = (): void => {
     const scope = root.getRootNode();
-    const host = scope.nodeType === 11 && "host" in scope ? scope as ShadowRoot : root.ownerDocument.head;
-    if (style.parentNode !== host) host.append(style);
-    const overlayHost = host === root.ownerDocument.head ? root.ownerDocument.body : host;
+    const shadow = scope.nodeType === 11 && "host" in scope ? scope as ShadowRoot : null;
+    const owner: Document | ShadowRoot = shadow ?? root.ownerDocument;
+    if (adoptedOn !== owner) {
+      if (adoptedOn !== null && sheet !== null) adoptedOn.adoptedStyleSheets = adoptedOn.adoptedStyleSheets.filter((item) => item !== sheet);
+      adoptedOn = owner;
+    }
+    // Restore the lifecycle-owned sheet if an embedder replaced the list.
+    // Do not cache it in constantSheet: each highlighter has a unique name.
+    if (sheet !== null && !owner.adoptedStyleSheets.includes(sheet)) owner.adoptedStyleSheets = [...owner.adoptedStyleSheets, sheet];
+    const overlayHost = shadow ?? root.ownerDocument.body;
     if (outline.parentNode !== overlayHost) overlayHost.append(outline);
   };
   attachStyle();
@@ -165,6 +190,8 @@ export function createSearchHighlighter(root: HTMLElement, changed: () => void =
   let queryKey: string | null = null;
   let destroyed = false;
   let ranges: Range[] = [];
+  /** Parallel to `ranges`: the block each sits in and its key. */
+  let owners: Array<{ block: Element; key: string }> = [];
   let activeIndex: number | null = null;
   let activeSelector: string | null = null;
   let frame = 0;
@@ -218,6 +245,7 @@ export function createSearchHighlighter(root: HTMLElement, changed: () => void =
     if (destroyed || registry === undefined || HighlightConstructor === undefined || queryKey === null) {
       registry?.delete(name);
       ranges = [];
+      owners = [];
       activeIndex = null;
       paintActive();
       return;
@@ -228,6 +256,7 @@ export function createSearchHighlighter(root: HTMLElement, changed: () => void =
     const previousIndex = activeIndex;
     const previous = activeIndex === null ? undefined : ranges[activeIndex];
     ranges = [];
+    owners = [];
     const selectorRoot: ParentNode = root;
     const blocks = Array.from(selectorRoot.querySelectorAll(BLOCK_SELECTOR));
     for (const block of blocks) {
@@ -248,6 +277,7 @@ export function createSearchHighlighter(root: HTMLElement, changed: () => void =
             range.setStart(start.node, start.offset);
             range.setEnd(end.node, end.offset);
             ranges.push(range);
+            owners.push({ block, key });
           }
         }
         at += Math.max(1, queryKey.length);
@@ -275,6 +305,7 @@ export function createSearchHighlighter(root: HTMLElement, changed: () => void =
   return {
     get count() { return ranges.length; },
     get index() { return activeIndex; },
+    get occurrences() { return ranges.map((range, index) => ({ range, ...owners[index]! })); },
     setQuery(query: string): void {
       if (destroyed) return;
       const folded = searchKey(query);
@@ -321,7 +352,8 @@ export function createSearchHighlighter(root: HTMLElement, changed: () => void =
       view?.removeEventListener("resize", queuePaint);
       if (frame) view?.cancelAnimationFrame(frame);
       registry?.delete(name);
-      style.remove();
+      if (adoptedOn !== null && sheet !== null) adoptedOn.adoptedStyleSheets = adoptedOn.adoptedStyleSheets.filter((item) => item !== sheet);
+      adoptedOn = null;
       outline.remove();
       if (root.getAttribute("data-aared-search-highlight") === name) {
         root.removeAttribute("data-aared-search-highlight");

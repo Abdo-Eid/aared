@@ -1,11 +1,10 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { visual, withVisualPage } from "./harness.js";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serveDocx } from "./docx-harness.js";
 import { storedZip } from "./zip.js";
-
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 
 const NS = `xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"`;
 const paragraph = (text: string, pPr = ""): string =>
@@ -48,8 +47,7 @@ visual("visual DOM output: empty paragraphs take a line, sized by their paragrap
       };
     </script>`);
   try {
-    await using view = new Bun.WebView({ width: 1000, height: 1200 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 1200 }, async (view) => {
     const rows = (await view.evaluate(`paint(${JSON.stringify(sections)})`)) as Array<{ text: string; top: number; empty: boolean }>;
     const top = (text: string): number => rows.find((row) => row.text === text)!.top;
     const pitch = top("BRAVO") - top("ALPHA");
@@ -62,8 +60,8 @@ visual("visual DOM output: empty paragraphs take a line, sized by their paragrap
     // 12pt before and after: Word's gap was 65.76px (3.91 lines).
     expect((top("JULIET") - top("INDIA")) / pitch).toBeCloseTo(65.76 / 16.83, 1);
     expect(rows.filter((row) => row.text === "" && row.empty)).toHaveLength(6);
+  });
   } finally {
-    server.stop();
     await rm(dir, { recursive: true, force: true });
   }
 }, 60_000);

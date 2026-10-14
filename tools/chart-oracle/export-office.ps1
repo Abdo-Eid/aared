@@ -2,14 +2,18 @@
 #
 #   powershell -ExecutionPolicy Bypass -File tools/chart-oracle/export-office.ps1
 #
-# Writes into tools/chart-oracle/out/ (git-ignored):
+# Writes into tools/out/charts/ (git-ignored):
 #   chart-oracle.pdf          PowerPoint's vector PDF of chart-oracle.pptx (one chart per slide);
 #                             score.py measures every word and gridline in it
 #   xlsx-cNN.png              Excel's own picture of the chart on sheet cNN, for eyeballing
 #   office-version.txt        which Office build drew them
-param([string]$Dir = $PSScriptRoot, [string[]]$Sheets = @())
+param(
+  [string]$Dir = $PSScriptRoot,
+  [string[]]$Sheets = @(),
+  [string]$OutputDir = (Join-Path $PSScriptRoot "../out/charts")
+)
 $ErrorActionPreference = "Stop"
-$out = Join-Path $Dir "out"
+$out = [System.IO.Path]::GetFullPath($OutputDir)
 New-Item -ItemType Directory -Force $out | Out-Null
 
 $pp = New-Object -ComObject PowerPoint.Application

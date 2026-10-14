@@ -9,6 +9,7 @@
  * red, the "lit"/hover state — a loupe finding a frame.
  */
 @import './fonts.css';
+@import './shiki.css';
 
 /* Page base shared by every route: the light-table ground, charcoal ink,
    one bilingual UI face. Page-specific layout lives in each route. */
@@ -49,7 +50,9 @@ body {
   --lt-ink-code: #2f4f5a;
   --lt-accent: #b4363c;
   --lt-accent-glow: #c9414a;
-  --lt-accent-dim: #8a262b;
+  /* Error/status text: a red that holds contrast on the mount surface in
+     light mode and brightens in dark mode (same hue family). */
+  --lt-error: #c0392b;
   /* Code surfaces sit one step off the cards: a shade deeper in light, a
      shade lighter than the dark page in dark. */
   --lt-code: #ece3d2;
@@ -61,7 +64,6 @@ body {
   --lt-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
   /* Type scale */
-  --lt-step-0: 1rem;
   --lt-step-1: 1.25rem;
   --lt-step-2: 1.75rem;
   --lt-step-3: 2.5rem;
@@ -88,7 +90,7 @@ body {
   --lt-code-edge: color-mix(in srgb, var(--lt-ink) 12%, transparent);
   --lt-accent: #ea6a70;
   --lt-accent-glow: #f58a8f;
-  --lt-accent-dim: #b4363c;
+  --lt-error: #e5655d;
 }
 
 /* A light "grid paper" texture on the page background — the light table's

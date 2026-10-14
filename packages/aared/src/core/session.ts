@@ -16,19 +16,13 @@ import type { SlideLayoutModel } from "./model.js";
 import type { SerializedError, SheetText, UnitRange, WorkerCall, WorkerRequest, WorkerResponse, WorkerResult } from "./rpc.js";
 import { AaredError, abortError, isAbort, throwIfAborted } from "./errors.js";
 import { collectDeferredGeometry, collectStrings } from "./collect.js";
+import { workerInput } from "./worker-init.js";
+import type { WorkerInput } from "./worker-init.js";
 
 export interface OpenSessionOptions {
   fontResolver?: FontResolver;
   signal?: AbortSignal;
   worker?: WorkerInit;
-  /**
-   * The preset geometry table (`core/presets.ts`), supplied only by
-   * `aared/pptx`'s `open()`. It is threaded in rather than imported here
-   * because this module is bundled into every format's chunks: a static
-   * import would make xlsx/docx apps carry every preset outline. Without it
-   * deferred geometry is not resolved.
-   */
-  geometryPrograms?: Readonly<Record<string, string>>;
 }
 
 export interface UnitRequestOptions {
@@ -81,7 +75,7 @@ function workerStartError(scope: string, error: unknown): AaredError {
   const detail = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
   return new AaredError(
     "worker-error",
-    `${scope}: the browser refused to start the Worker (${detail}). A Worker script on another origin, such as scripts served from a CDN, is always refused: serve the Worker chunk from the page's origin, or start it through the "worker" option (API reference, "Worker override")`,
+    `${scope}: the browser refused to start the Worker (${detail}). Serve the Worker on the page's origin, or use the "worker" option { url, crossOrigin: "blob" } for a CDN (requires CDN CORS and worker-src allowing blob: and the CDN origin). See the API reference, "Worker override"`,
     { cause: error },
   );
 }
@@ -91,6 +85,7 @@ class WorkerBridge {
   private readonly pending = new Map<number, PendingRequest>();
   private nextRequestId = 1;
   private stopped = false;
+  private booted = false;
   /**
    * Why the bridge stopped: `closed` after a normal close, `worker-error`
    * after a crash. Later requests reject with it, so a call after a crash
@@ -109,8 +104,10 @@ class WorkerBridge {
   private clean = true;
   /** The `Worker` constructor this bridge was built with: a parked bridge never serves a swapped one. */
   private readonly workerClass: unknown;
+  /** Generated boot URL, revoked after ready or on any failure/termination. */
+  private bootUrl: string | undefined;
 
-  constructor(private scope: string, workerInit?: WorkerInit, private readonly poolKey?: string) {
+  constructor(private scope: string, input: WorkerInput, private readonly poolKey?: string) {
     if (typeof Worker === "undefined") {
       throw new AaredError("unsupported-feature", `${scope}: open() requires a browser Worker`);
     }
@@ -122,14 +119,23 @@ class WorkerBridge {
     // verbatim and every open() hung. Never fold
     // the branches back together.
     try {
-      if (typeof workerInit === "function") {
-        this.worker = workerInit();
-      } else if (typeof workerInit === "string" || workerInit instanceof URL) {
-        this.worker = new Worker(workerInit, { type: "module" });
+      if (input.kind === "create") {
+        this.worker = input.create();
+        if (this.worker === undefined || this.worker === null ||
+          typeof this.worker.postMessage !== "function" || typeof this.worker.terminate !== "function") {
+          throw new Error("worker.create() must return a fresh native Worker");
+        }
+      } else if (input.kind === "source" || input.kind === "url" && input.bootstrap) {
+        const source = input.kind === "source" ? input.source : `import ${JSON.stringify(input.url)};`;
+        this.bootUrl = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+        this.worker = new Worker(this.bootUrl, { type: "module" });
+      } else if (input.kind === "url") {
+        this.worker = new Worker(input.url, { type: "module" });
       } else {
         this.worker = new Worker(new URL("./worker.mjs", import.meta.url), { type: "module" });
       }
     } catch (error) {
+      this.releaseBootUrl();
       // The constructor throws, rather than reporting `onerror`, when the
       // browser refuses the script outright: a Worker script on another origin
       // (scripts served from a CDN, webpack `publicPath` or Next.js
@@ -151,7 +157,8 @@ class WorkerBridge {
     // The browser's event rides along as `cause`, with its message when it has one.
     this.worker.onerror = (event: ErrorEvent) => {
       const detail = typeof event.message === "string" && event.message !== "" ? ` (${event.message.replace(/\.$/, "")})` : "";
-      this.fail(new AaredError("worker-error", `${this.scope}: worker failed to start or stopped unexpectedly${detail}`, { cause: event }));
+      const help = this.booted ? "" : '. Check the Worker URL, CDN CORS, and worker-src/script-src CSP permissions (API reference, "Worker override")';
+      this.fail(new AaredError("worker-error", `${this.scope}: worker failed to start or stopped unexpectedly${detail}${help}`, { cause: event }));
     };
   }
 
@@ -162,7 +169,7 @@ class WorkerBridge {
 
   /** Alive, idle and clean, and built with the current `Worker`: fit to serve another document. */
   reusable(): boolean {
-    return !this.stopped && this.clean && this.pending.size === 0 && this.workerClass === (globalThis as { Worker?: unknown }).Worker;
+    return this.booted && !this.stopped && this.clean && this.pending.size === 0 && this.workerClass === (globalThis as { Worker?: unknown }).Worker;
   }
 
   waitUntilReady(): Promise<void> {
@@ -234,6 +241,8 @@ class WorkerBridge {
   private receive(message: WorkerResponse): void {
     if (this.stopped) return;
     if (message.type === "ready") {
+      this.booted = true;
+      this.releaseBootUrl();
       this.resolveReady();
       return;
     }
@@ -253,6 +262,7 @@ class WorkerBridge {
   /** Stop the Worker for good, rejecting whatever is pending, and leave the pool. */
   terminate(error: Error = closedError(this.scope)): void {
     if (this.stopped) return;
+    this.releaseBootUrl();
     this.stopped = true;
     this.stoppedWith = error;
     for (const pending of this.pending.values()) {
@@ -264,6 +274,12 @@ class WorkerBridge {
     this.pending.clear();
     this.worker.terminate();
     if (this.poolKey !== undefined) evictBridge(this, this.poolKey);
+  }
+
+  private releaseBootUrl(): void {
+    if (this.bootUrl === undefined) return;
+    URL.revokeObjectURL(this.bootUrl);
+    this.bootUrl = undefined;
   }
 
   private takePending(requestId: number): PendingRequest | undefined {
@@ -283,7 +299,7 @@ class WorkerBridge {
  * outlives its document: after `close()` one idle, clean Worker per init is
  * parked for the next `open()` (and the facades' detect-then-open share one),
  * and stops after WORKER_IDLE_MS or when a newer one parks. Two documents open
- * at once still get two Workers. A `() => Worker` factory's Workers are the
+ * at once still get two Workers. A `{ create }` factory's Workers are the
  * caller's: used once, terminated on close.
  */
 
@@ -315,16 +331,18 @@ interface Parked {
 
 const idleBridges = new Map<string, Parked>();
 
-/** Pool key for a worker init; a factory's Workers are never pooled. */
-function workerPoolKey(init: WorkerInit | undefined): string | undefined {
-  if (typeof init === "function") return undefined;
-  if (init === undefined) return "default";
-  return `url:${typeof init === "string" ? init : init.href}`;
+/** Pool by input value, not object identity; factories are never pooled. */
+function workerPoolKey(input: WorkerInput): string | undefined {
+  if (input.kind === "create") return undefined;
+  if (input.kind === "default") return "default";
+  if (input.kind === "source") return `source:${input.source}`;
+  return `${input.bootstrap ? "bootstrap" : "url"}:${input.url}`;
 }
 
 /** A parked Worker for this init when one is idle, else a new one. */
 function acquireBridge(scope: string, init: WorkerInit | undefined): WorkerBridge {
-  const key = workerPoolKey(init);
+  const input = workerInput(scope, init);
+  const key = workerPoolKey(input);
   if (key !== undefined) {
     const parked = idleBridges.get(key);
     if (parked !== undefined) {
@@ -337,7 +355,7 @@ function acquireBridge(scope: string, init: WorkerInit | undefined): WorkerBridg
       parked.bridge.terminate();
     }
   }
-  return new WorkerBridge(scope, init, key);
+  return new WorkerBridge(scope, input, key);
 }
 
 function parkBridge(bridge: WorkerBridge, key: string): void {
@@ -537,13 +555,15 @@ export class WorkerSession {
   /** Bytes of layout/master media, by media id. */
   private readonly sharedMediaBytes = new Map<string, Promise<ArrayBuffer>>();
 
+  /** Installed by PptxDocument, never imported by this shared session module. */
+  private geometryPrograms: Readonly<Record<string, string>> | undefined;
+
   private constructor(
     readonly info: DocumentInfo,
     private readonly bridge: WorkerBridge,
     private readonly sessionId: number,
     private readonly fontResolver: FontResolver | undefined,
     private readonly scope: string,
-    private readonly geometryPrograms: Readonly<Record<string, string>> | undefined,
   ) {}
 
   static async open(
@@ -554,13 +574,20 @@ export class WorkerSession {
     const signal = options?.signal;
     const bytes = await sourceBytes(scope, source, signal);
     throwIfAborted(signal);
+    return WorkerSession.openBytes(scope, bytes, options);
+  }
+
+  /** Internal owned-buffer open: transfers and detaches bytes without normalizing them again. */
+  static async openBytes(scope: string, bytes: ArrayBuffer, options?: OpenSessionOptions): Promise<WorkerSession> {
+    const signal = options?.signal;
+    throwIfAborted(signal);
     const bridge = acquireBridge(scope, options?.worker);
     const sessionId = nextSessionId++;
     try {
       await whileUnaborted(bridge.waitUntilReady(), signal);
       throwIfAborted(signal);
       const info = await bridge.request<DocumentInfo>(sessionId, { type: "open", bytes }, signal, [bytes]);
-      return new WorkerSession(info, bridge, sessionId, options?.fontResolver, scope, options?.geometryPrograms);
+      return new WorkerSession(info, bridge, sessionId, options?.fontResolver, scope);
     } catch (error) {
       bridge.close(sessionId);
       throw error;
@@ -579,15 +606,37 @@ export class WorkerSession {
   ): Promise<WorkerSession> {
     const scope = `aared/${format}`;
     const session = await WorkerSession.open(scope, source, options);
-    if (session.info.format !== format) {
-      const detected = session.info.format;
+    try {
+      session.assertFormat(format);
+      return session;
+    } catch (error) {
       session.close();
+      throw error;
+    }
+  }
+
+  /** The same format assertion for low-level opens and adopted preview sessions. */
+  assertFormat(format: DocumentFormat): void {
+    if (this.info.format !== format) {
+      const detected = this.info.format;
       throw new AaredError(
         "unsupported-format",
-        `${scope}: expected ${FORMAT_NOUN[format]}; detected "${detected}". Open it with aared/${detected} instead`,
+        `aared/${format}: expected ${FORMAT_NOUN[format]}; detected "${detected}". Open it with aared/${detected} instead`,
       );
     }
-    return session;
+  }
+
+  /** Supplied by the PPTX document wrapper only, before any geometry read. */
+  setGeometryPrograms(programs: Readonly<Record<string, string>>): void {
+    this.geometryPrograms = programs;
+  }
+
+  /** Wait on a lazy adapter while preserving session-close and cancellation semantics. */
+  waitFor<T>(task: Promise<T>, signal?: AbortSignal): Promise<T> {
+    // A supplied adapter may synchronously abort before returning its promise.
+    // Even when already closed, observe its eventual rejection.
+    if (this.closed || signal?.aborted) task.catch(() => undefined);
+    return this.whileOpen(task, signal);
   }
 
   async unit<T extends WorkerResult>(index: number, options?: UnitRequestOptions): Promise<T> {

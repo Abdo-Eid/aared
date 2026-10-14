@@ -1,4 +1,5 @@
 import type { ZoomValue } from "aared/core";
+import { isAbort, messageFor } from "aared/core";
 
 /**
  * Docs plumbing for the playground demos: the paging and zoom bar under each
@@ -23,9 +24,15 @@ interface ToolbarViewer extends EventTarget {
 export function viewerToolbar(stage: HTMLElement, viewer: ToolbarViewer): () => void {
   const position = label();
   const zoom = label();
-  // A failed move also fires the viewer's `error` event; the rejection needs nothing more.
-  const previous = button("Previous", () => void viewer.previous().catch(() => {}));
-  const next = button("Next", () => void viewer.next().catch(() => {}));
+  const failure = label();
+  failure.setAttribute("role", "status");
+  const move = (direction: "previous" | "next"): void => {
+    void viewer[direction]().then(() => { failure.textContent = ""; }, (error: unknown) => {
+      if (!isAbort(error)) failure.textContent = messageFor(error);
+    });
+  };
+  const previous = button("Previous", () => move("previous"));
+  const next = button("Next", () => move("next"));
   const update = (): void => {
     position.textContent = `${viewer.index + 1} / ${viewer.info.count}`;
     previous.disabled = viewer.index <= 0;
@@ -37,7 +44,7 @@ export function viewerToolbar(stage: HTMLElement, viewer: ToolbarViewer): () => 
   update();
   // A document is one unit: paging has nothing to move between.
   const paging = viewer.info.count > 1 ? [previous, position, next] : [];
-  const unmount = mountBar(stage, ...paging, button("-", () => viewer.zoomOut(), "Zoom out"), zoom, button("+", () => viewer.zoomIn(), "Zoom in"));
+  const unmount = mountBar(stage, ...paging, button("-", () => viewer.zoomOut(), "Zoom out"), zoom, button("+", () => viewer.zoomIn(), "Zoom in"), failure);
   return () => {
     viewer.removeEventListener("indexchange", update);
     viewer.removeEventListener("zoomchange", update);

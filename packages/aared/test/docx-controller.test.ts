@@ -36,7 +36,9 @@ test("a match's heading index is the outline index goToHeading takes", async () 
   const document = await open(await Bun.file(DOCX_FIXTURE).arrayBuffer());
   try {
     const outline = document.headings.list();
-    for (const match of await document.search("a")) {
+    const matches = await document.search("a");
+    expect(matches.some((match) => match.heading !== null)).toBe(true);
+    for (const match of matches) {
       if (match.heading === null) continue;
       expect(outline[match.heading.index]?.title).toBe(match.heading.title);
     }
@@ -82,16 +84,14 @@ test("search results are document-ordered, notes last, and safe to mutate", asyn
     expect(kinds.slice(firstNote).every(isNote)).toBe(true);
 
     // The index is cached, so results must be fresh copies each call.
+    const original = structuredClone(first);
     for (const match of first) {
       match.text = "mutated";
       if (match.table !== undefined) match.table.index = -1;
       if (match.heading !== null) match.heading.title = "mutated";
     }
     const second = await document.search("a");
-    expect(second.map((match) => match.text)).not.toContain("mutated");
-    expect(second.map((match) => match.table?.index)).not.toContain(-1);
-    expect(second.map((match) => match.heading?.title)).not.toContain("mutated");
-    expect(second).toHaveLength(first.length);
+    expect(second).toEqual(original);
   } finally {
     document.close();
   }
@@ -101,9 +101,13 @@ test("search truncates long matches to 120 characters", async () => {
   const document = await open(await Bun.file(DOCX_FIXTURE).arrayBuffer());
   try {
     const matches = await document.search("the");
+    expect(matches.length).toBeGreaterThan(0);
     for (const match of matches) {
       expect(match.text.length).toBeLessThanOrEqual(120);
     }
+    const long = await document.search("Sawt al-Nahr follows");
+    expect(long).toHaveLength(1);
+    expect(long[0]!.text).toBe("Sawt al-Nahr follows three families whose livelihoods depend on the Nile between Aswan and Rosetta. Episodes 04–06 move ");
   } finally {
     document.close();
   }
@@ -113,7 +117,8 @@ test("search results include heading context", async () => {
   const document = await open(await Bun.file(DOCX_FIXTURE).arrayBuffer());
   try {
     const matches = await document.search("Project Overview");
-    expect(matches.length).toBeGreaterThan(0);
+    expect(matches).toHaveLength(2);
+    expect(matches.map((match) => match.kind)).toEqual(["paragraph", "heading"]);
     // The first match is the contents-page entry (before any heading), the
     // second is the heading itself — neither has a preceding heading.
     expect(matches[0]!.heading).toBeNull();
@@ -121,7 +126,7 @@ test("search results include heading context", async () => {
     // A body match reports the nearest preceding heading as its context.
     const body = await document.search("Hold the audience");
     expect(body).toHaveLength(1);
-    expect(body[0]!.heading?.title).toContain("1.1 Objectives");
+    expect(body[0]!.heading).toEqual({ index: 1, title: "1.1 Objectives   الأهداف" });
   } finally {
     document.close();
   }

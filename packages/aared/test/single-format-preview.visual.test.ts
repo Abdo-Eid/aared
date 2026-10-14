@@ -1,7 +1,5 @@
-import { expect, test } from "bun:test";
-import { browserModule } from "./harness.js";
-
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
+import { expect } from "bun:test";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 
 visual("single-format previews share navigation, search, cancellation and owned cleanup", async () => {
   const formats = ["pptx", "xlsx", "docx"] as const;
@@ -10,14 +8,16 @@ visual("single-format previews share navigation, search, cancellation and owned 
   const fixtures = new Map(await Promise.all(formats.map(async (format) => [format,
     await Bun.file(`${import.meta.dir}/../../../fixtures/${format}-coverage.${format}`).arrayBuffer()] as const)));
   const worker = await browserModule(`${import.meta.dir}/../src/core/worker.ts`);
-  const server = Bun.serve({ port: 0, fetch(request) {
-    const path = new URL(request.url).pathname;
-    if (path === "/worker.mjs") return new Response(worker, { headers: { "content-type": "text/javascript" } });
-    for (const format of formats) {
-      if (path === `/${format}.mjs`) return new Response(entries.get(format), { headers: { "content-type": "text/javascript" } });
-      if (path === `/fixture.${format}`) return new Response(fixtures.get(format));
-    }
-    return new Response(`<!doctype html><main id="host" style="width:1100px;height:650px"></main><script type="module">
+  const modules: Record<string, string> = { "/worker.mjs": worker };
+  const files: Record<string, ArrayBuffer> = {};
+  for (const format of formats) {
+    modules[`/${format}.mjs`] = entries.get(format)!;
+    files[`/fixture.${format}`] = fixtures.get(format)!;
+  }
+  await withVisualPage({
+    modules,
+    files,
+    page: `<!doctype html><main id="host" style="width:1100px;height:650px"></main><script type="module">
       const host = document.querySelector('#host');
       window.run = async (format) => {
         const { preview } = await import('/' + format + '.mjs');
@@ -48,11 +48,10 @@ visual("single-format previews share navigation, search, cancellation and owned 
         const mismatch = await preview({ source: '/fixture.' + wrong, target: host }).then(() => 'resolved', e => e.code);
         return { ...state, cleared, empty, closed, cancelled, mismatch };
       };
-    </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
-  } });
-  try {
-    await using view = new Bun.WebView({ width: 1200, height: 800 });
-    await view.navigate(server.url.href);
+    </script>`,
+    width: 1200,
+    height: 800,
+  }, async (view) => {
     for (const format of formats) {
       const result = await view.evaluate(`run(${JSON.stringify(format)})`) as {
         format: string; index: number; zoom: number; theme: string; count: number;
@@ -72,5 +71,5 @@ visual("single-format previews share navigation, search, cancellation and owned 
       expect(result.mismatch).toBe("unsupported-format");
       if (format !== "docx") expect(result.kinds.slice(0, 2)).toEqual([1, 0]);
     }
-  } finally { server.stop(); }
+  });
 }, 60000);

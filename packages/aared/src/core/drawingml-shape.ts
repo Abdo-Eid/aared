@@ -1,4 +1,5 @@
-import type { LocalViewBoxModel, ShapeGeometryModel } from "./model.js";
+import type { LocalViewBoxModel, ShapeGeometryModel, TransformModel } from "./model.js";
+import { attr, firstChild, numberAttr, onOff, ownString } from "./xml.js";
 import type { XmlElement } from "./xml.js";
 import { encodeGeometry } from "./drawingml-program.js";
 
@@ -121,6 +122,113 @@ function pathForPreset(preset: string, viewBox: LocalViewBoxModel, adjustments: 
   }
 }
 
+/**
+ * ECMA preset `a:rect` formulas, using the same pinned adjustments as the
+ * outline. Measured against PowerPoint's own laid-out text edges (probe
+ * `pptx-text-rectangle`): every preset here matched within 0.01pt of the value
+ * these formulas produce, after Office's authored `bodyPr` insets are added.
+ */
+function textRectForPreset(preset: string, { width: w, height: h }: LocalViewBoxModel, adjustments: Readonly<Record<string, number>>): ShapeGeometryModel["textRect"] {
+  const ss = Math.min(w, h);
+  const inset = (x: number, y = x): NonNullable<ShapeGeometryModel["textRect"]> => ({ left: x, top: y, right: w - x, bottom: h - y });
+  const cos = (degrees: number): number => Math.cos((degrees * Math.PI) / 180);
+  const sin = (degrees: number): number => Math.sin((degrees * Math.PI) / 180);
+  switch (preset) {
+    case "rect":
+    case "straightConnector1": return inset(0);
+    case "ellipse": return inset(w * (1 - Math.SQRT1_2) / 2, h * (1 - Math.SQRT1_2) / 2);
+    case "roundRect":
+      // The official guide uses the rounded constant 29289/100000, rather
+      // than the exact 1 - cos(45deg), for the corner's text inset.
+      return inset(ss * pin(adjustments, "adj", 16667, 50000) / 100000 * 29289 / 100000);
+    case "diamond": return inset(w / 4, h / 4);
+    case "triangle": {
+      // `x1 = w * a / 200000`, `x3 = x1 + wd2`, `t = vc`.
+      const x1 = w * pin(adjustments, "adj", 50000, 100000) / 200000;
+      return { left: x1, top: h / 2, right: x1 + w / 2, bottom: h };
+    }
+    // `l = wd12` (a twelfth of the width), `t = h * 7 / 12`, `r = w * 7 / 12`,
+    // `b = h * 11 / 12`.
+    case "rtTriangle": return { left: w / 12, top: h * 7 / 12, right: w * 7 / 12, bottom: h * 11 / 12 };
+    case "parallelogram": {
+      // `maxAdj = 100000 w / ss`, `q2 = (1 + 5 a / maxAdj) / 12`.
+      const max = 100000 * w / ss;
+      const ratio = (1 + 5 * pin(adjustments, "adj", 25000, max) / max) / 12;
+      return inset(w * ratio, h * ratio);
+    }
+    case "hexagon": {
+      // `q1 = maxAdj * -1 / 2`, `q2 = a + q1` (clamped at 0), `q3 = q2 ? 4 : 2`,
+      // `q4 = q2 ? 3 : 2`, `q5 = q2 ? q1 : 0`, `q6 = (a + q5) / q1`,
+      // `q8 = q3 - q6 * q4`. An earlier version compared `a + q1` against 0 and
+      // substituted `a` for `q5`, which is a different expression; it read
+      // 16.67pt where PowerPoint lays the column at 36.67pt.
+      const max = 50000 * w / ss;
+      const a = pin(adjustments, "adj", 25000, max);
+      const q1 = (-max / 2);
+      const q2 = Math.max(a + q1, 0);
+      const q3 = q2 > 0 ? 4 : 2;
+      const q4 = q2 > 0 ? 3 : 2;
+      const q5 = q2 > 0 ? q1 : 0;
+      const q8 = q3 - (a + q5) / q1 * q4;
+      return inset(w * q8 / 24, h * q8 / 24);
+    }
+    case "octagon": return inset(ss * pin(adjustments, "adj", 29289, 50000) / 200000);
+    case "star5": {
+      // ECMA star5 `a:rect l="sx1" t="sy1" r="sx4" b="sy3"`: `swd2 = wd2*hf/100000`,
+      // `shd2 = hd2*vf/100000`, `svc = vc*vf/100000`, `iwd2 = swd2*a/50000`,
+      // `ihd2 = shd2*a/50000`, `sdx1 = iwd2*cos(342deg)`, `sdy1 = ihd2*sin(54deg)`,
+      // `sx1 = hc-sdx1`, `sx4 = hc+sdx1`, `sy1 = svc-sdy1`, `sy3 = svc+ihd2`.
+      // `cos`/`sin` take degrees: radius multiplies the trig result, never the angle.
+      const a = pin(adjustments, "adj", 19098, 50000);
+      const hf = (adjustments.hf ?? 105146) / 100000;
+      const vf = (adjustments.vf ?? 110557) / 100000;
+      const swd2 = (w / 2) * hf;
+      const shd2 = (h / 2) * vf;
+      const svc = (h / 2) * vf;
+      const iwd2 = (swd2 * a) / 50000;
+      const ihd2 = (shd2 * a) / 50000;
+      const sdx1 = iwd2 * cos(20520000 / 60000);
+      const sdy1 = ihd2 * sin(3240000 / 60000);
+      return {
+        left: w / 2 - sdx1,
+        top: svc - sdy1,
+        right: w / 2 + sdx1,
+        bottom: svc + ihd2,
+      };
+    }
+    default: return undefined;
+  }
+}
+
+/** Literal `a:avLst` overrides; formula guides remain the geometry program's concern. */
+export function drawingGeometryAdjustments(prstGeom: XmlElement | undefined): Record<string, number> {
+  const out: Record<string, number> = {};
+  const list = prstGeom === undefined ? undefined : firstChild(prstGeom, "avLst");
+  for (const guide of list?.children ?? []) {
+    if (guide.local !== "gd") continue;
+    const name = attr(guide, "name");
+    const formula = attr(guide, "fmla");
+    const match = formula === undefined ? null : /^val\s+([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*$/.exec(formula);
+    const value = match === null ? NaN : Number(match[1]);
+    if (name !== undefined && Number.isFinite(value)) out[ownString(name)] = value;
+  }
+  return out;
+}
+
+/** Rotation and flips of the owning shape, independent of its placement/extents. */
+export function drawingShapeTransform(xfrm: XmlElement | undefined): TransformModel | undefined {
+  if (xfrm === undefined) return undefined;
+  const rotation = numberAttr(xfrm, "rot", "a:xfrm");
+  const flipHorizontal = onOff(xfrm, "flipH");
+  const flipVertical = onOff(xfrm, "flipV");
+  if (rotation === undefined && flipHorizontal === undefined && flipVertical === undefined) return undefined;
+  return {
+    ...(rotation === undefined ? {} : { rotation: rotation / 60000 }),
+    ...(flipHorizontal === undefined ? {} : { flipHorizontal }),
+    ...(flipVertical === undefined ? {} : { flipVertical }),
+  };
+}
+
 /** Resolve common preset geometries to paths in their authored local dimensions. */
 export function geometryForPreset(
   preset: string | undefined,
@@ -130,7 +238,8 @@ export function geometryForPreset(
   if (preset === undefined) return undefined;
   const viewBox = localViewBox(size);
   const path = pathForPreset(preset, viewBox, adjustments);
-  return path === undefined ? undefined : { preset, path, viewBox };
+  const textRect = textRectForPreset(preset, viewBox, adjustments);
+  return path === undefined ? undefined : { preset, path, viewBox, ...(textRect === undefined ? {} : { textRect }) };
 }
 
 /** A deliberate bounds-preserving rectangle for geometry that cannot be represented yet. */

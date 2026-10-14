@@ -5,7 +5,7 @@ import { indexDocx, parseDocxSections } from "../src/core/docx/document.js";
 import { headingLevelForStyle, paragraphAncestry, parseStyles } from "../src/core/docx/styles.js";
 import { isOrderedFormat, markerFor, parseNumbering, startFor } from "../src/core/docx/numbering.js";
 import { attr, firstChild, parseXml } from "../src/core/xml.js";
-import type { DocxParagraphNode, DocumentSection, FlowNode, TextRunModel } from "../src/core/model.js";
+import type { DocxHeadingNode, DocxParagraphNode, DocumentSection, FlowNode, TextRunModel } from "../src/core/model.js";
 import { withPart } from "./mutate.js";
 
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/docx-coverage.docx`;
@@ -144,7 +144,7 @@ describe("DOCX flow parser", () => {
     const sections = await fixture();
     // Body, landscape appendix, portrait wrapping examples, landscape charts,
     // and the final portrait lists/table section each retain their geometry.
-    expect(sections).toHaveLength(5);
+    expect(sections).toHaveLength(6);
     expect(sections[0]?.title).toBe("1. Project Overview");
     expect(sections[1]?.title).toBe("Appendix A — Shot List, Episode 04");
     expect(sections[0]?.properties.page).toMatchObject({ widthTwips: 11906, heightTwips: 16838, orientation: "portrait" });
@@ -158,8 +158,10 @@ describe("DOCX flow parser", () => {
     expect(footnotes.map((node) => (node.type === "footnote" ? node.label : "?"))).toEqual(["1", "2"]);
     const textBoxes = root.flatMap((node) => node.type === "paragraph" || node.type === "heading" ? node.floats ?? [] : [node])
       .filter((node) => node.type === "textBox");
-    expect(textBoxes).toHaveLength(1);
-    expect(textBoxes[0]).toMatchObject({ type: "textBox", anchor: { wrap: "none" }, fill: "#E8F2E8" });
+    // Two original boxes plus the seventeen appended text-box coverage cases
+    // (`test/docx-text-box.test.ts` reads those individually).
+    expect(textBoxes).toHaveLength(25);
+    expect(textBoxes[0]).toMatchObject({ type: "textBox", anchor: { wrap: "none" }, fill: { kind: "solid", color: "#E8F2E8" } });
     if (textBoxes[0]?.type !== "textBox") throw new Error("expected the fixture text box");
     const textBoxText = textBoxes[0].content.flatMap((node) => node.type === "paragraph" ? node.runs.map((run) => run.text) : []).join(" ");
     expect(textBoxText).toContain("صندوق ملاحظات: مراجعة التسليم");
@@ -167,9 +169,13 @@ describe("DOCX flow parser", () => {
     // Merged sections retain explicit breaks and Word's saved layout hints;
     // the two empty section-ending page-break markers are structural only.
     const breaks = root.filter((node) => node.type === "pageBreak");
-    expect(breaks).toHaveLength(7);
-    expect(breaks.filter((node) => node.type === "pageBreak" && node.strength === "mandatory")).toHaveLength(2);
-    expect(breaks.filter((node) => node.type === "pageBreak" && node.strength === "preferred")).toHaveLength(5);
+    // The appended text-box pages each carry one real break of their own, and
+    // the shared-effects page opens its own section.
+    expect(breaks).toHaveLength(14);
+    // Four appended pages were authored as real page breaks; the rest are Word's
+    // own saved layout hints.
+    expect(breaks.filter((node) => node.type === "pageBreak" && node.strength === "mandatory")).toHaveLength(5);
+    expect(breaks.filter((node) => node.type === "pageBreak" && node.strength === "preferred")).toHaveLength(9);
     // The pull quote keeps its gold left border from `w:pBdr`.
     const quote = root.find(
       (node): node is DocxParagraphNode =>
@@ -315,7 +321,7 @@ describe("DOCX flow parser", () => {
     const sections = await fixture();
     const root = allRoot(sections);
     const images = root.filter((node) => node.type === "image");
-    expect(images).toHaveLength(2);
+    expect(images).toHaveLength(3);
     expect(images[0]).toMatchObject({ mediaId: "word/media/image1.png", contentType: "image/png" });
     expect(images[1]).toMatchObject({ contentType: "image/jpeg" });
     for (const image of images) {
@@ -323,9 +329,13 @@ describe("DOCX flow parser", () => {
       expect(image.width).toBeGreaterThan(0);
       expect(image.height).toBeGreaterThan(0);
       expect(image.anchor).toBeUndefined();
+      // Raster-only pictures resolve with no fallback, exactly as before the
+      // SVG-first change (probe `svg-pictures`).
+      expect(image.fallbackMediaId).toBeUndefined();
+      expect(image.fallbackContentType).toBeUndefined();
     }
     // Both document images sit in centered paragraphs, so Word centers them.
-    expect(images.map((node) => (node.type === "image" ? node.align : undefined))).toEqual(["center", "center"]);
+    expect(images.slice(0, 2).map((node) => (node.type === "image" ? node.align : undefined))).toEqual(["center", "center"]);
     const footnote = await findBlock(sections, "footnote");
     if (footnote.type !== "footnote") throw new Error("fixture selector footnote expected a footnote");
     expect(footnote).toMatchObject({ id: "f1", label: "1" });
@@ -364,7 +374,7 @@ describe("DOCX flow parser", () => {
     // the first list, then a list that restarts at 1 (Word writes a start override). The markers are Word's own
     // (Range.ListFormat.ListString).
     const sections = await fixture();
-    const last = sections.at(-1)!;
+    const last = sections.find(section => section.root.some(node => node.type === "list" && node.items.some(item => joined(item.paragraph) === "قائمة جديدة: أولاً")))!;
     const lists = last.root.filter((node) => node.type === "list");
     expect(lists.flatMap((node) => node.items.map((item) => item.marker))).toEqual(["1.", "2.", "3.", "4.", "5.", "1.", "2."]);
     expect(lists.flatMap((node) => node.items.map((item) => joined(item.paragraph)))[5]).toBe("قائمة جديدة: أولاً");
@@ -381,7 +391,7 @@ describe("DOCX flow parser", () => {
     // different first page and writes only that header; its default header and footer are linked to the previous section's.
     const sections = await fixture();
     const appendix = sections[1]!;
-    const last = sections.at(-1)!;
+    const last = sections.find(section => section.properties.headerParts?.first !== undefined)!;
     expect(last.properties.titlePage).toBe(true);
     expect(last.properties.headerParts?.first).toBeDefined();
     expect(last.properties.headerParts?.default).toBeUndefined();
@@ -753,6 +763,7 @@ describe("DOCX flow parser", () => {
         `<w:document ${WORD_NS}><w:body>` +
         `<w:p><w:r><w:drawing>${drawing()}</w:drawing></w:r></w:p>` +
         `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing>${drawing()}</w:drawing></w:r></w:p>` +
+        `<w:p><w:pPr><w:bidi/><w:jc w:val="both"/></w:pPr><w:r><w:drawing>${drawing()}</w:drawing></w:r></w:p>` +
         `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing>${drawingAnchor}</w:drawing></w:r></w:p>` +
         `</w:body></w:document>`,
       `<Relationship Id="rIdImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/art.png"/>`,
@@ -761,15 +772,18 @@ describe("DOCX flow parser", () => {
     const root = allRoot(sections);
     const images = root.filter((node) => node.type === "image");
     // The anchored picture is carried by its (otherwise empty) paragraph, not placed in the flow.
-    expect(images).toHaveLength(2);
-    const host = root[2];
-    if (host?.type !== "paragraph") throw new Error(`expected a paragraph carrying the float, got ${summaries(sections)}`);
+    expect(images).toHaveLength(3);
+    const hosts = root.filter((node): node is Extract<FlowNode, { type: "paragraph" }> => node.type === "paragraph" && node.floats !== undefined);
+    expect(hosts[0]?.floats).toHaveLength(1);
+    const host = hosts[0]!;
     expect(host.runs).toEqual([]);
     expect(host.floats).toHaveLength(1);
-    // Plain paragraph: no alignment carried. Centered paragraph: centered
-    // image. Centered paragraph with an anchored picture: paragraph alignment
-    // never positions it, the anchor does.
-    expect(images.map((node) => (node.type === "image" ? node.align : []))).toEqual([undefined, "center"]);
+    // A picture has no text to justify, so Word leaves it on the paragraph's
+    // start side: left by default, right in a right-to-left paragraph (as the
+    // Word-authored coverage page paints its picture-only paragraph), and
+    // centered where the paragraph asks for it. An anchored picture is placed
+    // by its anchor, never by the paragraph.
+    expect(images.map((node) => (node.type === "image" ? node.align : []))).toEqual(["left", "center", "right"]);
     expect(host.floats![0]!.type === "image" || host.floats![0]!.type === "chart" ? host.floats![0]!.align : undefined).toBeUndefined();
     expect(host.floats![0]!.anchor?.horizontal.align).toBe("right");
   });
@@ -962,7 +976,7 @@ describe("DOCX Word-fidelity parsing", () => {
         `<w:tr>${cell("a3")}${cell("b3", BREAK)}</w:tr>` +
         // Row 3: the marker sits after real text in the first cell's first
         // paragraph — mid-paragraph, dropped exactly like a plain paragraph's
-        // (DECISION_LOG §44/§45), never promoted to a row marker.
+        // (Notes §44/§45), never promoted to a row marker.
         `<w:tr><w:tc><w:p><w:r><w:t>a4</w:t></w:r><w:r><w:lastRenderedPageBreak/></w:r><w:r><w:t> more</w:t></w:r></w:p></w:tc>${cell("b4")}</w:tr>` +
         `</w:tbl>`,
     ));
@@ -971,6 +985,27 @@ describe("DOCX Word-fidelity parsing", () => {
     expect(table.rows.map((row) => row.pageBreakBefore)).toEqual([undefined, true, undefined, undefined]);
     // The mid-paragraph occurrence is dropped, not spliced into the text.
     expect(joined(table.rows[3]!.cells[0]!.nodes[0] as DocxParagraphNode)).toBe("a4 more");
+  });
+
+  test("reads a row's authored w:trHeight from w:trPr, not from w:tr", async () => {
+    // Synthetic, because no Word-authored fixture carries a `w:trHeight` (the
+    // coverage document's rows set only `w:tblHeader`). This pins the nesting
+    // rule rather than a reading: ECMA-376 17.4.81 puts `w:trHeight` inside
+    // `w:trPr`, and reading it off `w:tr` silently matched nothing, so every
+    // authored row height was dropped. 1440 twips is one inch.
+    const cell = (text: string): string => `<w:tc><w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:tc>`;
+    const sections = await parseSynthetic(documentOf(
+      `<w:tbl><w:tblGrid><w:gridCol w:w="4560"/></w:tblGrid>` +
+        `<w:tr><w:trPr><w:trHeight w:val="1440" w:hRule="atLeast"/></w:trPr>${cell("tall")}</w:tr>` +
+        `<w:tr>${cell("no height")}</w:tr>` +
+        // `w:hRule="exact"` reads the same: the authored value is a floor, and
+        // the consumer takes the larger of content and height.
+        `<w:tr><w:trPr><w:trHeight w:val="720" w:hRule="exact"/></w:trPr>${cell("exact")}</w:tr>` +
+        `</w:tbl>`,
+    ));
+    const table = allRoot(sections).find((node) => node.type === "table");
+    if (table?.type !== "table") throw new Error(`expected a table: ${summaries(sections)}`);
+    expect(table.rows.map((row) => row.height)).toEqual([1, undefined, 0.5]);
   });
 
   test("carries a list level's marker formatting and suffix onto its items", async () => {
@@ -1035,11 +1070,15 @@ describe("DOCX Word-fidelity parsing", () => {
   });
 
   test("a deeper list level starts over at its own start value after a higher one", async () => {
-    const sections = await parseSynthetic(documentOf(numbered("a") + numbered("b", 1) + numbered("c", 1) + numbered("d") + numbered("e", 1)), NUMBERING_REL, NUMBERED);
-    expect(markersIn(allRoot(sections))).toEqual(["1. a", "4) b", "5) c", "2. d", "4) e"]);
-  });
+  // The Word-verified case above proves the restart with every level starting
+  // at 1. This one proves the other half: a level that starts at 4 in the file
+  // restarts at 4, not at 1, and the counters survive a shallower item between
+  // two deeper ones.
+  const sections = await parseSynthetic(documentOf(numbered("a") + numbered("b", 1) + numbered("c", 1) + numbered("d") + numbered("e", 1)), NUMBERING_REL, NUMBERED);
+  expect(markersIn(allRoot(sections))).toEqual(["1. a", "4) b", "5) c", "2. d", "4) e"]);
+});
 
-  test("a content control wrapping a table cell's paragraphs keeps them", async () => {
+test("a content control wrapping a table cell's paragraphs keeps them", async () => {
     const cell = (inner: string): string => `<w:tbl><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid><w:tr><w:tc>${inner}</w:tc></w:tr></w:tbl>`;
     const plain = await parseSynthetic(documentOf(cell(`<w:p><w:r><w:t>form field</w:t></w:r></w:p>`)));
     const wrapped = await parseSynthetic(documentOf(cell(`<w:sdt><w:sdtContent><w:p><w:r><w:t>form field</w:t></w:r></w:p></w:sdtContent></w:sdt>`)));
@@ -1081,15 +1120,16 @@ describe("DOCX Word-fidelity parsing", () => {
   });
 
   test("a drawing with no wp:docPr/@id reads exactly as one with it: DOCX never uses a drawing's id", async () => {
+    let removedIds = 0;
     const stripped = await withPart("docx-coverage.docx", "word/document.xml", (xml) => {
-      expect(xml.match(/<wp:docPr id="/g)?.length).toBeGreaterThan(5);
-      return xml.replace(/(<wp:docPr) id="[^"]*"/g, "$1");
+      return xml.replace(/(<wp:docPr) id="[^"]*"/g, (_, tag: string) => { removedIds++; return tag; });
     });
+    expect(removedIds).toBeGreaterThan(0);
     const sections = await parseDocxSections(stripped, await indexDocx(stripped));
     const original = await fixture();
     // Only the count differs (it sits on the first section and drives the renderer's `docx-missing-id` warning).
     const { missingIds, ...first } = sections[0]!;
-    expect(missingIds).toBe(12);
+    expect(missingIds).toBe(removedIds);
     expect(original[0]!.missingIds).toBeUndefined();
     expect(JSON.stringify([first, ...sections.slice(1)])).toBe(JSON.stringify(original));
     expect(JSON.stringify(sections)).toContain('"type":"image"');
@@ -1240,6 +1280,10 @@ describe("DOCX Word-fidelity parsing", () => {
         `<w:p><w:pPr><w:pStyle w:val="Custom"/></w:pPr><w:r><w:t>Chapter</w:t></w:r></w:p>` +
         // Level 9 is body text, however authored.
         `<w:p><w:pPr><w:outlineLvl w:val="9"/></w:pPr><w:r><w:t>Body</w:t></w:r></w:p>` +
+        // A direct outline level on a paragraph that names no heading style.
+        `<w:p><w:pPr><w:outlineLvl w:val="1"/></w:pPr><w:r><w:t>Direct outline</w:t></w:r></w:p>` +
+        // A paragraph with no outline level at all is body text too.
+        `<w:p><w:r><w:t>Plain</w:t></w:r></w:p>` +
         // Deleted text and a field instruction never reach the title.
         `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Live</w:t></w:r>` +
         `<w:del w:id="1"><w:r><w:delText>Gone</w:delText></w:r></w:del>` +
@@ -1252,7 +1296,7 @@ describe("DOCX Word-fidelity parsing", () => {
     const parsed = allRoot(sections).filter((node) => node.type === "heading").map((node) => (node.type === "heading" ? node.text : ""));
     // One rule, read once: the public outline (`document.headings`) is these
     // nodes, never a second derivation that could disagree.
-    expect(parsed).toEqual(["Named heading", "Chapter", "Live", "In a control"]);
+    expect(parsed).toEqual(["Named heading", "Chapter", "Direct outline", "Live", "In a control"]);
     // The index names the one unit by the document's title, which this file doesn't set.
     expect(index.title).toBeUndefined();
   });
@@ -1307,5 +1351,375 @@ describe("DOCX Word-fidelity parsing", () => {
     expect(joined(withText)).toBe(" wordmark");
     // A picture alone in its paragraph stays the block image it always was.
     expect(pictureOnly?.type).toBe("image");
+  });
+});
+
+/**
+ * Numbered headings and table-of-contents fields (probe
+ * `numbered-heading-probe`, Word 16). The fixture Word authored there reports
+ * `ListString` `1.` for its Heading 1 paragraph and paints `1. Project
+ * Overview`; its `TOC \h \o "1-2"` cache predates two later headings, which
+ * Word's own refreshed export lists and the cached result does not.
+ */
+describe("DOCX numbered headings and table-of-contents fields", () => {
+  const XML = `<?xml version="1.0" encoding="UTF-8"?>`;
+  const MAIN_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+  const RELATIONSHIP = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const documentOf = (body: string): string => `${XML}<w:document ${WORD_NS}><w:body>${body}</w:body></w:document>`;
+  const STYLES_REL = `<Relationship Id="rIdStyles" Type="${RELATIONSHIP}/styles" Target="styles.xml"/>`;
+  const NUMBERING_REL = `<Relationship Id="rIdNumbering" Type="${RELATIONSHIP}/numbering" Target="numbering.xml"/>`;
+  /** Heading 1/2 plus the TOC levels, as Word writes them. */
+  const STYLES = `${XML}<w:styles xmlns:w="${MAIN_NS}">` +
+    `<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:pPr><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/></w:rPr></w:style>` +
+    `<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:pPr><w:outlineLvl w:val="1"/></w:pPr></w:style>` +
+    `<w:style w:type="paragraph" w:styleId="TOC1"><w:name w:val="toc 1"/><w:pPr><w:spacing w:after="100"/></w:pPr></w:style>` +
+    `<w:style w:type="paragraph" w:styleId="TOC2"><w:name w:val="toc 2"/><w:pPr><w:ind w:left="210"/></w:pPr></w:style>` +
+    `</w:styles>`;
+  /**
+   * The heading list Word authored: `abstractNum` 1 level 0 with `suff=space`
+   * and no hanging indent, exactly the `w:ind left="0" firstLine="0"` level
+   * behind `1. Project Overview`.
+   */
+  const NUMBERING = `${XML}<w:numbering xmlns:w="${MAIN_NS}">` +
+    `<w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/>` +
+    `<w:suff w:val="space"/><w:lvlText w:val="%1."/><w:pPr><w:ind w:left="0" w:firstLine="0"/></w:pPr></w:lvl></w:abstractNum>` +
+    `<w:num w:numId="7"><w:abstractNumId w:val="1"/></w:num></w:numbering>`;
+  const heading = (style: string, text: string, extra = ""): string =>
+    `<w:p><w:pPr><w:pStyle w:val="${style}"/>${extra}</w:pPr><w:r><w:t>${text}</w:t></w:r></w:p>`;
+  const tocTabs = `<w:tabs><w:tab w:val="right" w:leader="dot" w:pos="9576"/></w:tabs>`;
+  const pageref = (anchor: string, page: string): string =>
+    `<w:r><w:fldChar w:fldCharType="begin"/></w:r>` +
+    `<w:r><w:instrText xml:space="preserve"> PAGEREF ${anchor} \\h </w:instrText></w:r>` +
+    `<w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>${page}</w:t></w:r>` +
+    `<w:r><w:fldChar w:fldCharType="end"/></w:r>`;
+  /** One cached entry's content: a linked entry, its tab, and its `PAGEREF`. */
+  const entryRuns = (anchor: string, entry: string, page: string): string =>
+    `<w:hyperlink w:anchor="${anchor}"><w:r><w:t>${entry}</w:t></w:r><w:r><w:tab/></w:r>${pageref(anchor, page)}</w:hyperlink>`;
+  /** One cached TOC entry paragraph, as Word saves it. */
+  const cachedEntry = (anchor: string, entry: string, page: string, style = "TOC1"): string =>
+    `<w:p><w:pPr><w:pStyle w:val="${style}"/>${tocTabs}</w:pPr>${entryRuns(anchor, entry, page)}</w:p>`;
+  /**
+   * A complex TOC field spanning paragraphs, in the shape Word saves it (read
+   * from probe `numbered-heading-probe`): the instruction and the first entry
+   * share the opening paragraph, later entries are their own paragraphs, and
+   * the field's `end` is a paragraph of its own. The nested `PAGEREF` fields
+   * inside each entry are why field tracking has to survive a paragraph
+   * boundary.
+   */
+  const toc = (instruction: string, cached: Array<[entry: string, page: string]>): string =>
+    `<w:p><w:pPr><w:pStyle w:val="TOC1"/>${tocTabs}</w:pPr>` +
+    `<w:r><w:fldChar w:fldCharType="begin"/></w:r>` +
+    `<w:r><w:instrText xml:space="preserve">${instruction}</w:instrText></w:r>` +
+    `<w:r><w:fldChar w:fldCharType="separate"/></w:r>` +
+    (cached.length === 0 ? "" : entryRuns("_Toc1", cached[0]![0], cached[0]![1])) +
+    `</w:p>` +
+    cached.slice(1).map(([entry, page], index) => cachedEntry(`_Toc${index + 2}`, entry, page, index % 2 === 0 ? "TOC1" : "TOC2")).join("") +
+    `<w:p><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`;
+  const numbered = (text: string, numId = 7): string =>
+    heading("Heading1", text, `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="${numId}"/></w:numPr>`);
+  const parse = (body: string): Promise<DocumentSection[]> =>
+    parseSynthetic(
+      documentOf(body),
+      STYLES_REL + NUMBERING_REL,
+      { "word/styles.xml": STYLES, "word/numbering.xml": NUMBERING },
+    );
+  const paragraphs = (sections: DocumentSection[]): DocxParagraphNode[] =>
+    allRoot(sections).filter((node): node is DocxParagraphNode => node.type === "paragraph");
+  const headings = (sections: DocumentSection[]): DocxHeadingNode[] =>
+    allRoot(sections).filter((node): node is DocxHeadingNode => node.type === "heading");
+
+  test("paints a numbered heading's marker and leads its outline title with it", async () => {
+    const sections = await parse(numbered("Project Overview") + numbered("Deliverables"));
+    const [first, second] = headings(sections);
+    if (first === undefined) throw new Error(`expected the numbered headings\n${summaries(sections)}`);
+    // Word reports `ListString` `1.` then `2.` for these two paragraphs and
+    // paints `1. Project Overview`: the marker is resolved, not typed.
+    expect(first).toMatchObject({ level: 1, marker: "1.", markerSuffix: "space", text: "1. Project Overview" });
+    expect(second).toMatchObject({ marker: "2.", text: "2. Deliverables" });
+    // The authored text alone stays in the runs the renderer paints, so
+    // search and outline keep one text each: the runs are the heading's own,
+    // `text` is what a reader sees.
+    expect(first.runs.map((run) => run.text).join("")).toBe("Project Overview");
+    // The level authors `w:ind left="0" firstLine="0"`: the marker sits in
+    // the paragraph's own indents with no hanging one of its own.
+    expect(first.leftIndent).toBeCloseTo(0, 6);
+    expect(first.firstLineIndent).toBeUndefined();
+  });
+
+  test("a heading's numbering continues the same sequence as its list items", async () => {
+    // Word counts per list definition, so the heading between two items takes
+    // its place in one sequence: 1., [heading 2.], 3.
+    const listItem = (text: string): string =>
+      `<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="7"/></w:numPr></w:pPr><w:r><w:t>${text}</w:t></w:r></w:p>`;
+    const sections = await parse(listItem("first") + numbered("Middle") + listItem("last"));
+    // The heading is not a list item, so it also ends the list run: two
+    // one-item lists, and the heading's own marker between them.
+    const lists = allRoot(sections).filter((node) => node.type === "list");
+    expect(lists.flatMap((list) => list.type === "list" ? list.items.map((item) => item.marker) : [])).toEqual(["1.", "3."]);
+    expect(headings(sections)[0]).toMatchObject({ marker: "2.", text: "2. Middle" });
+  });
+
+  test("refreshes a TOC field from the document headings, including a table-cell one", async () => {
+    // The cached result predates `5. Delivery tracker` and the table-cell
+    // heading; Word's own refreshed export lists both.
+    const body =
+      toc('TOC \\h \\o "1-2"', [["Old entry", "9"]]) +
+      heading("Heading1", "Project Overview") +
+      heading("Heading2", "Objectives") +
+      numbered("Delivery tracker") +
+      `<w:tbl><w:tr><w:tc>${heading("Heading2", "Total")}</w:tc></w:tr></w:tbl>` +
+      heading("Heading1", "Appendix");
+    const sections = await parse(body);
+    const entries = paragraphs(sections).filter((node) => node.styleId?.startsWith("TOC") === true);
+    // Three entries replaced the one cached paragraph, and the table-cell
+    // heading joins the document-order list Word collects.
+    expect(entries.map((node) => node.runs.map((run) => run.text).join(""))).toEqual([
+      "Project Overview\t",
+      "Objectives\t",
+      "1. Delivery tracker\t",
+      "Total\t",
+      "Appendix\t",
+    ]);
+    // Level one is `TOC1`, level two `TOC2` (entry level = heading level - \o min + 1).
+    expect(entries.map((node) => node.styleId)).toEqual(["TOC1", "TOC2", "TOC1", "TOC2", "TOC1"]);
+    // `\h` links each entry at its heading's outline fragment.
+    // Four body headings take outline indexes 1-4; the table-cell heading is
+    // outside the outline and links at its own `tocAnchor`.
+    expect(entries.map((node) => node.runs[0]?.hyperlink)).toEqual([
+      "#aared-heading-1", "#aared-heading-2", "#aared-heading-3", "#aared-toc-1", "#aared-heading-4",
+    ]);
+    // Each entry ends in a live page reference; `\o "1-2"` keeps numbers on all.
+    expect(entries.map((node) => node.runs.at(-1)?.field)).toEqual([
+      "PAGEREF", "PAGEREF", "PAGEREF", "PAGEREF", "PAGEREF",
+    ]);
+  });
+
+  test("a refreshed entry carries the heading's numbering and keeps its cached page number", async () => {
+    // `1. Delivery tracker` is a real numbered heading, so the TOC entry
+    // repeats its marker (Word lists `5. Delivery tracker / متابعة التسليم`).
+    const body =
+      toc('TOC \\h \\o "1-2"', [["1. Delivery tracker", "3"]]) +
+      numbered("Delivery tracker") +
+      heading("Heading2", "Background");
+    const entries = paragraphs(await parse(body)).filter((node) => node.styleId?.startsWith("TOC") === true);
+    // The entry for a numbered heading repeats its marker, so the refreshed
+    // entry reads `1. Delivery tracker` — what Word lists for this document.
+    expect(entries[0]?.runs[0]?.text).toBe("1. ");
+    expect(entries[0]?.runs.map((run) => run.text).join("")).toBe("1. Delivery tracker\t3");
+    // The entry matching a cached one keeps its saved page number as the
+    // flow-mode fallback; layout mode substitutes the laid-out page.
+    expect(entries.find((node) => joined(node).startsWith("1. "))?.runs.at(-1)?.text).toBe("3");
+    // The heading added since the TOC was last saved has no cache: its entry
+    // carries no number until layout mode resolves the live one.
+    expect(entries.find((node) => joined(node).startsWith("Background"))?.runs.at(-1)).toMatchObject({ field: "PAGEREF", text: "" });
+  });
+
+  test("honours the TOC level range, page-number omission, and entry separator", async () => {
+    // Two fields over the same two headings, each with its own switches, so
+    // one field's selection cannot mask the other's.
+    const selected = toc('TOC \\o "2" \\n 1 \\p "-"', []);
+    const allLevels = toc('TOC \\o "1-2" \\n', []);
+    const entriesOf = async (body: string): Promise<DocxParagraphNode[]> => {
+      const sections = await parse(body);
+      return paragraphs(sections).filter((node) => node.styleId?.startsWith("TOC") === true);
+    };
+    const levelTwo = await entriesOf(heading("Heading1", "Top") + heading("Heading2", "Under") + selected);
+    // `\o "2"` collects only the level-2 heading; being entry level 1 of that
+    // range, `\n 1` drops its page number, and `\p "-"` would have separated
+    // entry from number by a hyphen (no number to separate here).
+    expect(levelTwo.map((node) => joined(node))).toEqual(["Under"]);
+    expect(levelTwo[0]?.runs.some((run) => run.field === "PAGEREF")).toBe(false);
+    const both = await entriesOf(heading("Heading1", "Top") + heading("Heading2", "Under") + allLevels);
+    // `\n` with no range drops numbers at every level, so both entries keep none.
+    expect(both.map((node) => joined(node))).toEqual(["Top", "Under"]);
+    expect(both.every((node) => node.runs.some((run) => run.field === "PAGEREF") === false)).toBe(true);
+    // Without `\n`, each entry carries a live page reference.
+    const numberedEntries = await entriesOf(heading("Heading1", "Top") + toc('TOC \\o "1" \\p "-"', []));
+    expect(numberedEntries[0]?.runs.at(-1)).toMatchObject({ field: "PAGEREF" });
+    // `\p "-"` is the authored gap instead of the default tab with dot leaders.
+    expect(numberedEntries[0]?.runs.at(-2)?.text).toBe("-");
+  });
+
+  test("a TOC limited to a bookmark range lists only the headings inside it", async () => {
+    // `{ TOC \b Part1 }` collects entries from the bookmarked range only. The
+    // bookmark is a named label: `bookmarkStart` with the name, `bookmarkEnd`
+    // with the same id, either between paragraphs or inside one.
+    const mark = (id: string, name: string): string => `<w:bookmarkStart w:id="${id}" w:name="${name}"/>`;
+    const unmark = (id: string): string => `<w:bookmarkEnd w:id="${id}"/>`;
+    // Between paragraphs, the range covers exactly the two headings inside it.
+    const between = toc('TOC \\h \\o "1-2" \\b Part1', [["Old entry", "9"]]) +
+      heading("Heading1", "Before") +
+      mark("5", "Part1") +
+      heading("Heading2", "Inside one") +
+      heading("Heading2", "Inside two") +
+      unmark("5") +
+      heading("Heading1", "After");
+    const entriesOf = async (body: string): Promise<string[]> => {
+      const sections = await parse(body);
+      return paragraphs(sections).filter((node) => node.styleId?.startsWith("TOC") === true).map((node) => joined(node));
+    };
+    expect(await entriesOf(between)).toEqual(["Inside one\t", "Inside two\t"]);
+    // Written inside the headings it wraps, it covers the same two.
+    const markedHeading = (text: string, open: boolean, close: boolean): string =>
+      `<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr>` +
+      (open ? mark("7", "Part1") : "") +
+      `<w:r><w:t>${text}</w:t></w:r>` +
+      (close ? unmark("7") : "") +
+      `</w:p>`;
+    const inside = toc('TOC \\h \\o "1-2" \\b Part1', [["Old entry", "9"]]) +
+      heading("Heading1", "Before") +
+      markedHeading("Inside one", true, false) +
+      markedHeading("Inside two", false, true) +
+      heading("Heading1", "After");
+    expect(await entriesOf(inside)).toEqual(["Inside one\t", "Inside two\t"]);
+  });
+
+  test("several ranges of one bookmark name list the headings in any of them", async () => {
+    // Word merges same-named ranges into one, so a heading inside either is
+    // listed, in document order. Each range is its own id, as Word writes them.
+    const body = toc('TOC \\h \\o "1-2" \\b Part1', []) +
+      heading("Heading1", "Outside") +
+      `<w:bookmarkStart w:id="1" w:name="Part1"/>` +
+      heading("Heading2", "First range") +
+      `<w:bookmarkEnd w:id="1"/>` +
+      `<w:bookmarkStart w:id="2" w:name="Part1"/>` +
+      heading("Heading2", "Second range") +
+      `<w:bookmarkEnd w:id="2"/>` +
+      `<w:bookmarkStart w:id="3" w:name="Other"/>` +
+      heading("Heading2", "Other bookmark") +
+      `<w:bookmarkEnd w:id="3"/>`;
+    const entries = paragraphs(await parse(body))
+      .filter((node) => node.styleId?.startsWith("TOC") === true)
+      .map((node) => joined(node));
+    // Neither the heading before the first range nor the one under a different
+    // bookmark name is listed.
+    expect(entries).toEqual(["First range\t", "Second range\t"]);
+  });
+
+  test("keeps the saved result when a TOC's bookmark is not in the document", async () => {
+    // The refresh rule: a `\b` naming a bookmark this document does not hold
+    // cannot be honoured, and listing the whole document into a field that
+    // asked for a chapter would be worse than the result Word last saved.
+    const body = toc('TOC \\h \\o "1-2" \\b Missing', [["Kept entry", "7"]]) +
+      heading("Heading1", "Later") +
+      heading("Heading2", "Also later");
+    const entries = paragraphs(await parse(body)).filter((node) => node.styleId?.startsWith("TOC") === true);
+    expect(entries.map((node) => joined(node))).toEqual(["Kept entry\t7"]);
+    // A `\b` with no name at all is malformed, and falls back the same way.
+    const nameless = toc('TOC \\h \\b', [["Kept entry", "7"]]) + heading("Heading1", "Later");
+    expect(
+      paragraphs(await parse(nameless)).filter((node) => node.styleId?.startsWith("TOC") === true).map((node) => joined(node)),
+    ).toEqual(["Kept entry\t7"]);
+  });
+
+  test("a bookmark spanning a table lists that table's cell headings", async () => {
+    // A table is one block, so a range around it covers the cell headings a
+    // whole-document TOC would have listed anyway.
+    const body = toc('TOC \\h \\o "1-2" \\b Part1', []) +
+      `<w:bookmarkStart w:id="3" w:name="Part1"/>` +
+      `<w:tbl><w:tr><w:tc>${heading("Heading2", "Cell total")}</w:tc></w:tr></w:tbl>` +
+      `<w:bookmarkEnd w:id="3"/>` +
+      heading("Heading1", "Outside");
+    const entries = paragraphs(await parse(body)).filter((node) => node.styleId?.startsWith("TOC") === true);
+    expect(entries.map((node) => joined(node))).toEqual(["Cell total\t"]);
+  });
+
+  test("keeps the saved result when a TOC's switches are not implemented", async () => {
+    // `\c` collects SEQ-numbered captions and `\f` TC entries; aared does not
+    // recompute either, so refreshing would silently drop entries.
+    for (const instruction of ['TOC \\h \\c "tables"', 'TOC \\h \\f t', 'TOC \\h \\l "1-2"']) {
+      const sections = await parse(toc(instruction, [["Kept entry", "7"]]) + heading("Heading1", "Later"));
+      const tocParagraphs = paragraphs(sections).filter((node) => node.styleId?.startsWith("TOC") === true);
+      expect(tocParagraphs.map((node) => joined(node)), instruction).toEqual(["Kept entry\t7"]);
+    }
+  });
+
+  test("keeps the saved result when a TOC field never balances", async () => {
+    // The `begin` and `separate` are here but the field's `end` is not: a
+    // half-read field must never be refreshed.
+    const unbalanced =
+      `<w:p><w:pPr><w:pStyle w:val="TOC1"/></w:pPr>` +
+      `<w:r><w:fldChar w:fldCharType="begin"/></w:r>` +
+      `<w:r><w:instrText xml:space="preserve">TOC \\h \\o "1-2"</w:instrText></w:r>` +
+      `<w:r><w:fldChar w:fldCharType="separate"/></w:r>` +
+      `<w:r><w:t>Kept entry</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>7</w:t></w:r></w:p>`;
+    const sections = await parse(unbalanced + heading("Heading1", "Later"));
+    expect(paragraphs(sections).map((node) => joined(node))).toContain("Kept entry\t7");
+  });
+
+  test("reads a TOC field's instruction split across runs", async () => {
+    // Word can break an instruction mid-word (`\o` and its range are separate
+    // `instrText` runs); the switches still resolve and the field refreshes.
+    // An instruction broken mid-word across two `instrText` runs, then a
+    // separate paragraph for the field's end (as Word saves a real TOC).
+    const split =
+      `<w:p><w:pPr><w:pStyle w:val="TOC1"/>${tocTabs}</w:pPr>` +
+      `<w:r><w:fldChar w:fldCharType="begin"/></w:r>` +
+      `<w:r><w:instrText xml:space="preserve">TOC \\h \\o</w:instrText></w:r>` +
+      `<w:r><w:instrText xml:space="preserve"> "1-2"</w:instrText></w:r>` +
+      `<w:r><w:fldChar w:fldCharType="separate"/></w:r>` +
+      `<w:r><w:t>Old</w:t></w:r><w:r><w:tab/></w:r><w:r><w:t>9</w:t></w:r>` +
+      `</w:p>` +
+      `<w:p><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`;
+    const entries = paragraphs(await parse(split + heading("Heading2", "Later"))).filter((node) => node.styleId?.startsWith("TOC") === true);
+    expect(entries.map((node) => joined(node))).toEqual(["Later\t"]);
+  });
+
+  /**
+   * `TOC1` spacing and a `TOC2` indent are the paragraph properties the cached
+   * entries carried for free and a refreshed entry has to resolve itself.
+   */
+  const STYLES_LAYOUT = `${XML}<w:styles xmlns:w="${MAIN_NS}">` +
+    `<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:pPr><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/><w:sz w:val="30"/></w:rPr></w:style>` +
+    `<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:pPr><w:outlineLvl w:val="1"/></w:pPr><w:rPr><w:sz w:val="24"/></w:rPr></w:style>` +
+    `<w:style w:type="paragraph" w:styleId="TOC1"><w:name w:val="toc 1"/><w:pPr><w:spacing w:after="100"/></w:pPr><w:rPr><w:sz w:val="22"/></w:rPr></w:style>` +
+    `<w:style w:type="paragraph" w:styleId="TOC2"><w:name w:val="toc 2"/><w:pPr><w:spacing w:after="100"/><w:ind w:left="210"/></w:pPr><w:rPr><w:sz w:val="22"/></w:rPr></w:style>` +
+    `</w:styles>`;
+  const entriesWith = async (styles: string, body: string): Promise<DocxParagraphNode[]> =>
+    paragraphs(await parseWith(styles, body)).filter((node) => node.styleId?.startsWith("TOC") === true);
+  const parseWith = (styles: string, body: string): Promise<DocumentSection[]> =>
+    parseSynthetic(
+      documentOf(body),
+      STYLES_REL + NUMBERING_REL,
+      { "word/styles.xml": styles, "word/numbering.xml": NUMBERING },
+    );
+
+  test("a refreshed entry takes its TOC style's spacing, indent and text size", async () => {
+    const body =
+      heading("Heading1", "Project Overview") +
+      heading("Heading2", "Objectives") +
+      toc('TOC \\o "1-2" \\n', []);
+    const entries = await entriesWith(STYLES_LAYOUT, body);
+    // `TOC1` authors `spacing after=100` (5pt), and every entry takes it.
+    expect(entries.map((node) => node.spaceAfterPt)).toEqual([5, 5]);
+    // `TOC2` authors `ind left=210`; a level-1 entry takes none.
+    expect(entries.map((node) => node.leftIndent)).toEqual([undefined, 210 / 1440]);
+    // The headings are 15pt and 12pt; the entries take the TOC style's 11pt —
+    // a table of contents printed at heading size would be a loud difference.
+    expect(entries.map((node) => node.fontSizePt)).toEqual([11, 11]);
+    expect(entries.map((node) => node.runs[0]?.fontSizePt)).toEqual([11, 11]);
+    // The entry is set in the TOC style, not the heading's: `Heading1`'s bold
+    // is style-derived and Word drops it, so an entry in bold would differ on
+    // every document whose headings are styled.
+    expect(entries[0]?.runs[0]?.bold).toBeUndefined();
+    expect(entries[1]?.runs[0]?.bold).toBeUndefined();
+    // The entry's text is still the heading's, in the TOC style's typeface.
+    expect(entries.map((node) => joined(node))).toEqual(["Project Overview", "Objectives"]);
+  });
+
+  test("a refreshed entry takes its direction from the TOC style, not the heading", async () => {
+    // An entry for a right-to-left heading in a left-to-right TOC still paints
+    // left to right: Word reads the entry paragraph's direction from its `TOCn`
+    // style, and taking it from the heading mirrors the entry and its leader.
+    const arabicHeading =
+      `<w:p><w:pPr><w:pStyle w:val="Heading2"/><w:bidi/></w:pPr>` +
+      `<w:r><w:rPr><w:rtl/></w:rPr><w:t>الإجمالي</w:t></w:r></w:p>`;
+    const entries = await entriesWith(STYLES_LAYOUT, heading("Heading1", "Top") + arabicHeading + toc('TOC \\o "1-2" \\n', []));
+    expect(entries.map((node) => node.direction)).toEqual(["ltr", "ltr"]);
+    // A TOC style that is itself right-to-left paints every entry that way.
+    // `\o "1-2"` puts this Heading 2 at entry level 2, which is `TOC2`.
+    const rtlStyles = STYLES_LAYOUT.replace('<w:name w:val="toc 2"/><w:pPr>', '<w:name w:val="toc 2"/><w:pPr><w:bidi/>');
+    const rtlEntries = await entriesWith(rtlStyles, arabicHeading + toc('TOC \\o "1-2" \\n', []));
+    expect(rtlEntries.map((node) => node.direction)).toEqual(["rtl"]);
   });
 });

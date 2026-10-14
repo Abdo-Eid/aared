@@ -51,21 +51,15 @@ async function compareDeck(path: string): Promise<Set<string>> {
   return kinds;
 }
 
-test("the coverage deck's words read without the model equal the model's, on every slide", async () => {
-  // Shapes, tables (merged cells included) and a chartEx waterfall hold words here. Its group (slide 3)
-  // is walked but holds an oval and a picture, no words; no fixture has words inside a group yet.
-  expect([...(await compareDeck(`${ROOT}/fixtures/pptx-coverage.pptx`))].sort()).toEqual(["chart", "shape", "table"]);
-});
-
-test("the production deck's words read without the model equal the model's, on every slide", async () => {
+test("every deck's words read without the model equal the model's, on every slide", async () => {
+  // Shapes, merged tables, a chartEx waterfall, and the appearance slide's
+  // nested bilingual groups all contribute words; reflections add no words.
+  expect([...(await compareDeck(`${ROOT}/fixtures/pptx-coverage.pptx`))].sort()).toEqual(["chart", "group", "shape", "table"]);
   expect(await compareDeck(`${ROOT}/fixtures/post-production-review.pptx`)).toContain("chart");
-});
-
-test("the chart oracle's words read without the model equal the model's, on every slide", async () => {
   expect(await compareDeck(`${ROOT}/tools/chart-oracle/chart-oracle.pptx`)).toContain("chart");
 });
 
-const LARGE = `${ROOT}/tools/bench-search/out/large-300-slides.pptx`;
+const LARGE = `${ROOT}/tools/out/search-fixtures/large-300-slides.pptx`;
 test.skipIf(!(await Bun.file(LARGE).exists()))("the generated 300-slide deck's words match too (when make-fixtures.py has run)", async () => {
   expect((await compareDeck(LARGE)).size).toBeGreaterThan(0);
 });

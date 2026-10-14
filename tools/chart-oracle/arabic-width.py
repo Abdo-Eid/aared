@@ -23,7 +23,7 @@ import gen_metrics
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 meta = json.load(open(os.path.join(HERE, "cases.json"), encoding="utf-8"))
-doc = fitz.open(os.path.join(HERE, "out", "chart-oracle.pdf"))
+doc = fitz.open(os.path.join(HERE, "..", "out", "charts", "chart-oracle.pdf"))
 
 forms, _, _ = gen_metrics.letter_order()
 FACE = gen_metrics.arabic_face(gen_metrics.ARABIC_FACES["arial"], forms)

@@ -66,12 +66,11 @@ test("the documented aared/worker subpath is the single-file artifact", () => {
   expect(resolved.endsWith("/dist/core/worker.mjs")).toBe(true);
 });
 
-test("blob-URL worker opens PPTX, XLSX, and DOCX", async () => {
+test("inline Worker source opens PPTX, XLSX, and DOCX on one pooled Worker", async () => {
   // The consumer recipe, as documented: import the script by its package
-  // subpath (`aared/worker?raw` in a bundler), wrap it in a Blob URL.
+  // subpath (`aared/worker?raw` in a bundler), hand its source to aared.
   await distText("worker.mjs");
   const source = await Bun.file(Bun.resolveSync("aared/worker", import.meta.dir)).text();
-  const url = URL.createObjectURL(new Blob([source], { type: "application/javascript" }));
   // Count Workers: one closed document's Worker serves the next open, whatever its format.
   const original = Object.getOwnPropertyDescriptor(globalThis, "Worker");
   const Native = globalThis.Worker;
@@ -86,7 +85,7 @@ test("blob-URL worker opens PPTX, XLSX, and DOCX", async () => {
     },
   });
   try {
-    const deck = await openPptx(await Bun.file(PPTX_FIXTURE).arrayBuffer(), { worker: url });
+    const deck = await openPptx(await Bun.file(PPTX_FIXTURE).arrayBuffer(), { worker: { source } });
     try {
       const slides = deck.slides.list();
       expect(slides.length).toBeGreaterThan(0);
@@ -95,7 +94,7 @@ test("blob-URL worker opens PPTX, XLSX, and DOCX", async () => {
       deck.close();
     }
 
-    const workbook = await openXlsx(await Bun.file(XLSX_FIXTURE).arrayBuffer(), { worker: url });
+    const workbook = await openXlsx(await Bun.file(XLSX_FIXTURE).arrayBuffer(), { worker: { source } });
     try {
       const sheets = workbook.sheets.list();
       expect(sheets.length).toBeGreaterThan(0);
@@ -104,7 +103,7 @@ test("blob-URL worker opens PPTX, XLSX, and DOCX", async () => {
       workbook.close();
     }
 
-    const document = await openDocx(await Bun.file(DOCX_FIXTURE).arrayBuffer(), { worker: url });
+    const document = await openDocx(await Bun.file(DOCX_FIXTURE).arrayBuffer(), { worker: { source } });
     try {
       expect(document.sections.list().length).toBeGreaterThan(0);
     } finally {
@@ -115,6 +114,5 @@ test("blob-URL worker opens PPTX, XLSX, and DOCX", async () => {
     drainWorkerPool();
     if (original === undefined) delete (globalThis as { Worker?: unknown }).Worker;
     else Object.defineProperty(globalThis, "Worker", original);
-    URL.revokeObjectURL(url);
   }
 });

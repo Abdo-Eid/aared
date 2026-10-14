@@ -18,7 +18,7 @@ import { openPptxBrowser } from "./pptx-browser";
 /**
  * Per-format renderer registry, keyed by renderer id: what the selector UI
  * lists and the harness measures (`RENDERERS_BY_FORMAT` in
- * tools/bench-measure.ts names the same ids and must stay in step). Every
+ * tools/benchmarks/measure.ts names the same ids and must stay in step). Every
  * entry is lazily imported inside its adapter, so opening one renderer never
  * pays for, or breaks from, another.
  */

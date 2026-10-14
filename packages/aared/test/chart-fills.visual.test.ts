@@ -1,10 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { indexPptx, parsePptxSlide } from "../src/core/pptx.js";
 import { OpcPackage } from "../src/core/opc.js";
 import type { ChartModel } from "../src/core/model.js";
-import { browserModule } from "./harness.js";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const PRODUCTION = `${import.meta.dir}/../../../fixtures/post-production-review.pptx`;
 /** A 1x1 PNG: the picture a chart fill names. */
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -33,13 +32,9 @@ visual("visual DOM output: chart fills paint through the shared fill painter, an
   spec.plot = { ...spec.plot, look: { fill: { kind: "unsupported", source: "group" } } };
 
   const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      if (new URL(request.url).pathname === "/pptx.mjs") {
-        return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      }
-      return new Response(`<!doctype html><style>html,body{margin:0}#host{width:1280px;height:720px}</style><main id="host"></main><script type="module">
+  await withVisualPage({
+    modules: { "/pptx.mjs": module },
+    page: `<!doctype html><style>html,body{margin:0}#host{width:1280px;height:720px}</style><main id="host"></main><script type="module">
         import { render } from "/pptx.mjs";
         const decode = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
         window.renderFixture = async (model, withMedia) => {
@@ -86,12 +81,10 @@ visual("visual DOM output: chart fills paint through the shared fill painter, an
             canvasCount: document.querySelectorAll("canvas").length,
           };
         };
-      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
+      </script>`,
+    width: 1280,
+    height: 720,
+  }, async (view) => {
     await view.evaluate(`renderFixture(${JSON.stringify(slide)}, true)`);
     const out = await view.evaluate(`describePaints()`) as {
       role: string; label: string; desc: string; radialCount: number; radialCenter: number[] | null;
@@ -130,7 +123,5 @@ visual("visual DOM output: chart fills paint through the shared fill painter, an
     const bare = await view.evaluate(`describePaints()`) as typeof out;
     expect(bare.pictureHref).toBeNull();
     expect(bare.marked.map(([reason]) => reason)).toEqual(expect.arrayContaining(["missing-resolver", "group"]));
-  } finally {
-    server.stop();
-  }
+  });
 });

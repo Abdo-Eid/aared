@@ -25,6 +25,7 @@ export type {
   BoundsModel,
   ChartModel,
   GroupModel,
+  DrawingEffectsModel,
   LinearGradientFillModel,
   LinearGradientStopModel,
   LocalViewBoxModel,
@@ -181,17 +182,18 @@ export type FontResolver = (
 export type MediaResolver = (mediaId: string) => Promise<ArrayBuffer>;
 
 /**
- * Override for Worker construction. Use when the default
- * `new Worker(new URL("./worker.mjs", import.meta.url))` does not work for
- * your environment (single-file bundles, strict CSP, SSR, or bundler-specific
- * Worker constructors).
- *
- * - **`string` / `URL`**: treated as the worker script URL (`blob:` URLs
- *   from inlined code work).
- * - **`() => Worker`**: factory that returns a live `Worker` instance
- *   (for Vite `?worker`, webpack `worker-loader`, etc.).
+ * Explicit Worker input. Leave out for the bundler-managed default.
+ * `url` loads a same-origin module; `crossOrigin: "blob"` opts into a Blob
+ * bootstrap importing that URL (requires CORS and CSP permitting it).
+ * `source` is a self-contained module's text for single-file builds.
+ * Aared owns generated Blob URLs. `create` returns a fresh native Worker
+ * for advanced integrations; it is terminated on close and never pooled.
+ * Exactly one of `url`, `source`, or `create` is accepted.
  */
-export type WorkerInit = string | URL | (() => Worker);
+export type WorkerInit =
+  | { url: string | URL; crossOrigin?: "blob"; source?: never; create?: never }
+  | { source: string; url?: never; crossOrigin?: never; create?: never }
+  | { create: () => Worker; url?: never; source?: never; crossOrigin?: never };
 
 export interface OpenOptions {
   fontResolver?: FontResolver;
@@ -243,6 +245,12 @@ export interface Appearance {
     fill?: boolean;
     selection?: boolean;
     gridlines?: GridlineMode;
+    /**
+     * Excel-like viewer chrome: a read-only formula bar (name box plus the
+     * active cell's formula or formatted value) above the grid. Default
+     * `false`: the grid paints alone, as before.
+     */
+    formulaBar?: boolean;
   };
 }
 

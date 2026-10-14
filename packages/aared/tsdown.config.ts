@@ -30,7 +30,9 @@ export default defineConfig([
       "element/index": "src/element/index.ts",
     },
     format: "esm",
-    dts: true,
+    // Shared review code crosses the test/tools boundary. Declaration emit
+    // must see shipped source only, never write tooling .d.ts beside its source.
+    dts: { tsconfig: "tsconfig.build.json" },
     clean: true,
     // Shipped minified: a consumer bundler re-minifies anyway, but the
     // `aared/worker?raw` Blob recipe, no-bundler and CDN pages run dist as-is.
@@ -56,7 +58,8 @@ export default defineConfig([
     // source with every format parser flattened into it (`codeSplitting:
     // false`), so it needs no sibling chunks and can be copied or inlined into
     // a Blob URL as is.
-    // The per-format dynamic `import()`s in the source resolve in place.
+    // Worker imports are static and symbol-level: with splitting disabled, dynamic
+    // imports cannot defer bytes and only obstruct whole-worker tree shaking.
     // Must stay `clean: false` — the main config above owns `dist`.
     entry: { "core/worker": "src/core/worker.ts" },
     format: "esm",

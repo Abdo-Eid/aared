@@ -56,16 +56,22 @@ import type {
 import { AaredError } from "../core/index.js";
 import { RETURN_ARROW } from "../core/chars.js";
 import { SessionMedia, WorkerSession } from "../core/session.js";
+import { documentFromSession } from "./session-document.js";
+import { contentSignal, contentSource } from "../content-view.js";
 import { itemAt, throwIfAborted } from "../core/errors.js";
 import { BASE_FONT_PX, BLOCK_MARGIN_EM, WORD_SINGLE_LINE, dropsTopSpacing, paginate, sectionBodyWidthPx } from "../core/docx/pagination.js";
 import { planFloat } from "./float-layout.js";
 import type { AnchorFrame } from "./float-layout.js";
 import { registerSplit, settleSplitWraps, splittable } from "./split-wrap.js";
+import { paintedToLayoutZoom } from "./measure.js";
+import { createTextBox, finishTextBox, onTextBoxSize, settleTextBoxes, textBoxSize } from "./text-box.js";
+import { loadEffectPainter, loadedEffectPainter } from "../effect-loader.js";
+import type { DrawingEffectsModel, TransformModel } from "../core/model.js";
 import { cssFontFamily, lineFontSizePt } from "../core/typography.js";
 import type { LayoutPage, MeasuredFlow, SoftBreakPolicy } from "../core/docx/pagination.js";
-import { automaticInk, paintTokens, resolveTheme } from "../appearance.js";
-import { MediaUrls } from "../media-url.js";
-import { DEFAULT_ZOOM, RenderHandleBase, fitScale, measureFitRoom, missingIdWarning, onReplaced, safeScale } from "../render-handle.js";
+import { automaticInk, mergeAppearance, paintTokens, resolveTheme } from "../appearance.js";
+import { MediaUrls, paintImageSource } from "../media-url.js";
+import { DEFAULT_ZOOM, RenderHandleBase, fitScale, measureFitRoom, missingIdWarning, onReplaced, safeScale, settleRender } from "../render-handle.js";
 import type { EventTargetOf, ZoomChangeEvent } from "../render-handle.js";
 import { createTableCell, createTableGrid } from "../table-dom.js";
 import { applyParagraphBox, applyRunBase, exactLinePitch, roundPt } from "../text-style.js";
@@ -74,6 +80,7 @@ import { chartLayoutReady, chartsSettled, paintChart } from "../chart-svg.js";
 import { PX_PER_INCH, inchesToCss, ptToPx, twipsToInches } from "../core/units.js";
 import { fillRunText, layoutTabStops, lazyPagePaint, markTabs, settlePageTabStops, settleTabStops } from "./tabs.js";
 import { adoptClassSheet, cssClass, type ClassSheetScope } from "../class-sheet.js";
+import { CONTENT_TEXT, FRAME_PAINT } from "../render-defaults.js";
 import { findByTitle, foldQuery } from "../core/search.js";
 import { buildDocxSearchIndex, entryMatch } from "./search.js";
 import { docxStories } from "./stories.js";
@@ -111,9 +118,9 @@ const MARKER = cssClass("text-indent:0");
 /** A list marker followed by a tab to the text indent: it owns the hanging width (`min-width`, inline). */
 const MARKER_TAB = cssClass("text-indent:0;display:inline-block;text-align:start");
 /** A laid-out page; its size and padding stay inline. */
-const PAGE = cssClass(
+const PAGE = `${CONTENT_TEXT} ${cssClass(
   `flex-shrink:0;box-sizing:border-box;position:relative;isolation:isolate;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);font-family:system-ui, sans-serif;font-size:${BASE_FONT_PX}px;line-height:${WORD_SINGLE_LINE}`,
-);
+)}`;
 const PAGE_LAZY = cssClass("content-visibility:auto");
 
 /** Document metadata for a Word file; `format` is narrowed to `"docx"`. */
@@ -199,6 +206,14 @@ export class SectionCollection implements Collection<DocumentSection, number> {
       () => `aared/docx: section index ${String(index)} is outside this ${this.sections.length}-section document`,
     );
   }
+}
+
+/** Viewer-owned document content: resolved sections, outline and media, not lifecycle. */
+export interface DocxContent {
+  readonly info: DocxInfo;
+  readonly sections: Collection<DocumentSection, number>;
+  readonly headings: Collection<HeadingInfo, number | string>;
+  readonly media: MediaCollectionShape;
 }
 
 /** A heading by index, or by title (exact, then ignoring case — never a substring); `not-found` otherwise. */
@@ -300,18 +315,7 @@ export class DocxDocument {
  * document. Headless-safe: no DOM.
  */
 export async function open(source: Source, options?: OpenOptions): Promise<DocxDocument> {
-  const session = await WorkerSession.openAs("docx", source, options);
-  const signal = options?.signal;
-  let sections: DocumentSection[];
-  try {
-    sections = await session.unit<DocumentSection[]>(0, signal === undefined ? undefined : { signal });
-  } catch (error) {
-    // The body is read here, not at open: a document that fails to parse
-    // (no w:body, an abort) must not leave its Worker session behind.
-    session.close();
-    throw error;
-  }
-  return new DocxDocument(session, sections);
+  return documentFromSession(await WorkerSession.openAs("docx", source, options), options);
 }
 
 /**
@@ -472,11 +476,15 @@ function appendRunText(host: HTMLElement, run: TextRunModel, wiring: ImageWiring
   // Newlines arrive from `w:br`/`w:cr`; `pre-wrap` on the paragraph paints
   // them without splitting runs or losing bidi context. Live page fields
   // evaluate per layout page; flow rendering shows the field's cached result.
+  // A `PAGEREF` names its target in its hyperlink: layout mode substitutes
+  // the printed page of that heading, flow keeps the cached text.
   const text = run.field === "PAGE"
     ? String(wiring.pageNumber ?? run.text)
     : run.field === "NUMPAGES"
       ? String(wiring.pageTotal ?? run.text)
-      : run.text;
+      : run.field === "PAGEREF"
+        ? pagerefText(run, wiring)
+        : run.text;
   const span = document.createElement("span");
   fillRunText(span, text, direction);
   applyRunStyle(span, run, exactPitch);
@@ -499,6 +507,13 @@ function appendRunText(host: HTMLElement, run: TextRunModel, wiring: ImageWiring
     return;
   }
   host.append(span);
+}
+
+/** A TOC page reference's painted page: its hyperlink's target fragment looked up per layout page. */
+function pagerefText(run: TextRunModel, wiring: ImageWiring): string {
+  const target = run.hyperlink !== undefined && run.hyperlink.startsWith("#") ? run.hyperlink.slice(1) : undefined;
+  if (target === undefined) return run.text;
+  return wiring.tocPages?.get(target) ?? run.text;
 }
 
 /** A list marker painted inline at the start of its item's first line. */
@@ -555,6 +570,24 @@ function appendParagraph(host: HTMLElement, paragraph: DocxParagraphNode, wiring
   return line;
 }
 
+/**
+ * A numbered heading's marker, painted inline at the start of its first line
+ * through the shared marker path. Unlike list items a heading takes no
+ * default indent: its marker sits in the paragraph's own indents (usually
+ * none), so an unindented heading paints its marker at the paragraph start
+ * exactly as Word does.
+ */
+function headingMarker(heading: DocxHeadingNode): ListMarker | undefined {
+  if (heading.marker === undefined || heading.marker === "") return undefined;
+  const hanging = heading.firstLineIndent !== undefined && heading.firstLineIndent < 0 ? -heading.firstLineIndent : 0;
+  return {
+    text: heading.marker,
+    hangingPx: hanging * PX_PER_INCH,
+    ...(heading.markerRun === undefined ? {} : { run: heading.markerRun }),
+    ...(heading.markerSuffix === undefined ? {} : { suffix: heading.markerSuffix }),
+  };
+}
+
 function appendHeading(host: HTMLElement, heading: DocxHeadingNode, wiring: ImageWiring): void {
   const level = Math.min(Math.max(heading.level, 1), 6);
   const element = document.createElement(`h${level}`);
@@ -563,12 +596,29 @@ function appendHeading(host: HTMLElement, heading: DocxHeadingNode, wiring: Imag
   // Only outline headings are addressable (`goToHeading`, fragment ids); a
   // heading-styled paragraph in a header, footer, table or note paints the
   // same but takes no index, so ids stay unique and match `headings.list()`.
+  // A refreshed TOC links at those fragments — or, outside the outline, at
+  // the heading's own `tocAnchor`.
   const index = wiring.outline.get(heading);
   if (index !== undefined) {
     element.id = `aared-heading-${index + 1}`;
     element.setAttribute("data-aared-heading-index", String(index));
+  } else if (heading.tocAnchor !== undefined) {
+    element.id = heading.tocAnchor;
+    element.setAttribute("data-aared-toc-anchor", heading.tocAnchor);
   }
-  paintLine(element, heading, wiring);
+  const marker = headingMarker(heading);
+  if (marker === undefined) {
+    paintLine(element, heading, wiring);
+  } else {
+    // Copy before stripping: the model keeps its numbering indents, only the
+    // painted heading re-expresses them from the paragraph's start edge.
+    const unindented: DocxHeadingNode = { ...heading };
+    delete unindented.leftIndent;
+    delete unindented.firstLineIndent;
+    paintLine(element, unindented, wiring, marker);
+    element.style.marginInlineStart = `${(heading.leftIndent ?? 0) * PX_PER_INCH}px`;
+    element.style.textIndent = `${-marker.hangingPx}px`;
+  }
   host.append(element);
 }
 
@@ -738,12 +788,54 @@ interface ImageWiring {
   /** Layout page fields; absent in flow mode (runs keep their static text). */
   pageNumber?: number;
   pageTotal?: number;
+  /**
+   * Printed page per TOC target fragment (`aared-heading-N`, or a heading's
+   * `tocAnchor`); absent in flow mode and the off-screen measure pass, where
+   * `PAGEREF` runs keep their cached text.
+   */
+  tocPages?: ReadonlyMap<string, string> | undefined;
   docGrid?: SectionProperties["docGrid"];
   inTable?: boolean;
   /** The column and page an anchored picture is placed in; set by whoever paints a container, before painting it. */
   frame?: AnchorFrame | undefined;
   /** Run on destroy: observers and listeners a render started (the split wrap's resize observer). */
   cleanups: Array<() => void>;
+  effects: Array<{ element: HTMLElement; effects: DrawingEffectsModel; transform?: TransformModel }>;
+  measuring?: boolean;
+}
+
+function registerDrawingEffects(element: HTMLElement, effects: DrawingEffectsModel | undefined, wiring: ImageWiring, transform?: TransformModel): void {
+  if (effects === undefined || wiring.measuring) return;
+  wiring.effects.push({ element, effects, ...(transform === undefined ? {} : { transform }) });
+}
+
+function settleDrawingEffects(wiring: ImageWiring): void {
+  const painter = loadedEffectPainter();
+  for (const target of wiring.effects.splice(0)) {
+    if (wiring.destroyed || !target.element.isConnected) continue;
+    const parent = target.element.parentElement;
+    if (painter === undefined || parent === null) {
+      target.element.dataset.aaredEffectFallback = "painter-unavailable";
+    } else painter.paintDrawingEffects(target.element, target.effects, parent, target.transform, wiring.cleanups);
+  }
+}
+
+/** Effects stay on a paint box, separate from inline/float layout reservations. */
+function effectPictureBox(image: DocxInlineImage | DocxImageNode, wiring: ImageWiring): { box: HTMLElement; image: HTMLImageElement } {
+  const box = document.createElement("span");
+  box.dataset.aaredElement = "drawing-paint";
+  box.style.position = "relative";
+  box.style.display = "block";
+  box.style.width = inchesToCss(image.width);
+  box.style.height = inchesToCss(image.height);
+  const element = document.createElement("img");
+  element.alt = image.alt ?? "";
+  element.style.display = "block";
+  element.style.width = "100%";
+  element.style.height = "100%";
+  box.append(element);
+  registerDrawingEffects(box, image.effects, wiring);
+  return { box, image: element };
 }
 
 /** A US Letter text column (8.5in less two one-inch margins), for a picture painted before any container set the frame. */
@@ -836,6 +928,16 @@ function appendFloats(
       picture.style.top = `${plan.topPx}px`;
       picture.style.zIndex = plan.behind ? "-1" : "1";
       picture.dataset.aaredLayer = plan.behind ? "behind" : "front";
+      const updateOverlay = (): void => {
+        const size = textBoxSize(picture, { width, height });
+        const effective = { ...image, width: size.width / PX_PER_INCH, height: size.height / PX_PER_INCH };
+        const updated = planFloat(effective, frame, indentPx);
+        if (updated.kind !== "overlay") return;
+        picture.style.left = `${updated.leftPx}px`;
+        picture.style.top = `${updated.topPx}px`;
+      };
+      if (image.type === "textBox") onTextBoxSize(picture, updateOverlay);
+      frame.resized?.push(updateOverlay);
       if (plan.to === "paragraph") {
         // Measured from the paragraph: a zero-size anchor at its top-left, taking no room in the text.
         const point = document.createElement("span");
@@ -882,6 +984,43 @@ function appendFloats(
       }
     }
     holder.append(picture);
+    const updateWrap = (): void => {
+      const size = textBoxSize(picture, { width, height });
+      const effective = { ...image, width: size.width / PX_PER_INCH, height: size.height / PX_PER_INCH };
+      const updated = planFloat(effective, frame, indentPx);
+      if (updated.kind === "wrap") {
+        holder.classList.remove(ANCHOR_BAND);
+        picture.style.marginLeft = "";
+        const near = updated.side === "left" ? dist.left : dist.right;
+        const facing = updated.side === "left" ? dist.right : dist.left;
+        const padNear = Math.min(near, updated.edgePx);
+        holder.style.float = updated.side;
+        holder.style.width = `${size.width}px`;
+        holder.style.height = `${size.height}px`;
+        holder.style.paddingLeft = `${updated.side === "left" ? padNear : facing}px`;
+        holder.style.paddingRight = `${updated.side === "left" ? facing : padNear}px`;
+        const outside = updated.edgePx - padNear - (updated.side === "left" ? indentPx : 0);
+        holder.style.marginLeft = updated.side === "left" ? `${outside}px` : "";
+        holder.style.marginRight = updated.side === "right" ? `${outside}px` : "";
+        const polygon = anchor.polygon;
+        if (polygon !== undefined && (anchor.wrap === "tight" || anchor.wrap === "through")) {
+          const left = Number.parseFloat(holder.style.paddingLeft);
+          holder.style.setProperty("shape-outside", `polygon(${polygon.map(([x, y]) => `${left + x * size.width}px ${padTop + y * size.height}px`).join(", ")}) border-box`);
+        }
+      } else if (updated.kind === "band" || updated.kind === "split") {
+        holder.classList.add(ANCHOR_BAND);
+        holder.style.width = "100%";
+        holder.style.height = "auto";
+        holder.style.float = "left";
+        holder.style.paddingLeft = "0";
+        holder.style.paddingRight = "0";
+        holder.style.marginLeft = "0";
+        holder.style.marginRight = "0";
+        picture.style.marginLeft = `${updated.leftPx - indentPx}px`;
+      }
+    };
+    if (image.type === "textBox") onTextBoxSize(picture, updateWrap);
+    frame.resized?.push(updateWrap);
     placed.push(holder);
   }
   line.prepend(...placed);
@@ -905,6 +1044,12 @@ function anchoredPicture(image: DocxDrawingNode, width: number, height: number, 
     pending.style.height = `${height}px`;
     return pending;
   }
+  if (image.effects !== undefined) {
+    const { box, image: element } = effectPictureBox(image, wiring);
+    box.classList.add(ANCHOR_PICTURE);
+    wireImageMedia(element, image, wiring.urls, wiring);
+    return box;
+  }
   const element = document.createElement("img");
   element.alt = image.alt ?? "";
   element.setAttribute("class", ANCHOR_PICTURE);
@@ -915,36 +1060,18 @@ function anchoredPicture(image: DocxDrawingNode, width: number, height: number, 
 }
 
 function textBoxElement(textBox: DocxTextBoxNode, wiring: ImageWiring, anchored = false): HTMLElement {
-  const element = document.createElement("div");
-  element.dataset.aaredElement = "text-box";
-  element.dataset.aaredDirection = textBox.direction;
-  element.style.boxSizing = "border-box";
-  element.style.display = anchored ? "block" : "inline-block";
-  element.style.verticalAlign = "top";
-  element.style.direction = textBox.direction;
-  element.style.width = inchesToCss(textBox.width);
-  element.style.height = inchesToCss(textBox.height);
-  element.style.maxWidth = anchored ? "none" : "100%";
-  element.style.overflow = textBox.verticalOverflow === "clip" ? "hidden" : "visible";
-  element.style.paddingTop = inchesToCss(textBox.insets?.top ?? 0.05);
-  element.style.paddingRight = inchesToCss(textBox.insets?.right ?? 0.1);
-  element.style.paddingBottom = inchesToCss(textBox.insets?.bottom ?? 0.05);
-  element.style.paddingLeft = inchesToCss(textBox.insets?.left ?? 0.1);
-  if (textBox.fill !== undefined) {
-    element.style.backgroundColor = textBox.fill;
-    element.dataset.aaredShade = textBox.fill;
-  }
-  if (textBox.border !== undefined) {
-    element.style.border = `${ptToPx(textBox.border.widthPt)}px ${textBox.border.style} ${textBox.border.color}`;
-  }
+  const { frame: element, content, contentFrame } = createTextBox(textBox, anchored, wiring.urls, () => !wiring.destroyed);
   if (!anchored) element.style.marginBlock = `${BLOCK_MARGIN_EM}em`;
   const previousFrame = wiring.frame;
-  wiring.frame = { columnPx: textBox.width * PX_PER_INCH, columnLeftPx: 0 };
+  wiring.frame = contentFrame;
   try {
-    for (const node of textBox.content) appendFlowNode(element, node, wiring);
+    for (const node of textBox.content) appendFlowNode(content, node, wiring);
   } finally {
     wiring.frame = previousFrame;
   }
+  finishTextBox(element);
+  const surface = element.querySelector<HTMLElement>('[data-aared-element="text-box-surface"]')!;
+  registerDrawingEffects(surface, textBox.effects, wiring, textBox.transform);
   return element;
 }
 
@@ -972,24 +1099,27 @@ function footnoteMarker(host: HTMLElement, run: TextRunModel, inner: HTMLElement
 
 /**
  * Point `element` at its media's shared URL (a header logo repeats on every
- * page, so its images share one fetch and one Blob), or fall back to alt text
- * when the fetch fails.
+ * page, so its images share one fetch and one Blob), trying the SVG source
+ * first with Office's raster fallback when it cannot be read or decoded, or
+ * fall back to alt text when neither paints.
  */
 function wireImageMedia(
   element: HTMLImageElement,
-  image: { mediaId: string; contentType: string; alt?: string },
+  image: { mediaId: string; contentType: string; fallbackMediaId?: string; fallbackContentType?: string; alt?: string },
   urls: MediaUrls,
   wiring: ImageWiring,
 ): void {
   element.dataset.aaredMediaId = image.mediaId;
-  void urls.url(image.mediaId, image.contentType).then(
-    (url) => {
-      if (url !== undefined && !wiring.destroyed) element.src = url;
-    },
-    () => {
-      if (!wiring.destroyed) element.alt = image.alt ?? image.mediaId;
-    },
-  );
+  paintImageSource(element, urls, {
+    mediaId: image.mediaId,
+    contentType: image.contentType,
+    ...(image.fallbackMediaId === undefined || image.fallbackContentType === undefined ? {} : {
+      fallbackMediaId: image.fallbackMediaId,
+      fallbackContentType: image.fallbackContentType,
+    }),
+  }, () => {
+    if (!wiring.destroyed) element.alt = image.alt ?? image.mediaId;
+  });
 }
 
 /** A picture on the text line: it sits on the baseline like a glyph, not in its own block. */
@@ -1000,6 +1130,21 @@ function appendInlineImage(host: HTMLElement, image: DocxInlineImage, hyperlink:
   if (wiring.urls === undefined) {
     holder.textContent = image.alt ?? "";
     host.append(holder);
+    return;
+  }
+  if (image.effects !== undefined) {
+    const { box, image: element } = effectPictureBox(image, wiring);
+    holder.style.display = "inline-block";
+    holder.style.position = "relative";
+    holder.style.verticalAlign = `${-(image.effectInsets?.bottom ?? 0) * PX_PER_INCH}px`;
+    for (const side of ["Left", "Right", "Top", "Bottom"] as const) {
+      const value = image.effectInsets?.[side.toLowerCase() as "left" | "right" | "top" | "bottom"] ?? 0;
+      holder.style[`padding${side}`] = inchesToCss(value);
+    }
+    holder.append(box);
+    wireImageMedia(element, image, wiring.urls, wiring);
+    if (hyperlink === undefined) host.append(holder);
+    else { const link = document.createElement("a"); link.href = hyperlink; link.append(holder); host.append(link); }
     return;
   }
   const element = document.createElement("img");
@@ -1030,6 +1175,18 @@ function appendImage(host: HTMLElement, image: DocxImageNode, wiring: ImageWirin
   figure.style.minWidth = "0";
   figure.style.maxWidth = "100%";
   if (wiring.urls !== undefined) {
+    if (image.effects !== undefined) {
+      const { box, image: element } = effectPictureBox(image, wiring);
+      box.style.maxWidth = "100%";
+      box.style.height = "auto";
+      box.style.aspectRatio = `${image.width} / ${image.height}`;
+      if (image.align === "center") { box.style.marginLeft = "auto"; box.style.marginRight = "auto"; }
+      else if (image.align === "right") box.style.marginLeft = "auto";
+      figure.style.paddingTop = inchesToCss(image.effectInsets?.top ?? 0);
+      figure.style.paddingBottom = inchesToCss(image.effectInsets?.bottom ?? 0);
+      figure.append(box); wireImageMedia(element, image, wiring.urls, wiring);
+      host.append(figure); return;
+    }
     const element = document.createElement("img");
     element.alt = image.alt ?? "";
     element.style.display = "block";
@@ -1057,7 +1214,6 @@ function appendImage(host: HTMLElement, image: DocxImageNode, wiring: ImageWirin
 
 /** A chart's frame: the shared painter lays the chart out at its extent and draws it here (PPTX and XLSX draw the same way). */
 const CHART_FRAME = cssClass("display:block;position:relative;overflow:hidden");
-const CHART_SVG_FILL = cssClass("position:absolute;inset:0;width:100%;height:100%");
 
 function chartFrame(chart: DocxChartNode, wiring: ImageWiring): HTMLElement {
   const frame = document.createElement("span");
@@ -1065,7 +1221,7 @@ function chartFrame(chart: DocxChartNode, wiring: ImageWiring): HTMLElement {
   frame.setAttribute("class", CHART_FRAME);
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.dataset.aaredElement = "chart-graphic";
-  svg.setAttribute("class", CHART_SVG_FILL);
+  svg.setAttribute("class", FRAME_PAINT);
   frame.append(svg);
   paintChart(svg, chart.spec, {
     frame: { width: chart.width, height: chart.height },
@@ -1126,6 +1282,24 @@ function documentHasCharts(sections: readonly DocumentSection[]): boolean {
     }
   });
   return sections.some((section) => visit(section.root) || visit(section.header ?? []) || visit(section.footer ?? []));
+}
+
+/** All stories and nested content use the same drawing painter. */
+function documentHasDrawingEffects(sections: readonly DocumentSection[]): boolean {
+  const drawing = (node: DocxDrawingNode): boolean => node.type === "textBox"
+    ? node.effects !== undefined || visit(node.content)
+    : node.type === "image" && node.effects !== undefined;
+  const paragraph = (node: { runs: readonly TextRunModel[]; floats?: readonly DocxDrawingNode[] }): boolean =>
+    node.runs.some(run => run.image?.effects !== undefined) || (node.floats?.some(drawing) ?? false);
+  const visit = (nodes: readonly FlowNode[]): boolean => nodes.some(node => {
+    if (node.type === "image" || node.type === "textBox") return drawing(node);
+    if (node.type === "paragraph" || node.type === "heading") return paragraph(node);
+    if (node.type === "table") return node.rows.some(row => row.cells.some(cell => visit(cell.nodes)));
+    if (node.type === "list") return node.items.some(item => paragraph(item.paragraph));
+    if (node.type === "footnote") return visit(node.nodes);
+    return false;
+  });
+  return sections.some(section => visit(section.root)) || docxStories(sections).some(story => visit(story.nodes));
 }
 
 function appendUnsupported(host: HTMLElement, node: DocxUnsupportedNode): void {
@@ -1274,12 +1448,12 @@ export interface DocxPagination {
 
 export interface DocxRenderInput {
   /**
-   * The document to paint, or already-resolved sections for callers holding
-   * a detached model. Passing the `DocxDocument` defaults `mediaResolver`
+   * The document or preview content to paint, or already-resolved sections for callers holding
+   * a detached model. Passing the `DocxDocument` or `DocxContent` defaults `mediaResolver`
    * to the owning session (the same rule as PPTX/XLSX handle inputs);
    * detached sections need an explicit `mediaResolver` for images.
    */
-  document: DocxDocument | readonly DocumentSection[];
+  document: DocxDocument | DocxContent | readonly DocumentSection[];
   target: HTMLElement;
   pagination?: DocxPagination;
   appearance?: Appearance;
@@ -1321,9 +1495,10 @@ export interface DocxRenderHandle extends EventTargetOf<DocxRenderEventMap> {
   /** The scale actually painted — the number, or what the fit mode computed. */
   readonly scale: number;
   /**
-   * Replace the viewer appearance in place without re-pagination: refreshes
-   * the theme marker, keeping scroll position and zoom. Content stays
-   * source-faithful; theme never affects layout metrics.
+   * Update the viewer appearance in place without re-pagination: refreshes
+   * the theme marker, keeping scroll position and zoom. Changes only what it
+   * sets; a theme it leaves out stays. Content stays source-faithful; theme
+   * never affects layout metrics.
    */
   setAppearance(appearance: Appearance): void;
   /** Laid-out pages: `0` and `[]` in flow mode, which has no pages. */
@@ -1409,6 +1584,7 @@ function paintAppearanceRoot(root: HTMLElement, dark: boolean): void {
 class DocxViewer extends RenderHandleBase<Appearance> implements DocxRenderHandle {
   readonly pageCount: number;
   readonly pages: readonly DocxPageInfo[];
+  #appearance: Appearance | undefined;
 
   /** `root` is the painted tree the headings and pages live in. */
   constructor(
@@ -1417,15 +1593,18 @@ class DocxViewer extends RenderHandleBase<Appearance> implements DocxRenderHandl
     private readonly outline: readonly HeadingInfo[],
     private readonly layout: boolean,
     private readonly root: HTMLElement,
+    appearance: Appearance | undefined,
   ) {
     super(zoom);
     this.pageCount = pages.length;
     this.pages = pages;
+    this.#appearance = appearance;
   }
 
   setAppearance(appearance: Appearance): void {
     if (this.destroyed) return;
-    this.applyAppearance(appearance);
+    this.#appearance = mergeAppearance(this.#appearance, appearance);
+    this.applyAppearance(this.#appearance);
   }
 
   async goToSearchMatch(match: DocxSearchMatch): Promise<void> {
@@ -1494,7 +1673,22 @@ function createWiring(options: RenderOptions): ImageWiring {
     outline: options.outline,
     refAnchors: new Map<string, string>(),
     cleanups: [],
+    effects: [],
   };
+}
+
+/**
+ * Every heading a laid-out page holds, top-level and in tables and text
+ * boxes, for TOC page references. A heading split across pages keeps its
+ * first page: pagination places each node whole.
+ */
+function collectPageHeadings(nodes: readonly FlowNode[], into: DocxHeadingNode[]): void {
+  for (const node of nodes) {
+    if (node.type === "heading") into.push(node);
+    else if (node.type === "table") {
+      for (const row of node.rows) for (const cell of row.cells) collectPageHeadings(cell.nodes, into);
+    } else if (node.type === "textBox") collectPageHeadings(node.content, into);
+  }
 }
 
 function destroyWiring(wiring: ImageWiring): () => void {
@@ -1510,10 +1704,11 @@ function destroyWiring(wiring: ImageWiring): () => void {
 }
 
 /**
- * Paint a document. Accepts the `DocxDocument` (media resolves through its
+ * Paint a document. Accepts the `DocxDocument` or borrowed `DocxContent` (media resolves through its
  * session unless an explicit `mediaResolver` is given) or already-resolved
- * sections. The sections are in memory already; the render waits only for
- * the fonts the document uses, then paints synchronously.
+ * sections. The sections are in memory already; the render waits for the
+ * fonts the document uses, paints, then settles delayed chart, text-box and
+ * effect paint before resolving (aborting then takes the paint back out).
  *
  * Flow mode (the default) concatenates every section's root into one
  * article with the last section's header/footer. Layout mode paginates first
@@ -1521,10 +1716,13 @@ function destroyWiring(wiring: ImageWiring): () => void {
  * renderer paints whatever sections it is handed.
  */
 export async function render(input: DocxRenderInput): Promise<DocxRenderHandle> {
-  const { signal } = input;
-  throwIfAborted(signal);
-  const source = input.document;
+  throwIfAborted(input.signal);
+  const source = contentSource<DocxDocument>(input.document) ?? input.document;
+  const signal = contentSignal(input.document, input.signal);
   const owner = source instanceof DocxDocument ? source : undefined;
+  if (owner === undefined && !Array.isArray(source)) {
+    throw new AaredError("invalid-argument", "aared/docx: render() takes a document from open(), viewer.content, or resolved sections");
+  }
   const sections = owner !== undefined ? [...owner.sections.list()] : [...(source as readonly DocumentSection[])];
   const outline = owner?.outline ?? headingOutline(sections);
   const options: RenderOptions = {
@@ -1552,8 +1750,9 @@ async function renderFlow(
   // face arrives, the same as any web page — but the fidelity warnings below
   // read whichever font actually ends up painting, so they wait first too.
   // A document with charts fetches the chart layout file in the same wait
-  // (DECISION_LOG §71), so its charts draw with the rest of the paint.
-  await Promise.all([awaitDocumentFonts(sections), documentHasCharts(sections) ? chartLayoutReady() : undefined]);
+  // (Notes §71), so its charts draw with the rest of the paint.
+  await Promise.all([awaitDocumentFonts(sections), documentHasCharts(sections) ? chartLayoutReady() : undefined,
+    documentHasDrawingEffects(sections) ? loadEffectPainter().catch(() => undefined) : undefined]);
   // The last moment a cancel can still leave the target untouched: from here the paint is synchronous.
   throwIfAborted(signal);
   const wiring = createWiring(options);
@@ -1561,6 +1760,7 @@ async function renderFlow(
   const classSheet = adoptClassSheet(container);
   const article = document.createElement("article");
   article.dataset.aaredElement = "document";
+  article.setAttribute("class", CONTENT_TEXT);
   article.style.width = "100%";
   article.style.minWidth = "0";
   article.style.padding = "2em clamp(1em, 5%, 4em)";
@@ -1615,18 +1815,25 @@ async function renderFlow(
     }
   }
   container.replaceChildren(article);
+  const textBoxes = settleTextBoxes(article, () => !wiring.destroyed);
+  wiring.cleanups.push(textBoxes.dispose);
   settleTabStops(article, () => !wiring.destroyed);
   // Flow width follows the container, so split paragraphs re-run when it changes.
   wiring.cleanups.push(settleSplitWraps(article, () => !wiring.destroyed, { observeWidth: true }));
 
   // Flow has no pages: the column flows to its container like a web page.
-  const viewer = new DocxViewer(options.zoom, [], outline, false, article);
+  const viewer = new DocxViewer(options.zoom, [], outline, false, article, options.appearance);
   viewer.setWarnings(documentWarnings(sections));
   wireViewer(viewer, article, container, wiring, classSheet, (appearance) => {
     paintAppearanceRoot(article, isDark(appearance));
   });
   // A chart whose fonts were still loading when it was painted draws a moment later (it measures them first).
-  await chartsSettled();
+  // Cancelled during that wait, the render takes its article back out and
+  // rejects, so it never hands back a handle (`settleRender`, as in PPTX/XLSX).
+  const settled = Promise.all([chartsSettled(), textBoxes.ready]).then(() => {
+    settleDrawingEffects(wiring);
+  });
+  await settleRender(viewer, container, [...container.childNodes], settled, signal);
   return viewer;
 }
 
@@ -1720,7 +1927,7 @@ function wireViewer(
  * and under the page's own text defaults, and read back what the browser
  * built: each block's margins and border-box height, each table row's grid
  * track. Pagination then breaks on real heights, where the estimator could
- * only guess from average glyph widths (DECISION_LOG §21). One forced layout
+ * only guess from average glyph widths (Notes §21). One forced layout
  * for the whole document. Block images stay with the estimator: their height
  * is the model's until the picture loads.
  */
@@ -1729,7 +1936,7 @@ function measureFlow(sections: DocumentSection[], container: HTMLElement): Measu
   const rows = new Map<DocxTableRowNode, number>();
   // Pictures keep their authored box while loading; nothing ever loads here.
   const urls = new MediaUrls(() => new Promise<ArrayBuffer>(() => {}));
-  const wiring: ImageWiring = { urls, destroyed: false, outline: new Map(), refAnchors: new Map(), pageNumber: 1, pageTotal: 1, cleanups: [] };
+  const wiring: ImageWiring = { urls, destroyed: false, outline: new Map(), refAnchors: new Map(), pageNumber: 1, pageTotal: 1, cleanups: [], effects: [], measuring: true };
   const probe = document.createElement("section");
   probe.setAttribute("class", PAGE);
   probe.setAttribute("aria-hidden", "true");
@@ -1762,15 +1969,22 @@ function measureFlow(sections: DocumentSection[], container: HTMLElement): Measu
   }
   container.append(probe);
   try {
+    // Every number this pass compares is in layout pixels: the page's own box
+    // and the computed margins already are, so a rect height is divided by the
+    // container's painted-to-layout ratio (`paintedToLayoutZoom`) to join them.
+    const zoom = paintedToLayoutZoom(probe);
     // Tabs and split paragraphs are laid out before their heights are read, so pages break on what will paint.
     // Fonts are already awaited here, and the probe is removed right after: no second pass.
     layoutTabStops(probe);
-    settleSplitWraps(probe, () => true, { refont: false });
+    settleTextBoxes(probe, () => !wiring.destroyed, false).dispose();
+    const stopSplits = settleSplitWraps(probe, () => !wiring.destroyed, { refont: false });
+    settleTextBoxes(probe, () => !wiring.destroyed, false).dispose();
+    stopSplits();
     for (const [node, element] of placed) {
       const style = getComputedStyle(element);
       blocks.set(node, {
         topPx: Number.parseFloat(style.marginTop) || 0,
-        contentPx: element.getBoundingClientRect().height,
+        contentPx: element.getBoundingClientRect().height / zoom,
         bottomPx: Number.parseFloat(style.marginBottom) || 0,
       });
       if (node.type === "table") {
@@ -1782,6 +1996,7 @@ function measureFlow(sections: DocumentSection[], container: HTMLElement): Measu
       }
     }
   } finally {
+    destroyWiring(wiring)();
     probe.remove();
     urls.close();
   }
@@ -1798,9 +2013,10 @@ async function renderLayout(
   // Wait for the fonts this document uses to finish loading before the
   // off-screen probe measures anything — a page count decided with the wrong
   // font swaps under it once the real (or calibrated substitute) face
-  // finishes loading (DECISION_LOG §45). Charts' layout file comes in the
+  // finishes loading (Notes §45). Charts' layout file comes in the
   // same wait, as in flow mode.
-  await Promise.all([awaitDocumentFonts(sections), documentHasCharts(sections) ? chartLayoutReady() : undefined]);
+  await Promise.all([awaitDocumentFonts(sections), documentHasCharts(sections) ? chartLayoutReady() : undefined,
+    documentHasDrawingEffects(sections) ? loadEffectPainter().catch(() => undefined) : undefined]);
   // The last moment a cancel can still leave the target untouched: measuring
   // and painting below are synchronous, and nothing is set up before it.
   throwIfAborted(signal);
@@ -1811,6 +2027,25 @@ async function renderLayout(
     softBreaks: options.pagination?.softBreaks ?? "prefer",
     measured: measureFlow(sections, container),
   });
+  // TOC page references resolve against the pages just laid out: each target
+  // heading's first page, by its printed number (restarts honoured). Outline
+  // headings answer at their `aared-heading-N` fragment, table-cell targets
+  // at their own `tocAnchor`. The off-screen measure pass has no map, so it
+  // keeps cached text (widths barely differ at a right tab).
+  const tocPages = new Map<string, string>();
+  const seenHeadings = new Set<DocxHeadingNode>();
+  for (const page of layout.pages) {
+    const headings: DocxHeadingNode[] = [];
+    collectPageHeadings(page.body, headings);
+    for (const heading of headings) {
+      if (seenHeadings.has(heading)) continue;
+      seenHeadings.add(heading);
+      const index = wiring.outline.get(heading);
+      const fragment = index !== undefined ? `aared-heading-${index + 1}` : heading.tocAnchor;
+      if (fragment !== undefined) tocPages.set(fragment, String(page.number));
+    }
+  }
+  wiring.tocPages = tocPages;
 
   const stack = document.createElement("div");
   stack.dataset.aaredElement = "pages";
@@ -1844,6 +2079,8 @@ async function renderLayout(
   });
   stack.append(...sheets);
   container.replaceChildren(stack);
+  const textBoxes = settleTextBoxes(stack, () => !wiring.destroyed);
+  wiring.cleanups.push(textBoxes.dispose);
   if (lazy) wiring.cleanups.push(settlePageTabStops(sheets, () => !wiring.destroyed));
   else settleTabStops(stack, () => !wiring.destroyed);
   wiring.cleanups.push(settleSplitWraps(stack, () => !wiring.destroyed));
@@ -1856,13 +2093,18 @@ async function renderLayout(
     height: page.heightPx / PX_PER_INCH,
     orientation: page.orientation,
   }));
-  const viewer = new DocxViewer(options.zoom, pageInfos, outline, true, stack);
+  const viewer = new DocxViewer(options.zoom, pageInfos, outline, true, stack, options.appearance);
   viewer.setWarnings([...layout.warnings, ...documentWarnings(sections)]);
   wireViewer(viewer, stack, container, wiring, classSheet, (appearance) => {
     paintAppearanceRoot(stack, isDark(appearance));
   });
   // A chart whose fonts were still loading when it was painted draws a moment later (it measures them first).
-  await chartsSettled();
+  // Cancelled during that wait, the render takes its pages back out and
+  // rejects, so it never hands back a handle (`settleRender`, as in PPTX/XLSX).
+  const settled = Promise.all([chartsSettled(), textBoxes.ready]).then(() => {
+    settleDrawingEffects(wiring);
+  });
+  await settleRender(viewer, container, [...container.childNodes], settled, signal);
   return viewer;
 }
 
@@ -1897,7 +2139,7 @@ function renderLayoutPage(
   const pageFrame: AnchorFrame = {
     columnPx: page.widthPx - page.marginsPx.left - page.marginsPx.right,
     columnLeftPx: page.marginsPx.left,
-    page: { widthPx: page.widthPx, heightPx: page.heightPx, marginTopPx: page.marginsPx.top, originXPx: 0, originYPx: 0 },
+    page: { widthPx: page.widthPx, heightPx: page.heightPx, marginTopPx: page.marginsPx.top, marginBottomPx: page.marginsPx.bottom, originXPx: 0, originYPx: 0 },
   };
 
   // Word's box model: a header hangs from its distance at the top of the page
@@ -1955,6 +2197,9 @@ function renderLayoutPage(
   paintSurface(sheet);
   return sheet;
 }
-export { preview } from "./viewer.js";
+/** Load the embed controller only when the convenience preview API is used. */
+export async function preview(input: import("./viewer.js").DocxPreviewInput): Promise<import("../preview/index.js").DocxPreview> {
+  return (await import("./viewer.js")).preview(input);
+}
 export type { DocxPreviewInput } from "./viewer.js";
-export type { DocxPreview, PreviewSearchOptions, PreviewEventMap, SearchNavigation, SearchNavigationState } from "../preview/index.js";
+export type { DocxPreview, PreviewSearchMatch, PreviewSearchOptions, PreviewEventMap, SearchNavigation, SearchNavigationState } from "../preview/index.js";

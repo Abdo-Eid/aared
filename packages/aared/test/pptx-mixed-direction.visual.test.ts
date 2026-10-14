@@ -1,9 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 import { OpcPackage } from "../src/core/opc.js";
 import { indexPptx, parsePptxSlide, parseTextBody } from "../src/core/pptx.js";
 import { parseXml } from "../src/core/xml.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const COVERAGE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 const PRODUCTION = `${import.meta.dir}/../../../fixtures/post-production-review.pptx`;
 
@@ -39,14 +39,10 @@ visual("visual DOM output: PPTX orders Arabic words around ASCII punctuation as 
       geometry: { path: "M 0 0 H 100000 V 100000 H 0 Z", viewBox: { width: 100000, height: 100000 } },
     })),
   };
-  const build = await Bun.build({ entrypoints: [`${import.meta.dir}/../src/pptx/index.ts`], target: "browser", format: "esm" });
-  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
-  const module = await build.outputs[0]!.text();
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      if (new URL(request.url).pathname === "/pptx.mjs") return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      return new Response(`<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  await withVisualPage({
+    modules: { "/pptx.mjs": module },
+    page: `<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">
         import { render } from "/pptx.mjs";
         window.renderFixture = async (model) => {
           await render({ slide: model, target: document.querySelector("#host"), zoom: 1 });
@@ -79,12 +75,10 @@ visual("visual DOM output: PPTX orders Arabic words around ASCII punctuation as 
           }
           return found;
         };
-      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
+      </script>`,
+    width: 1280,
+    height: 720,
+  }, async (view) => {
     await view.evaluate(`renderFixture(${JSON.stringify(model)})`);
     for (const item of cases) {
       const x = await view.evaluate(`wordX(${JSON.stringify(item.id)}, ${JSON.stringify([FIRST, SECOND, THIRD])})`) as Record<string, number>;
@@ -104,7 +98,5 @@ visual("visual DOM output: PPTX orders Arabic words around ASCII punctuation as 
     expect(arabic).not.toBeNull();
     expect(english).not.toBeNull();
     expect(arabic!).toBeLessThan(english!);
-  } finally {
-    server.stop();
-  }
+  });
 });

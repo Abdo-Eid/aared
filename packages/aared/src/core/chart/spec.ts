@@ -51,6 +51,13 @@ export interface TextLook {
   csFamily?: string;
   /** `a:bodyPr/@rot`, degrees; undefined lets the layout pick. */
   rotation?: number;
+  /**
+   * `a:normAutofit/@lnSpcReduction` as a share of the line height Office removes
+   * (20000 = 0.2), from a stored scale rather than a fit. Glyph sizes are
+   * unaffected. Measured in Excel 16.0 build 20430: a 24pt title's PDF baseline
+   * gap fell from 25.39pt to 20.30pt (0.799 of it) with 20000.
+   */
+  lineSpacingReduction?: number;
 }
 
 export interface ManualLayout {

@@ -74,7 +74,7 @@ const hasNav = headings.some((h) => h.depth === 2);
     line-height: 1.7;
     color: var(--lt-ink);
   }
-  .docs-content h1 {
+  .docs-content h1:where(:not(.demo-stage *)) {
     font-family: var(--lt-font-display);
     font-size: var(--lt-step-3);
     line-height: 1.15;
@@ -128,7 +128,7 @@ const hasNav = headings.some((h) => h.depth === 2);
   }
 
   /* Code blocks: rounded cards in the theme's code surface; the copy button is CopyButtons' */
-  .docs-content .code-wrap {
+  .docs-content .code-wrap:where(:not(.demo-stage *)) {
     margin: 1.25rem 0;
   }
   .docs-content pre:where(:not(.demo-stage *)) {
@@ -142,27 +142,13 @@ const hasNav = headings.some((h) => h.depth === 2);
     border: 1px solid var(--lt-code-edge);
     background-color: var(--lt-code) !important;
   }
-  /* Shiki dual-theme output (`defaultColor: false`): every token carries
-     --shiki-light / --shiki-dark; the site theme picks the set. */
-  .docs-content pre.astro-code,
-  .docs-content pre.astro-code span {
-    color: var(--shiki-light);
-  }
-  :root[data-theme='dark'] .docs-content pre.astro-code,
-  :root[data-theme='dark'] .docs-content pre.astro-code span {
-    color: var(--shiki-dark);
-  }
   /* Wrapped blocks (the playground's): continuation lines hang two columns in */
-  .docs-content pre[style*="pre-wrap"] .line {
+  .docs-content pre[style*="pre-wrap"] .line:where(:not(.demo-stage *)) {
     display: inline-block;
     box-sizing: border-box;
     width: 100%;
     padding-inline-start: 2ch;
     text-indent: -2ch;
-  }
-  /* github-dark comments (#6a737d) are ~3:1 on the dark code background */
-  :root[data-theme='dark'] .docs-content pre span[style*="--shiki-dark:#6A737D" i] {
-    color: #a3adb7 !important;
   }
 
   /* Callouts: an accent outline on the page colour, never a fill — filled

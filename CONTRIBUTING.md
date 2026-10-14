@@ -5,10 +5,10 @@ live in one place each, so they don't drift.
 
 ## Before you start
 
-- **Check the roadmap before opening an issue.** If the gap is already in
-  [`docs/ROADMAP.md`](docs/ROADMAP.md), it is known; don't file it again.
-  Accepted limits are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-  (Known limits).
+- **Check the gap inventory before opening an issue.** If the difference is
+  already in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#gaps-limits-and-fidelity-gaps)
+  — open, deferred, accepted or by design — it is known; don't file it again.
+  Accepted limits are in the same file (Known limits).
 - **Open an issue first** for anything bigger than a small fix, so we agree
   on the change before you build it.
 - **Read [`AGENTS.md`](AGENTS.md).** It is the working charter for humans and
@@ -16,7 +16,7 @@ live in one place each, so they don't drift.
   conventions and the ground-truth probe for OOXML questions.
 - Some things are out of scope by design (editing, canvas text, PDF); see
   the first rules in `AGENTS.md` and
-  [`docs/DECISION_LOG.md`](docs/DECISION_LOG.md).
+  [`docs/Notes.md`](docs/Notes.md).
 
 ## Set up and check your work
 
@@ -36,6 +36,8 @@ Follow [`AGENTS.md § Commits`](AGENTS.md#commits). In the description, say
 what was missing, what a consumer can do now, which formats it touches, and
 how you proved it ([`AGENTS.md § Capability delivery`](AGENTS.md#capability-delivery)).
 Update the doc that owns each fact you changed (the Docs map in `AGENTS.md`).
+Record post-baseline changes in [`CHANGELOG.md`](CHANGELOG.md); rationale and
+native findings belong in [`docs/Notes.md`](docs/Notes.md).
 
 ## License
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { PALETTE, automaticInk, paintTokens, resolveTheme, watchSystemTheme } from "../src/appearance.js";
+import { APPEARANCE_DEFAULTS, PALETTE, automaticInk, mergeAppearance, paintTokens, resolveTheme, watchSystemTheme } from "../src/appearance.js";
 import { contrastRatio } from "../src/core/color.js";
 
 /** The custom properties a renderer publishes, read back from a stand-in element. */
@@ -134,6 +134,43 @@ describe("design tokens", () => {
       expect(contrastRatio(muted, surface)!).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(accent, surface)!).toBeGreaterThanOrEqual(4.5);
     }
+  });
+});
+
+describe("appearance updates", () => {
+  test("a theme switch keeps every spreadsheet knob the host set", () => {
+    const current = { theme: "light", spreadsheet: { sheetTabs: false, headers: false } } as const;
+    expect(mergeAppearance(current, { theme: "dark" })).toEqual({ theme: "dark", spreadsheet: { sheetTabs: false, headers: false } });
+  });
+
+  test("spreadsheet knobs merge one level down, and the theme stays when left out", () => {
+    const current = { theme: "dark", spreadsheet: { sheetTabs: false, gridlines: "hide" } } as const;
+    expect(mergeAppearance(current, { spreadsheet: { sheetTabs: true } })).toEqual({ theme: "dark", spreadsheet: { sheetTabs: true, gridlines: "hide" } });
+  });
+
+  test("an empty update changes nothing, and a knob set to undefined counts as left out", () => {
+    const current = { theme: "dark", spreadsheet: { fill: false } } as const;
+    expect(mergeAppearance(current, {})).toEqual(current);
+    const loose = { theme: undefined, spreadsheet: { fill: undefined } } as unknown as Parameters<typeof mergeAppearance>[1];
+    expect(mergeAppearance(current, loose)).toEqual(current);
+  });
+
+  test("it never changes either input and works from no appearance at all", () => {
+    const current = { spreadsheet: { headers: false } };
+    const patch = { spreadsheet: { selection: false } };
+    const merged = mergeAppearance(current, patch);
+    expect(merged).toEqual({ spreadsheet: { headers: false, selection: false } });
+    expect(current).toEqual({ spreadsheet: { headers: false } });
+    expect(patch).toEqual({ spreadsheet: { selection: false } });
+    expect(mergeAppearance(undefined, { theme: "system" })).toEqual({ theme: "system" });
+    expect(mergeAppearance(undefined, {})).toEqual({});
+  });
+
+  test("merging the full defaults under a partial appearance fills in every knob", () => {
+    expect(mergeAppearance(APPEARANCE_DEFAULTS, { theme: "dark", spreadsheet: { sheetTabs: true } })).toEqual({
+      theme: "dark",
+      spreadsheet: { ...APPEARANCE_DEFAULTS.spreadsheet, sheetTabs: true },
+    });
   });
 });
 

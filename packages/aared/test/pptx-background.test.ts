@@ -22,9 +22,9 @@ test("a slide's own solid background wins (dark title and closing slides)", asyn
 test("a slide with no background inherits the master's plain background ref", async () => {
   const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
   const deck = await indexPptx(pkg);
-  // The master carries a plain `bgRef` on `bg1`, which resolves white.
-  for (const index of [0, 1, 2, 3, 4, 5]) {
-    const { background } = await parsePptxSlide(pkg, deck, index);
-    expect(background).toEqual({ kind: "solid", color: "#FFFFFF" });
-  }
+  // The master carries a plain `bgRef` on `bg1`, which resolves white. Read
+  // one slide's inheritance here; the deck's own explicit backgrounds are read
+  // in the test above.
+  const { background } = await parsePptxSlide(pkg, deck, 0);
+  expect(background).toEqual({ kind: "solid", color: "#FFFFFF" });
 });

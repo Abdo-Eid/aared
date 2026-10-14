@@ -259,8 +259,7 @@ aared-viewer::part(label) {
   outline-offset: 2px;
 }
 .demo-pills button[aria-selected="true"],
-.demo-pills button[aria-pressed="true"],
-.demo-pills button[data-active] {
+.demo-pills button[aria-pressed="true"] {
   background: var(--lt-mount);
   color: var(--lt-ink);
   font-weight: 600;
@@ -278,7 +277,7 @@ aared-viewer::part(label) {
   color: var(--lt-ink);
 }
 [data-status][data-state="error"] {
-  color: #c0392b;
+  color: var(--lt-error);
 }
 
 .demo-stage {

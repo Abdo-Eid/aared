@@ -41,9 +41,9 @@ bun run dev          # serves bench/ at http://localhost:5173
   signal and one `destroy()`. XLSX tabs stay off and DOCX stays in layout mode;
   timing still includes dynamic import, opening and first paint.
 - Deterministic numbers live outside the UI: `measure.html` is the page the
-  harness drives, and `bun tools/bench-measure.ts` runs it in a real browser
+  harness drives, and `bun tools/benchmarks/measure.ts` runs it in a real browser
   (`--run` for the open-time and memory passes, `--size` for every file a
-  renderer fetches, `--search`), writes to `tools/bench-results/` (local,
+  renderer fetches, `--search`), writes to `tools/out/benchmarks/` (local,
   gitignored) and regenerates the tables in `docs/BENCHMARKS.md` via
   `--render-md`. `docs/BENCHMARKS.md` has the method.
 

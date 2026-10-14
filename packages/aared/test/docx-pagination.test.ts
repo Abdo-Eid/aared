@@ -5,6 +5,8 @@ import { dropsTopSpacing, estimateBlockHeightPx, paginate } from "../src/core/do
 import { lineFontSizePt } from "../src/core/typography.js";
 import type { PageStartReason } from "../src/core/docx/pagination.js";
 import type { DocumentSection, FlowNode, TextRunModel } from "../src/core/model.js";
+import { authoredCoveragePages } from "./docx-fixture.js";
+import { withPart } from "./mutate.js";
 
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/docx-coverage.docx`;
 
@@ -34,49 +36,94 @@ async function productionBrief(): Promise<DocumentSection[]> {
   return parseDocxSections(pkg, await indexDocx(pkg));
 }
 
+/** Exact lines distinguish body headings from the fixture's TOC entries. */
+function pageWithLine<T extends { body: FlowNode[] }>(pages: T[], line: string): T {
+  const matches = pages.filter((page) => pageText(page).split("\n").includes(line));
+  expect(matches).toHaveLength(1);
+  return matches[0]!;
+}
+
 describe("DOCX layout pagination", () => {
+  test("the authored-page oracle grows with an appended explicit coverage page", async () => {
+    const pkg = await OpcPackage.open(await Bun.file(FIXTURE_PATH).arrayBuffer());
+    const before = await authoredCoveragePages(pkg);
+    const appended = await withPart("docx-coverage.docx", "word/document.xml", (xml) => {
+      const end = xml.lastIndexOf("<w:sectPr");
+      expect(end).toBeGreaterThan(0);
+      return xml.slice(0, end) + '<w:p><w:r><w:br w:type="page"/><w:t>Appended coverage page</w:t></w:r></w:p>' + xml.slice(end);
+    });
+    expect(await authoredCoveragePages(appended)).toBe(before + 1);
+    const layout = paginate(await parseDocxSections(appended, await indexDocx(appended)));
+    expect(layout.pages).toHaveLength(before + 1);
+    expect(pageText(layout.pages.at(-1)!)).toContain("Appended coverage page");
+  });
+
   test("merged coverage fixture retains section boundaries and physical page geometry", async () => {
     const layout = paginate(await productionBrief());
     expect(layout.warnings).toEqual([]);
-    // The seven wrapping examples share portrait page 5; the empty section
-    // markers do not create pages of their own.
-    expect(layout.pages).toHaveLength(7);
-    expect(layout.pages.map((page) => page.orientation)).toEqual(["portrait", "portrait", "portrait", "landscape", "portrait", "landscape", "portrait"]);
-    expect(layout.pages.map((page) => page.startReason)).toEqual([
-      "document",
-      "explicit-page-break",
-      "explicit-page-break",
-      "section-next-page",
-      "section-next-page",
-      "section-next-page",
-      "section-next-page",
-    ]);
-    expect(layout.pages.map((page) => page.index)).toEqual([1, 2, 3, 4, 5, 6, 7]);
-    expect(layout.pages.map((page) => page.sectionIndex)).toEqual([0, 0, 0, 1, 2, 3, 4]);
+    const pkg = await OpcPackage.open(await Bun.file(FIXTURE_PATH).arrayBuffer());
+    expect(layout.pages).toHaveLength(await authoredCoveragePages(pkg));
+    // Pin the authored cases, not the total: appending a new example must not
+    // weaken the existing section/break checks or require updating every test.
+    const cases = [
+      ["PRODUCTION BRIEF", "portrait", "document", 0],
+      ["1. Project Overview", "portrait", "explicit-page-break", 0],
+      ["3. Schedule", "portrait", "explicit-page-break", 0],
+      ["Appendix A — Shot List, Episode 04", "landscape", "section-next-page", 1],
+      ["8. Lists, headers and empty lines / القوائم والرؤوس والأسطر الفارغة", "portrait", "section-next-page", 4],
+      ["8. Text-box fills and geometry / تعبئة الصناديق وأشكالها", "portrait", "explicit-page-break", 4],
+      ["9. Text-box placement / موضع النص والصندوق", "portrait", "explicit-page-break", 4],
+      ["10. Text-box sizing / حجم الصناديق", "portrait", "explicit-page-break", 4],
+      ["Shared drawing effects / تأثيرات الرسم", "portrait", "section-next-page", 5],
+    ] as const;
+    const named = cases.map(([line, orientation, startReason, sectionIndex]) => {
+      const page = pageWithLine(layout.pages, line);
+      expect(page).toMatchObject({ orientation, startReason, sectionIndex });
+      return page;
+    });
+    const wrapping = layout.pages.filter((page) => pageText(page).includes("التفاف مربع عند الطرف الأيسر"));
+    expect(wrapping).toHaveLength(1);
+    expect(wrapping[0]).toMatchObject({ orientation: "portrait", startReason: "section-next-page", sectionIndex: 2 });
+    const charts = layout.pages.filter((page) => page.body.some((node) => node.type === "chart"));
+    expect(charts).toHaveLength(1);
+    expect(charts[0]).toMatchObject({ orientation: "landscape", startReason: "section-next-page", sectionIndex: 3 });
+    const coverage = [...named.slice(0, 4), wrapping[0]!, charts[0]!, ...named.slice(4)];
+    // No phantom pages between these known cases, and every page is numbered
+    // consecutively, including any coverage appended later.
+    expect(coverage.map((page) => page.index)).toEqual(coverage.map((_, index) => index + 1));
+    expect(layout.pages.map((page) => page.index)).toEqual(layout.pages.map((_, index) => index + 1));
     // Real section geometry drives every page, not a fixed body padding.
-    expect(layout.pages[0]?.widthPx).toBeCloseTo(793.73, 0);
-    expect(layout.pages[0]?.heightPx).toBeCloseTo(1122.53, 0);
-    expect(layout.pages[3]?.widthPx).toBeCloseTo(1122.53, 0);
-    expect(layout.pages[3]?.heightPx).toBeCloseTo(793.73, 0);
-    const margins = layout.pages[0]?.marginsPx;
+    expect(named[0]?.widthPx).toBeCloseTo(793.73, 0);
+    expect(named[0]?.heightPx).toBeCloseTo(1122.53, 0);
+    expect(named[3]?.widthPx).toBeCloseTo(1122.53, 0);
+    expect(named[3]?.heightPx).toBeCloseTo(793.73, 0);
+    const margins = named[0]?.marginsPx;
     expect(margins?.top).toBeCloseTo(48, 1);
     expect(margins?.right).toBeCloseTo(48, 1);
     expect(margins?.bottom).toBeCloseTo(48, 1);
     expect(margins?.left).toBeCloseTo(75.6, 1);
   });
 
-  test("the merged final section page takes its own first-page header", async () => {
+  test("a section's first page takes its own header and numbering continues across breaks", async () => {
     const layout = paginate(await productionBrief());
     const headerText = (page: { header?: FlowNode[] }): string => (page.header ?? []).map((node) => (node.type === "paragraph" || node.type === "heading" ? joined(node) : "")).join("\n");
-    const finalPage = layout.pages[6]!;
+    const finalPage = pageWithLine(layout.pages, "8. Lists, headers and empty lines / القوائم والرؤوس والأسطر الفارغة");
     expect(headerText(finalPage)).toBe("رأس الصفحة الأولى · First-page header");
     // Printed numbers run on from the earlier sections: no restart is authored.
-    expect(finalPage.number).toBe(7);
+    expect(layout.pages.map((page) => page.number)).toEqual(layout.pages.map((_, index) => index + 1));
+    const continuation = pageWithLine(layout.pages, "8. Text-box fills and geometry / تعبئة الصناديق وأشكالها");
+    expect(continuation.number).toBe(finalPage.number + 1);
+    expect(headerText(continuation)).toContain("NILE FRAME STUDIO");
+    expect(headerText(continuation)).not.toContain("First-page header");
   });
 
   test("merged coverage fixture content remains in its authored sections", async () => {
     const layout = paginate(await productionBrief());
-    const [first, second, third, fourth] = layout.pages.map(pageText);
+    const cover = pageWithLine(layout.pages, "PRODUCTION BRIEF");
+    const specs = pageWithLine(layout.pages, "1. Project Overview");
+    const schedule = pageWithLine(layout.pages, "3. Schedule");
+    const appendix = pageWithLine(layout.pages, "Appendix A — Shot List, Episode 04");
+    const [first, second, third, fourth] = [cover, specs, schedule, appendix].map(pageText);
     expect(first).toContain("Contents");
     expect(second).toContain("2. Technical Specifications");
     // The technical table stays on page 2 with its footnote reference...
@@ -87,7 +134,7 @@ describe("DOCX layout pagination", () => {
     expect(third).not.toContain("Appendix A");
     // ...and the landscape section holds the appendix.
     expect(fourth).toContain("Appendix A — Shot List, Episode 04");
-    const wrappingPage = pageText(layout.pages[4]!);
+    const wrappingPage = pageText(layout.pages.find((page) => pageText(page).includes("التفاف مربع عند الطرف الأيسر"))!);
     for (const label of [
       "التفاف مربع عند الطرف الأيسر",
       "التفاف مربع عند الطرف الأيمن",
@@ -99,11 +146,11 @@ describe("DOCX layout pagination", () => {
     ]) expect(wrappingPage).toContain(label);
     // Footnotes follow their references: f1 in the page-2 spec table, f2 in
     // the page-3 schedule.
-    expect(layout.pages[1]?.footnotes.map((note) => note.id)).toEqual(["f1"]);
-    expect(layout.pages[2]?.footnotes.map((note) => note.id)).toEqual(["f2"]);
+    expect(specs.footnotes.map((note) => note.id)).toEqual(["f1"]);
+    expect(schedule.footnotes.map((note) => note.id)).toEqual(["f2"]);
     // Page 6 holds both charts: the inline one as its own block, the anchored
     // one on its paragraph.
-    const chartPage = layout.pages[5]!;
+    const chartPage = layout.pages.find((page) => page.body.some((node) => node.type === "chart"))!;
     expect(chartPage.body.filter((node) => node.type === "chart")).toHaveLength(1);
     expect(chartPage.body.some((node) => node.type === "paragraph" && node.floats?.some((float) => float.type === "chart"))).toBe(true);
   });
@@ -230,7 +277,7 @@ describe("DOCX layout pagination", () => {
   });
 
   // Word's own saved layout can mark exactly where it broke a long table
-  // (DECISION_LOG §45): that boundary wins over the later one aared's own
+  // (Notes §45): that boundary wins over the later one aared's own
   // measurement would otherwise prefer, whenever both agree it is valid
   // (clean of a vertical merge, no `w:keepNext` chain) and it still fits.
   test("a row Word's own layout marked wins the table split over a later boundary that also fits", () => {

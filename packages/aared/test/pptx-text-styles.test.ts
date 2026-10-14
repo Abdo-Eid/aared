@@ -26,6 +26,17 @@ describe("PPTX automatic text color", () => {
     expect(automaticTextColor({ kind: "unsupported", source: "pattern" })).toBe("#000000");
   });
 
+  test("a translucent background is read as black, so the ink stays black on it", () => {
+    // `a:alpha` really does produce this shape (core-shared.test.ts reads one
+    // off `resolveDrawingColor`). A luminance probe cannot read `rgb(...)`, so
+    // the fill must fall through to black: if a "smarter" probe treated a
+    // half-transparent black as dark, it would paint white text on a dark
+    // slide, which is exactly the silent-fallback class §28 fixed.
+    expect(automaticTextColor({ kind: "solid", color: "rgb(0 0 0 / 0.5)" })).toBe("#000000");
+    // A bare hex without its hash is the same colour, not an unparseable one.
+    expect(automaticTextColor({ kind: "solid", color: "3A4961" })).toBe("#FFFFFF");
+  });
+
   test("fill-less titles resolve Automatic contrast, never chrome inheritance", async () => {
     const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
     const deck = await indexPptx(pkg);

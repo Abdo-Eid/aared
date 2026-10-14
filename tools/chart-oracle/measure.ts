@@ -10,7 +10,9 @@
  * { text, x0, y0, x1, y1, size }.
  */
 
-const OUT = `${import.meta.dir}/out`;
+import { OUTPUT_ROOT } from "../shared/paths.js";
+
+const OUT = `${OUTPUT_ROOT}/charts`;
 
 interface Entry {
   viewBox: { width: number; height: number };

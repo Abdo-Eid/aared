@@ -7,11 +7,11 @@
  * lives with the resolver it drives: `packages/aared-fonts/test/
  * absent-fonts.browser.ts`.
  */
+import { browserModule } from "./harness.js";
+
 export const ABSENT_FONTS = process.env.AARED_VISUAL_ABSENT_FONTS === "1";
 
 /** The browser module that defines `window.simulateAbsentFonts(model)`. */
 export async function absentFontsModule(): Promise<string> {
-  const result = await Bun.build({ entrypoints: [`${import.meta.dir}/../../aared-fonts/test/absent-fonts.browser.ts`], target: "browser", format: "esm" });
-  if (!result.success) throw new Error(result.logs.map((log) => log.message).join("\n"));
-  return result.outputs[0]!.text();
+  return browserModule(`${import.meta.dir}/../../aared-fonts/test/absent-fonts.browser.ts`);
 }

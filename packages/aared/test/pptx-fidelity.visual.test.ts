@@ -1,9 +1,8 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { indexPptx, parsePptxSlide } from "../src/core/pptx.js";
 import { OpcPackage } from "../src/core/opc.js";
-import { browserModule } from "./harness.js";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const COVERAGE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 const PRODUCTION_PATH = `${import.meta.dir}/../../../fixtures/post-production-review.pptx`;
 
@@ -23,14 +22,9 @@ visual("visual DOM output: pictures, autofit, numbered bullets, resolved tables,
   const pictureBase64 = Buffer.from(pictureBytes).toString("base64");
 
   const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      const url = new URL(request.url);
-      if (url.pathname === "/pptx.mjs") {
-        return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      }
-      return new Response(`<!doctype html><style>html,body{margin:0;font-family:Arial,sans-serif}#host{width:1280px}</style><main id="host"></main><script type="module">
+  await withVisualPage({
+    modules: { "/pptx.mjs": module },
+    page: `<!doctype html><style>html,body{margin:0;font-family:Arial,sans-serif}#host{width:1280px}</style><main id="host"></main><script type="module">
         import { render } from "/pptx.mjs";
         window.renderedFixture = null;
         const decode = (base64) => Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)).buffer;
@@ -60,13 +54,10 @@ visual("visual DOM output: pictures, autofit, numbered bullets, resolved tables,
           };
           requestAnimationFrame(() => requestAnimationFrame(tick));
         });
-      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 800 });
-    await view.navigate(server.url.href);
-
+      </script>`,
+    width: 1280,
+    height: 800,
+  }, async (view) => {
     // Pictures end-to-end: placement, rotation/flips, crop, async load, fallback.
     await view.evaluate(`renderFixture(${JSON.stringify({ size: productionSlide1.size, elements: [picture] })}, "${pictureBase64}")`);
     await view.evaluate(`waitForPictures()`);
@@ -255,7 +246,7 @@ visual("visual DOM output: pictures, autofit, numbered bullets, resolved tables,
       const fills = [...svg?.querySelectorAll("path") ?? []].map((path) => path.getAttribute("fill"));
       return {
         primitives: svg?.dataset.aaredChartPrimitives,
-        viewBox: svg?.getAttribute("viewBox"),
+        viewBox: svg ? { x: svg.viewBox.baseVal.x, y: svg.viewBox.baseVal.y, width: svg.viewBox.baseVal.width, height: svg.viewBox.baseVal.height } : null,
         direction: svg === null ? undefined : getComputedStyle(svg).direction,
         logged: fills.filter((fill) => fill === "#2E7D74").length,
         planned: fills.filter((fill) => fill === "#C9D6D3").length,
@@ -266,10 +257,14 @@ visual("visual DOM output: pictures, autofit, numbered bullets, resolved tables,
         described: svg?.getAttribute("aria-describedby") === svg?.querySelector("desc")?.id,
         canvasCount: document.querySelectorAll("canvas").length,
       };
-    })()`) as { primitives?: string; viewBox?: string; direction?: string; logged: number; planned: number; texts: string[]; role?: string; label?: string; desc?: string; described: boolean; canvasCount: number };
+    })()`) as { primitives?: string; viewBox: { x: number; y: number; width: number; height: number } | null; direction?: string; logged: number; planned: number; texts: string[]; role?: string; label?: string; desc?: string; described: boolean; canvasCount: number };
     expect(Number(chartOutput.primitives)).toBeGreaterThan(10);
     // The view box is the frame in points: 7.6 x 4.9in.
-    expect(chartOutput.viewBox).toBe("0 0 547.2 352.8");
+    expect(chartOutput.viewBox).not.toBeNull();
+    expect(chartOutput.viewBox!.x).toBe(0);
+    expect(chartOutput.viewBox!.y).toBe(0);
+    expect(chartOutput.viewBox!.width).toBeCloseTo(7.6 * 72, 2);
+    expect(chartOutput.viewBox!.height).toBeCloseTo(4.9 * 72, 2);
     // Pinned left to right, so a chart in a right-to-left slide or page keeps its labels where the layout put them.
     expect(chartOutput.direction).toBe("ltr");
     // Each series' bars (and its legend key) merge into one path per run.
@@ -310,7 +305,5 @@ visual("visual DOM output: pictures, autofit, numbered bullets, resolved tables,
       })));
     }))()`) as { before?: string; after?: string };
     expect(destroyedOutput.after).toBe(destroyedOutput.before);
-  } finally {
-    server.stop();
-  }
+  });
 });

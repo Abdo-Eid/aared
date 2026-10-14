@@ -180,11 +180,6 @@ describe("stock charts", () => {
       expect(Number(first[3])).toBeCloseTo(yPrice(18.5), 0);
     }
   });
-
-  test("the model is plain data", async () => {
-    const { spec } = await load("VOHLC");
-    expect(JSON.parse(JSON.stringify(spec))).toEqual(spec);
-  });
 });
 
 // ------------------------------------------------------------------ of-pie

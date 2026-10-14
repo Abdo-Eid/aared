@@ -3,7 +3,7 @@ import { OpcPackage } from "../src/core/opc.js";
 import { indexPptx, parsePicture, parsePptxSlide } from "../src/core/pptx.js";
 import { parseXml } from "../src/core/xml.js";
 import type { PictureModel } from "../src/core/model.js";
-import { flattenElements } from "./fixture.js";
+import { findCoverageSlide, flattenElements } from "./fixture.js";
 
 const COVERAGE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 const PRODUCTION = `${import.meta.dir}/../../../fixtures/post-production-review.pptx`;
@@ -62,8 +62,9 @@ describe("PPTX pictures", () => {
     const slides = await Promise.all(deck.slideParts.map((_, index) => parsePptxSlide(pkg, deck, index)));
     // Ink fallbacks live inside groups; flatten so nested pictures still count.
     const pictures = slides.flatMap((slide) => flattenElements(slide.elements)).filter((element) => element.kind === "picture");
-    // 8 ink fallbacks (grouped) plus the direct future-coverage image.
-    expect(pictures).toHaveLength(9);
+    // 8 ink fallbacks (grouped) plus the direct future-coverage image, plus
+    // the Office-inserted SVG picture on the appended slide.
+    expect(pictures).toHaveLength(10);
     const direct = flattenElements(slides[2]!.elements).find((element) => element.kind === "picture" && element.id === "68");
     expect(direct).toMatchObject({ mediaId: "ppt/media/image9.png", contentType: "image/png" });
   });
@@ -105,21 +106,25 @@ describe("PPTX pictures", () => {
     });
   });
 
-  test("serves picture bytes through the worker media route", async () => {
-    const { open } = await import("../src/pptx/index.js");
-    const deck = await open(await Bun.file(PRODUCTION).arrayBuffer());
-    try {
-      const slide = await deck.slides.get(0).read();
-      const picture = slide.elements.find((element) => element.kind === "picture");
-      if (picture?.kind !== "picture") throw new Error("expected a picture element");
-      const bytes = await deck.media.get(picture.mediaId);
-      expect(bytes.byteLength).toBeGreaterThan(100);
-      expect(new Uint8Array(bytes)[0]).toBe(0x89);
-    } finally {
-      deck.close();
-    }
+  test("an Office-inserted SVG picture resolves to its SVG part with no raster fallback", async () => {
+    // PowerPoint 16.0 COM-inserted SVG pictures are svgBlip-only (probe
+    // `svg-pictures`): the vector part paints, and there is no PNG beside it.
+    const { pkg, deck } = await openDeck(COVERAGE);
+    const slides = await Promise.all(deck.slideParts.map((_, index) => parsePptxSlide(pkg, deck, index)));
+    const { slide } = await findCoverageSlide(slides, "svg-picture");
+    const pictures = slide.elements.filter((element): element is PictureModel => element.kind === "picture");
+    expect(pictures).toHaveLength(1);
+    const picture = pictures[0]!;
+    expect(picture.name).toBe("SVG picture");
+    expect(picture.contentType).toBe("image/svg+xml");
+    expect(picture.mediaId.endsWith(".svg")).toBe(true);
+    expect(picture.fallbackMediaId).toBeUndefined();
+    // The bytes the media route would serve are the SVG itself.
+    const bytes = await pkg.readPart(picture.mediaId);
+    expect(new TextDecoder().decode(bytes.slice(0, 200))).toContain("<svg");
   });
-});
+
+  });
 
 describe("PPTX notes", () => {
   test("extracts production notes as text, including Arabic", async () => {

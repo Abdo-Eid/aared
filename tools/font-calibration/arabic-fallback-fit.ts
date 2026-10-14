@@ -13,12 +13,12 @@
 // the real Office font and in the shipped vs the refitted alias, line starts compared.
 //
 //   bun tools/font-calibration/arabic-fallback-fit.ts
-import { OpcPackage } from "../../../packages/aared/src/core/opc.ts";
-import { indexDocx, parseDocxSections } from "../../../packages/aared/src/core/docx/document.ts";
-import { indexPptx, parsePptxSlide } from "../../../packages/aared/src/core/pptx.ts";
-import { ARABIC_SCRIPT_FALLBACKS, ARABIC_UNICODE_RANGE, FONT_CALIBRATION, FONT_SUBSTITUTIONS, parseFontCss } from "../../../packages/aared-fonts/src/index.ts";
+import { OpcPackage } from "../../packages/aared/src/core/opc.ts";
+import { indexDocx, parseDocxSections } from "../../packages/aared/src/core/docx/document.ts";
+import { indexPptx, parsePptxSlide } from "../../packages/aared/src/core/pptx.ts";
+import { ARABIC_SCRIPT_FALLBACKS, ARABIC_UNICODE_RANGE, FONT_CALIBRATION, FONT_SUBSTITUTIONS, parseFontCss } from "../../packages/aared-fonts/src/index.ts";
 
-const ROOT = "D:/work/aared";
+const ROOT = `${import.meta.dir}/../..`;
 const FIT_SIZE = 40;
 const SIZE = 14.67; // 11pt, for the line-break check
 const WIDTHS = [240, 320, 400, 480, 560, 640, 720];

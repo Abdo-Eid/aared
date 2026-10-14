@@ -1,9 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 import { indexPptx, parsePptxSlide } from "../src/core/pptx.js";
 import { OpcPackage } from "../src/core/opc.js";
 import { findCoverageSlide } from "./fixture.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 const PX_PER_INCH = 96;
 
@@ -24,14 +24,10 @@ visual("visual DOM output: PPTX bullets keep PowerPoint's hanging indent in both
     findCoverageSlide(slides, "bullets"),
     findCoverageSlide(slides, "rtl-text"),
   ]);
-  const build = await Bun.build({ entrypoints: [`${import.meta.dir}/../src/pptx/index.ts`], target: "browser", format: "esm" });
-  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
-  const module = await build.outputs[0]!.text();
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      if (new URL(request.url).pathname === "/pptx.mjs") return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      return new Response(`<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  await withVisualPage({
+    modules: { "/pptx.mjs": module },
+    page: `<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">
         import { render } from "/pptx.mjs";
         window.rendered = null;
         window.renderFixture = async (model) => {
@@ -48,13 +44,10 @@ visual("visual DOM output: PPTX bullets keep PowerPoint's hanging indent in both
             return { text: body?.textContent ?? "", p: box(p), marker: box(marker), body: body?.textContent ? box(body) : null, markerFont: marker ? getComputedStyle(marker).fontFamily : null };
           });
         };
-      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
-
+      </script>`,
+    width: 1280,
+    height: 720,
+  }, async (view) => {
     await view.evaluate(`renderFixture(${JSON.stringify(bulletSlide)})`);
     const list = await view.evaluate(`lines("نقطة افتراضية")`) as Line[];
     const [plain, red, square, check, blank, one] = list;
@@ -91,7 +84,5 @@ visual("visual DOM output: PPTX bullets keep PowerPoint's hanging indent in both
     const left = rtl.find((line) => line.text.includes("Next review"))!;
     expect(left.marker!.left).toBeCloseTo(left.body!.right, 0);
     expect(left.marker!.right - left.marker!.left).toBeCloseTo(0.375 * PX_PER_INCH, 0);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30_000);

@@ -3,10 +3,11 @@ import { OpcPackage } from "../src/core/opc.js";
 import { readWorkbook } from "../src/core/xlsx/workbook.js";
 import { parseXlsxSheet } from "../src/core/xlsx/sheet.js";
 import { findCoverageSheet } from "./xlsx-fixture.js";
-import { browserModule } from "./harness.js";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 import { withPart } from "./mutate.js";
+import { conditionalFormulaFixture } from "./xlsx-conditional-fixture.js";
+import { fontAlias } from "../src/core/typography.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const COVERAGE_PATH = `${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`;
 const TRACKER_PATH = `${import.meta.dir}/../../../fixtures/post-production-tracker.xlsx`;
 
@@ -30,13 +31,7 @@ async function sheetModels() {
 
 visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickiness, and formats", async () => {
   const models = await sheetModels();
-  const build = await Bun.build({
-    entrypoints: [`${import.meta.dir}/../src/xlsx/index.ts`],
-    target: "browser",
-    format: "esm",
-  });
-  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
-  const module = await build.outputs[0]!.text();
+  const module = await browserModule(`${import.meta.dir}/../src/xlsx/index.ts`);
   const server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -77,9 +72,7 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
       </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 800 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1280, height: 800 }, async (view) => {
 
     await view.evaluate(`renderSheet(${JSON.stringify(models.rtl)})`);
     const rtlOutput = await view.evaluate(`(() => {
@@ -223,6 +216,24 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
     expect(chromeOutput.linkColorInline).not.toBe("");
     expect(chromeOutput.canvasCount).toBe(0);
 
+    // Gridlines beside text that may run into empty cells are settled from
+    // the painted text: B11's "دليل الإنتاج" fits its cell, so the lines of
+    // the empty C11 and E11 stay, as Excel draws them; the Dashboard's A16
+    // runs into B16 only, so A16's edge goes and B16's stays.
+    await view.evaluate(`renderSheet(${JSON.stringify(models.rtl)})`);
+    const fitLines = await view.evaluate(`[1, 2, 4].map((col) => getComputedStyle(document.querySelector('td[data-aared-row="10"][data-aared-col="' + col + '"]')).borderRightColor)`) as string[];
+    expect(fitLines.every((color) => color !== "rgba(0, 0, 0, 0)")).toBe(true);
+    // Text sits 1.5px inside the 1px border, Excel's 2.4-2.5px from the cell box.
+    expect(await view.evaluate<string>(`getComputedStyle(document.querySelector('td[data-aared-row="10"][data-aared-col="1"]')).paddingLeft`)).toBe("1.5px");
+    await view.evaluate(`renderSheet(${JSON.stringify(models.dashboard)})`);
+    const runLines = await view.evaluate(`[0, 1].map((col) => {
+      const cell = document.querySelector('td[data-aared-row="15"][data-aared-col="' + col + '"]');
+      return { text: cell.textContent, line: getComputedStyle(cell).borderRightColor };
+    })`) as Array<{ text: string; line: string }>;
+    expect(runLines[0]!.text).toStartWith("Busiest editor");
+    expect(runLines[0]!.line).toBe("rgba(0, 0, 0, 0)");
+    expect(runLines[1]!.line).not.toBe("rgba(0, 0, 0, 0)");
+
     await view.evaluate(`renderSheet(${JSON.stringify(models.rtl)}, { headers: false, gridlines: "hide" })`);
     const bareOutput = await view.evaluate(`(() => {
       const grid = document.querySelector('[data-aared-element="grid"]');
@@ -242,18 +253,31 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
     const summaryOutput = await view.evaluate(`(() => {
       const grid = document.querySelector('[data-aared-element="grid"]');
       const frozen = [...grid?.querySelectorAll('[data-aared-frozen]') ?? []].map((cell) => cell.dataset.aaredFrozen);
+      // The total row's status (F9) is centred beside an empty G9 and a filled
+      // E9: its text must sit centred on F9 itself, as Excel draws it.
+      const status = grid?.querySelector('td[data-aared-row="8"][data-aared-col="5"]');
+      const statusText = status?.querySelector('[data-aared-element="cell-text"]');
+      const middle = (rect) => rect.left + rect.width / 2;
       return {
         direction: grid?.dataset.aaredSheetDirection,
         dir: grid?.dir,
+        gridlines: grid?.dataset.aaredGridlines,
         titleSpan: grid?.querySelector('tr[data-aared-row="0"] td')?.colSpan,
         frozen,
+        statusText: statusText?.textContent,
+        statusOffset: status && statusText ? middle(statusText.getBoundingClientRect()) - middle(status.getBoundingClientRect()) : null,
       };
-    })()`) as { direction?: string; dir?: string; titleSpan?: number; frozen: string[] };
-    expect(summaryOutput.direction).toBe("ltr");
-    expect(summaryOutput.dir).toBe("ltr");
-    expect(summaryOutput.titleSpan).toBe(3);
+    })()`) as { direction?: string; dir?: string; gridlines?: string; titleSpan?: number; frozen: string[]; statusText?: string; statusOffset: number | null };
+    expect(summaryOutput.direction).toBe("rtl");
+    expect(summaryOutput.dir).toBe("rtl");
+    // The sheet turns its gridlines off in Excel, and aared follows the file.
+    expect(summaryOutput.gridlines).toBe("false");
+    // The title band is merged across A1:G1.
+    expect(summaryOutput.titleSpan).toBe(7);
     expect(summaryOutput.frozen.every((flag) => flag === "row")).toBe(true);
     expect(summaryOutput.frozen.length).toBeGreaterThan(0);
+    expect(summaryOutput.statusText).toBe("زيادة طفيفة");
+    expect(Math.abs(summaryOutput.statusOffset!)).toBeLessThan(1);
 
     await view.evaluate(`renderSheet(${JSON.stringify(models.dashboard)})`);
     const drawingOutput = await view.evaluate(`(() => ({
@@ -286,14 +310,68 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
       const bar = document.querySelector('[data-aared-element="data-bar"]');
       const locked = [...document.querySelectorAll('td')].find((cell) => cell.textContent === "Locked");
       return {
-        bar: bar ? { width: bar.style.width, color: bar.style.backgroundColor } : null,
+        bar: bar ? {
+          width: bar.style.width,
+          gradient: bar.style.backgroundImage,
+          opacity: getComputedStyle(bar).opacity,
+        } : null,
         lockedFill: locked ? getComputedStyle(locked).backgroundColor : null,
       };
-    })()`) as { bar: { width: string; color: string } | null; lockedFill: string | null };
+    })()`) as { bar: { width: string; gradient: string; opacity: string } | null; lockedFill: string | null };
     expect(barOutput.bar).not.toBeNull();
-    expect(barOutput.bar!.width).toBe("32.5%");
-    // Cached conditional-formatting results paint from the model snapshot.
+    expect(barOutput.bar!.width).toBe("36%");
+    expect(barOutput.bar!.gradient).toContain("linear-gradient(to right");
+    expect(barOutput.bar!.gradient).toContain("rgb(46, 125, 116)");
+    expect(barOutput.bar!.gradient).toContain("transparent");
+    expect(barOutput.bar!.opacity).toBe("1");
+    // Cached conditional-formatting results paint from the model snapshot. Excel's x14 default uses a gradient, not 45% opacity.
     expect(barOutput.lockedFill).toBe("rgb(221, 235, 232)");
+
+    const iconPkg = await withPart("xlsx-coverage.xlsx", "xl/worksheets/sheet3.xml", (xml) =>
+      xml.replace(/<conditionalFormatting[\s\S]*<\/conditionalFormatting>/, "").replace("</sheetData>",
+        `</sheetData><conditionalFormatting sqref="F5:F16"><cfRule type="iconSet" priority="1"><iconSet iconSet="3Arrows"><cfvo type="percent" val="0"/><cfvo type="percent" val="33"/><cfvo type="percent" val="67"/></iconSet></cfRule></conditionalFormatting>`));
+    const iconModel = await parseXlsxSheet(iconPkg, await readWorkbook(iconPkg), 2);
+    await view.evaluate(`renderSheet(${JSON.stringify(iconModel)})`);
+    const iconOutput = await view.evaluate(`(() => {
+      const icon = document.querySelector('[data-aared-element="cell-icon"]');
+      const svg = icon?.querySelector("svg");
+      const text = icon?.parentElement?.querySelector('[data-aared-element="cell-text"]');
+      return {
+        present: icon !== null,
+        svg: svg !== null && svg.getAttribute("viewBox") === "0 0 16 16",
+        shapes: svg?.querySelectorAll("polygon,circle,rect,path,polyline").length ?? 0,
+        textPadded: text ? getComputedStyle(text).paddingInlineStart !== "0px" : false,
+      };
+    })()`) as { present: boolean; svg: boolean; shapes: number; textPadded: boolean };
+    expect(iconOutput.present).toBe(true);
+    expect(iconOutput.svg).toBe(true);
+    expect(iconOutput.shapes).toBeGreaterThan(0);
+    expect(iconOutput.textPadded).toBe(true);
+
+    // Re-read visible paint for the repaired IFS error path and positive
+    // missing-blank materialization; the rules run over real fixture cells.
+    const paintFormula = async (formula: string, blankCells: string[] = []) => {
+      const pkg = await conditionalFormulaFixture({ formula, sqref: "F5:F7", blankCells });
+      const sheet = await parseXlsxSheet(pkg, await readWorkbook(pkg), 2);
+      await view.evaluate(`renderSheet(${JSON.stringify(sheet)})`);
+      return await view.evaluate(`(() => [4, 5, 6].map(row => {
+        const cell = document.querySelector('td[data-aared-row="' + row + '"][data-aared-col="5"]');
+        return { fill: getComputedStyle(cell).backgroundColor, text: cell.querySelector('[data-aared-element="cell-text"]')?.textContent ?? '' };
+      }))()`) as Array<{ fill: string; text: string }>;
+    };
+    const blankPaint = await paintFormula("ISBLANK(F5)", ["F5", "F7"]);
+    expect(blankPaint[0]).toEqual({ fill: "rgb(255, 220, 180)", text: "" });
+    expect(blankPaint[2]).toEqual({ fill: "rgb(255, 220, 180)", text: "" });
+    expect(blankPaint[1]!.fill).not.toBe("rgb(255, 220, 180)");
+    expect(blankPaint[1]!.text.length).toBeGreaterThan(0);
+    for (const name of ["SUMIFS", "AVERAGEIFS"]) {
+      const formula = `${name}($F$5:$F$7,$E$5:$E$6,"Locked")`;
+      const unpainted = await paintFormula(`${formula}>0`);
+      expect(unpainted.every((cell) => cell.fill !== "rgb(255, 220, 180)")).toBe(true);
+      const errors = await paintFormula(`ISERROR(${formula})`);
+      expect(errors.map((cell) => cell.fill)).toEqual(Array(3).fill("rgb(255, 220, 180)"));
+      expect(errors.map((cell) => cell.text)).toEqual(unpainted.map((cell) => cell.text));
+    }
 
     // Virtualization: inside a short viewport, scrolled rows outside the
     // window collapse into spacers. (Small sheets fit inside overscan and
@@ -358,20 +436,12 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
     expect(cardOutput.frozenRowHeaderOffset).not.toBeNull();
     expect(cardOutput.frozenRowHeaderOffset!).toBeGreaterThanOrEqual(0);
     expect(cardOutput.frozenRowHeaderOffset!).toBeLessThan(60);
-  } finally {
-    server.stop();
-  }
+  });
 });
 
 visual("visual DOM output: XLSX viewport fill: fills the rendered space in bounded and content-sized scrollers without feedback growth", async () => {
   const models = await sheetModels();
-  const build = await Bun.build({
-    entrypoints: [`${import.meta.dir}/../src/xlsx/index.ts`],
-    target: "browser",
-    format: "esm",
-  });
-  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
-  const module = await build.outputs[0]!.text();
+  const module = await browserModule(`${import.meta.dir}/../src/xlsx/index.ts`);
   const server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -407,9 +477,7 @@ visual("visual DOM output: XLSX viewport fill: fills the rendered space in bound
       </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 1400 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1280, height: 1400 }, async (view) => {
     await view.evaluate(`renderBoth(${JSON.stringify(models.dashboard)})`);
     // The first windowed paint re-runs inside a rAF once real layout
     // metrics exist; sample only after that settles.
@@ -483,20 +551,12 @@ visual("visual DOM output: XLSX viewport fill: fills the rendered space in bound
     expect(after.bounded.fill).toBe(initial.bounded.fill);
     expect(after.bounded.last).toBe(initial.bounded.last);
     expect(after.bounded.scrollH).toBe(initial.bounded.scrollH);
-  } finally {
-    server.stop();
-  }
+  });
 });
 
 visual("visual DOM output: XLSX zoom: a sheet opens at 100%, and fit-width / fit-page really fit its used area", async () => {
   const models = await sheetModels();
-  const build = await Bun.build({
-    entrypoints: [`${import.meta.dir}/../src/xlsx/index.ts`],
-    target: "browser",
-    format: "esm",
-  });
-  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
-  const module = await build.outputs[0]!.text();
+  const module = await browserModule(`${import.meta.dir}/../src/xlsx/index.ts`);
   const server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -554,9 +614,7 @@ visual("visual DOM output: XLSX zoom: a sheet opens at 100%, and fit-width / fit
     zoom: unknown; scale: number; hostZoom: string; overflowX: number; overflowY: number;
     fillColumns: number; rows: number; headers: boolean;
   }
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 1200 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1280, height: 1200 }, async (view) => {
     const log = JSON.stringify(models.log);
     const dashboard = JSON.stringify(models.dashboard);
 
@@ -586,9 +644,12 @@ visual("visual DOM output: XLSX zoom: a sheet opens at 100%, and fit-width / fit
     expect(bare.headers).toBe(false);
     expect(bare.scale).toBeGreaterThan(narrower.scale);
     expect(bare.overflowX).toBeLessThanOrEqual(1);
-    // setAppearance replaces, never merges: knobs left out return to their defaults.
-    const replaced = await view.evaluate(`act("bounded", { appearance: { theme: "light" } })`) as Measure;
-    expect(replaced.headers).toBe(true);
+    // setAppearance changes only what it sets: a theme switch keeps the
+    // headers hidden, and passing the default brings them back.
+    const themed = await view.evaluate(`act("bounded", { appearance: { theme: "light" } })`) as Measure;
+    expect(themed.headers).toBe(false);
+    const restored = await view.evaluate(`act("bounded", { appearance: { spreadsheet: { headers: true } } })`) as Measure;
+    expect(restored.headers).toBe(true);
 
     // fit-page keeps the whole used area in view in a short host — the
     // painted rows included, which outgrow the model below 100% as borders
@@ -614,9 +675,7 @@ visual("visual DOM output: XLSX zoom: a sheet opens at 100%, and fit-width / fit
     // RTL sheets fit the same way.
     const rtl = await view.evaluate(`show("bounded", ${JSON.stringify(models.rtl)}, "fit-width")`) as Measure;
     expect(rtl.overflowX).toBeLessThanOrEqual(1);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
 /**
@@ -632,9 +691,7 @@ visual("visual DOM output: XlsxRenderHandle.warnings names fonts that painted wi
       if (entry.cell.style !== undefined) entry.cell.style = { ...entry.cell.style, fontFamily: NONEXISTENT_FAMILY };
     }
   }
-  const build = await Bun.build({ entrypoints: [`${import.meta.dir}/../src/xlsx/index.ts`], target: "browser", format: "esm" });
-  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
-  const module = await build.outputs[0]!.text();
+  const module = await browserModule(`${import.meta.dir}/../src/xlsx/index.ts`);
   const server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -652,18 +709,20 @@ visual("visual DOM output: XlsxRenderHandle.warnings names fonts that painted wi
       </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 600 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 600 }, async (view) => {
     const real = (await view.evaluate(`warningsFor(${JSON.stringify(rtl)})`)) as Array<{ code: string }>;
     expect(real.filter((warning) => warning.code === "font-unavailable")).toEqual([]);
     const missing = (await view.evaluate(`warningsFor(${JSON.stringify(renamed)})`)) as Array<{ code: string; message: string }>;
     const unavailable = missing.filter((warning) => warning.code === "font-unavailable");
     expect(unavailable).toHaveLength(1);
     expect(unavailable[0]!.message).toContain(NONEXISTENT_FAMILY);
-  } finally {
-    server.stop();
-  }
+    const substituted = await view.evaluate(`(async () => {
+      const face = new FontFace(${JSON.stringify(fontAlias(NONEXISTENT_FAMILY))}, "local('Courier New')");
+      document.fonts.add(face); await face.load();
+      return warningsFor(${JSON.stringify(renamed)});
+    })()`) as Array<{ code: string }>;
+    expect(substituted.filter((warning) => warning.code === "font-unavailable")).toEqual([]);
+  });
 }, 30000);
 
 /**
@@ -697,9 +756,7 @@ visual("visual DOM output: XlsxRenderHandle.warnings reports drawings the file g
       </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 800 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 800 }, async (view) => {
     type Rendered = { warnings: Array<{ code: string; message: string }>; charts: number };
     const intact = (await view.evaluate(`renderSheet(${JSON.stringify(clean)})`)) as Rendered;
     expect(intact.warnings.filter((warning) => warning.code === "xlsx-missing-id")).toEqual([]);
@@ -711,7 +768,5 @@ visual("visual DOM output: XlsxRenderHandle.warnings reports drawings the file g
     // Drawn in full: the chart is on the page as for the sheet with its id.
     expect(intact.charts).toBeGreaterThan(0);
     expect(repaired.charts).toBe(intact.charts);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);

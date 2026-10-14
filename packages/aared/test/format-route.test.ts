@@ -68,7 +68,7 @@ describe("checking a unit index", () => {
 });
 
 describe("forwarding render events", () => {
-  const FORWARDED = ["zoomchange", "linkactivate", "cellactivate", "selectionchange"];
+  const FORWARDED = ["zoomchange", "linkactivate", "cellactivate", "selectionchange", "error"];
 
   test("re-raises each forwarded event on the facade with its detail", () => {
     const handle = new EventTarget();

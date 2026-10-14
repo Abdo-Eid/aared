@@ -2,11 +2,11 @@ import { expect, test } from "bun:test";
 import { fontAlias } from "../src/core/typography.js";
 import { indexDocx, parseDocxSections } from "../src/core/docx/document.js";
 import { OpcPackage } from "../src/core/opc.js";
-import { browserModule } from "./harness.js";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 import { serveDocx } from "./docx-harness.js";
 import { withPart } from "./mutate.js";
+import { authoredCoveragePages } from "./docx-fixture.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/docx-coverage.docx`;
 
 /** Serve the fixture with a page that exposes flow + layout render entry points. */
@@ -60,9 +60,7 @@ async function waitForImages(view: Bun.WebView): Promise<void> {
 
 visual("visual DOM output: DOCX flow HTML keeps bidi, outline, tables, lists, images, and footnotes", async () => {
   const { server, sections } = await serveDocxHarness();
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 900 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 900 }, async (view) => {
     await view.evaluate(`renderFixture(${JSON.stringify(sections)})`);
     await waitForImages(view);
     const output = await view.evaluate(`(() => {
@@ -120,8 +118,12 @@ visual("visual DOM output: DOCX flow HTML keeps bidi, outline, tables, lists, im
         footer: footer ? { count: document.querySelectorAll('[data-aared-element="doc-footer"]').length, text: footer.textContent.slice(0, 60) } : null,
         textBox: textBox ? {
           text: textBox.textContent,
-          fill: getComputedStyle(textBox).backgroundColor,
-          overflow: getComputedStyle(textBox).overflow,
+          // A shape's fill paints through the shared SVG painter (one painter for
+          // every fill box), so it is the path's resolved fill, not the frame's
+          // CSS background.
+          fill: textBox.querySelector('[data-aared-element="text-box-graphic"] path[fill]:not([fill="none"])')?.getAttribute("fill") ?? null,
+          shade: textBox.dataset.aaredShade ?? null,
+          overflow: getComputedStyle(textBox.querySelector('[data-aared-element="text-box-surface"]') ?? textBox).overflow,
           direction: getComputedStyle(textBox).direction,
         } : null,
       };
@@ -142,13 +144,15 @@ visual("visual DOM output: DOCX flow HTML keeps bidi, outline, tables, lists, im
       notes: Array<{ id: string; label?: string }>;
       header: { count: number; text: string } | null;
       footer: { count: number; text: string } | null;
-      textBox: { text: string; fill: string; overflow: string; direction: string } | null;
+      textBox: { text: string; fill: string | null; shade: string | null; overflow: string; direction: string } | null;
     };
     expect(output.canvasCount).toBe(0);
     expect(output.textBox?.text).toContain("صندوق ملاحظات: مراجعة التسليم");
     expect(output.textBox?.text).toContain("English note: confirm the final delivery.");
-    expect(output.textBox?.fill).toBe("rgb(232, 242, 232)");
-    expect(output.textBox?.overflow).toBe("visible");
+    expect(output.textBox?.fill?.toUpperCase()).toBe("#E8F2E8");
+    // Automatic ink reads the shape's own solid colour to pick readable text.
+    expect(output.textBox?.shade?.toUpperCase()).toBe("#E8F2E8");
+    expect(output.textBox?.overflow).toBe("clip");
     // Mixed-script paragraph: LTR flow, per-script resolved families.
     expect(output.mixed?.direction).toBe("ltr");
     expect(output.mixed?.computed).toBe("ltr");
@@ -167,8 +171,10 @@ visual("visual DOM output: DOCX flow HTML keeps bidi, outline, tables, lists, im
     // mark is a Heading 1 set not bold in Word; the body headings are bold.
     expect(output.headings[0]).toMatchObject({ text: "Appendix / ملحق", weight: "400" });
     expect(output.headings[1]?.weight).toBe("700");
-    // Tables keep logical XML order; direction mirrors display.
-    expect(output.tables).toBe(5);
+    // Tables keep logical XML order; direction mirrors display. Six since the
+    // fixture gained a table Word styles through `w:tblStyle` (the last one,
+    // covered by `docx-table-style.test.ts`).
+    expect(output.tables).toBe(6);
     expect(output.firstTable?.direction).toBe("ltr");
     expect(output.firstTable?.cells[0]).toContain("Client");
     expect(output.firstTable?.cells[1]).toContain("Nile Heritage Foundation");
@@ -178,10 +184,11 @@ visual("visual DOM output: DOCX flow HTML keeps bidi, outline, tables, lists, im
     expect(output.markers.slice(0, 7)).toEqual(["—", "—", "◦", "—", "—", "—", "—"]);
     expect(output.markers.slice(7, 12)).toEqual(["1.", "2.", "a)", "b)", "3."]);
     // Images load through the media resolver into real <img> elements.
-    // The two picture-only paragraphs are block figures; the header logo sits
-    // on its wordmark's line, so it is an inline image, not a third figure.
-    expect(output.figures).toHaveLength(2);
-    expect(output.inlineImages).toBe(1);
+    // The two picture-only paragraphs are block figures; the header logo and
+    // the appended "Word effect block picture" ride other routes, so they are
+    // not counted as figures of their own.
+    expect(output.figures).toHaveLength(3);
+    expect(output.inlineImages).toBe(2);
     expect(output.images.length).toBeGreaterThanOrEqual(3);
     expect(output.images.every((img) => img.src.startsWith("blob:"))).toBe(true);
     // Footnote references link to end-of-flow notes rendered once.
@@ -241,27 +248,18 @@ visual("visual DOM output: DOCX flow HTML keeps bidi, outline, tables, lists, im
       return document.querySelector('[data-aared-element="document"]') !== null;
     })()`);
     expect(destroyed).toBe(true);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
-visual("visual DOM output: DOCX layout mode paginates the coverage fixture to Word's seven pages", async () => {
+visual("visual DOM output: DOCX layout keeps Word's page boundaries, section geometry and repeating stories", async () => {
   const { server, sections } = await serveDocxHarness();
-  try {
-    await using view = new Bun.WebView({ width: 1300, height: 900 });
-    await view.navigate(server.url.href);
+  const pkg = await OpcPackage.open(await Bun.file(FIXTURE_PATH).arrayBuffer());
+  const authoredPages = await authoredCoveragePages(pkg);
+  await withVisualPage({ server, width: 1300, height: 900 }, async (view) => {
     const handle = await view.evaluate(`renderLayoutFixture(${JSON.stringify(sections)})`) as {
       pageCount: number;
       pages: Array<{ index: number; width: number; height: number; orientation: string }>;
     };
-    expect(handle.pageCount).toBe(7);
-    expect(handle.pages.map((page) => page.orientation)).toEqual(["portrait", "portrait", "portrait", "landscape", "portrait", "landscape", "portrait"]);
-    // Page sizes are inches, like every size in the API: A4 portrait, then A4 landscape.
-    expect(handle.pages[0]?.width).toBeCloseTo(8.27, 2);
-    expect(handle.pages[0]?.height).toBeCloseTo(11.69, 2);
-    expect(handle.pages[3]?.width).toBeCloseTo(11.69, 2);
-    expect(handle.pages[3]?.height).toBeCloseTo(8.27, 2);
     await waitForImages(view);
     const wrapLabels = [
       "التفاف مربع عند الطرف الأيسر",
@@ -282,7 +280,7 @@ visual("visual DOM output: DOCX layout mode paginates the coverage fixture to Wo
       const orderedItem = [...document.querySelectorAll('[data-aared-element="list-item"]')]
         .find((item) => (item.textContent ?? "").includes("Broadcast master"));
       const orderedPara = orderedItem?.querySelector('[data-aared-element="paragraph"]');
-      const secondPage = pages[1];
+      const secondPage = pages.find((page) => [...page.querySelectorAll('[data-aared-element="heading"]')].some((line) => line.textContent === '1. Project Overview'));
       const specTable = secondPage ? [...secondPage.querySelectorAll('[data-aared-element="table"]')].find((table) =>
         (table.textContent ?? "").includes("Parameter")) : null;
       return {
@@ -292,7 +290,10 @@ visual("visual DOM output: DOCX layout mode paginates the coverage fixture to Wo
           orientation: page.dataset.aaredOrientation,
           width: page.style.width,
           height: page.style.height,
-          text: (page.textContent ?? "").slice(0, 4000),
+          text: page.textContent ?? "",
+          lines: [...page.querySelectorAll('[data-aared-element="page-body"] [data-aared-element="paragraph"], [data-aared-element="page-body"] [data-aared-element="heading"]')].map((line) => line.textContent),
+          header: page.querySelector('[data-aared-element="page-header"]')?.textContent ?? null,
+          footer: page.querySelector('[data-aared-element="page-footer"]')?.textContent ?? null,
           wraps: ${JSON.stringify(wrapLabels)}.filter((label) => (page.textContent ?? "").includes(label)),
         })),
         headers: headers.length,
@@ -341,7 +342,7 @@ visual("visual DOM output: DOCX layout mode paginates the coverage fixture to Wo
       };
     })()`) as {
       canvasCount: number;
-      pages: Array<{ page?: string; orientation?: string; width: string; height: string; text: string; wraps: string[] }>;
+      pages: Array<{ page: string; orientation: string; width: string; height: string; text: string; lines: string[]; header: string | null; footer: string | null; wraps: string[] }>;
       headers: number;
       footers: string[];
       notes: Array<{ id: string; page?: string }>;
@@ -352,12 +353,51 @@ visual("visual DOM output: DOCX layout mode paginates the coverage fixture to Wo
       charts: Array<{ page?: string; placement?: string; primitives: number; texts: string[]; role: string; label: string; desc: string; width: number; height: number }>;
     };
     expect(output.canvasCount).toBe(0);
-    expect(output.pages.map((page) => page.page)).toEqual(["1", "2", "3", "4", "5", "6", "7"]);
-    expect(output.pages.map((page) => page.orientation)).toEqual(["portrait", "portrait", "portrait", "landscape", "portrait", "landscape", "portrait"]);
+    expect(handle.pageCount).toBe(output.pages.length);
+    expect(output.pages).toHaveLength(authoredPages);
+    expect(handle.pages).toHaveLength(output.pages.length);
+    expect(output.pages.map((page) => page.page)).toEqual(output.pages.map((_, index) => String(index + 1)));
+    const pageWithLine = (line: string) => {
+      // Anchored text-box text can precede its owner's line in the DOM. The
+      // body label still ends that line; TOC entries end in a page number.
+      const matches = output.pages.filter((page) => page.lines.some((text) => text.endsWith(line)));
+      expect(matches).toHaveLength(1);
+      return matches[0]!;
+    };
+    const cover = pageWithLine("PRODUCTION BRIEF");
+    const specs = pageWithLine("1. Project Overview");
+    const schedule = pageWithLine("3. Schedule");
+    const appendix = pageWithLine("Appendix A — Shot List, Episode 04");
+    const lists = pageWithLine("8. Lists, headers and empty lines / القوائم والرؤوس والأسطر الفارغة");
+    const fills = pageWithLine("8. Text-box fills and geometry / تعبئة الصناديق وأشكالها");
+    const placement = pageWithLine("9. Text-box placement / موضع النص والصندوق");
+    const sizing = pageWithLine("10. Text-box sizing / حجم الصناديق");
+    const effects = pageWithLine("Shared drawing effects / تأثيرات الرسم");
+    const wrapping = output.pages.filter((page) => page.wraps.length > 0);
+    expect(wrapping).toHaveLength(1);
+    const chartPages = output.pages.filter((page) => output.charts.some((chart) => chart.page === page.page));
+    expect(chartPages).toHaveLength(1);
+    const chartPage = chartPages[0]!;
+    const coverage = [cover, specs, schedule, appendix, wrapping[0]!, chartPage, lists, fills, placement, sizing, effects];
+    expect(coverage.map((page) => Number(page.page))).toEqual(coverage.map((_, index) => index + 1));
+    for (const page of coverage) {
+      const info = handle.pages[Number(page.page) - 1]!;
+      const landscape = page === appendix || page === chartPage;
+      expect(page.orientation).toBe(landscape ? "landscape" : "portrait");
+      expect(info.orientation).toBe(page.orientation);
+      // Public sizes are inches; the actual page DOM uses CSS pixels. The
+      // effects section is Letter, independently authored after the A4 cases.
+      const width = page === effects ? 8.5 : landscape ? 11.69 : 8.27;
+      const height = page === effects ? 11 : landscape ? 8.27 : 11.69;
+      expect(info.width).toBeCloseTo(width, 2);
+      expect(info.height).toBeCloseTo(height, 2);
+      expect(parseFloat(page.width)).toBeCloseTo(page === effects ? 816 : landscape ? 1122.53 : 793.73, 1);
+      expect(parseFloat(page.height)).toBeCloseTo(page === effects ? 1056 : landscape ? 793.73 : 1122.53, 1);
+    }
     // Page 6's charts are drawn (the layout file loaded during the font wait),
     // at their extents in CSS px, as SVG with browser text: the inline one in
     // its own block, the anchored one floated with square wrap, as Word places them.
-    expect(output.charts.map((chart) => [chart.page, chart.placement])).toEqual([["6", "chart-block"], ["6", "square"]]);
+    expect(output.charts.map((chart) => [chart.page, chart.placement])).toEqual([[chartPage.page, "chart-block"], [chartPage.page, "square"]]);
     for (const chart of output.charts) {
       expect(chart.primitives).toBeGreaterThan(10);
       expect(chart.texts).toEqual(expect.arrayContaining(["الساعات المسجلة لكل حلقة", "الحلقة الرابعة", "المسجّلة"]));
@@ -373,32 +413,30 @@ visual("visual DOM output: DOCX layout mode paginates the coverage fixture to Wo
     // Word's own axes for these frames: 0-45 by 5 on the 5in chart, 0-50 by 10 on the 3.5in one.
     expect(output.charts[0]!.texts).toEqual(expect.arrayContaining(["0", "5", "45"]));
     expect(output.charts[1]!.texts).toEqual(expect.arrayContaining(["0", "10", "50"]));
-    // Real section geometry drives the sheets, not a fixed body padding.
-    expect(parseFloat(output.pages[0]?.width ?? "0")).toBeCloseTo(793.73, 1);
-    expect(parseFloat(output.pages[0]?.height ?? "0")).toBeCloseTo(1122.53, 1);
-    expect(parseFloat(output.pages[3]?.width ?? "0")).toBeCloseTo(1122.53, 1);
-    expect(parseFloat(output.pages[3]?.height ?? "0")).toBeCloseTo(793.73, 1);
     // Content maps to the Word reference structure.
-    expect(output.pages[0]?.text).toContain("Contents");
-    expect(output.pages[1]?.text).toContain("2. Technical Specifications");
-    expect(output.pages[1]?.text).toContain("Parameter");
-    expect(output.pages[2]?.text).toContain("3. Schedule");
-    expect(output.pages[2]?.text).toContain("4. Contacts");
-    expect(output.pages[2]?.text).not.toContain("Appendix A");
-    expect(output.pages[3]?.text).toContain("Appendix A — Shot List, Episode 04");
-    expect(output.pages[4]?.wraps).toEqual(wrapLabels);
+    expect(cover.text).toContain("Contents");
+    expect(specs.text).toContain("2. Technical Specifications");
+    expect(specs.text).toContain("Parameter");
+    expect(schedule.text).toContain("3. Schedule");
+    expect(schedule.text).toContain("4. Contacts");
+    expect(schedule.text).not.toContain("Appendix A");
+    expect(appendix.text).toContain("Appendix A — Shot List, Episode 04");
+    expect(wrapping[0]!.wraps).toEqual(wrapLabels);
     // Headers and footers repeat on every physical page...
-    // (The last section's first page has its own header and, as in Word's export, no footer.)
-    expect(output.headers).toBe(7);
-    expect(output.footers).toHaveLength(6);
-    // ...with PAGE/NUMPAGES evaluated against the finalized layout.
-    expect(output.footers[1]).toContain("Page 2 of 7");
-    expect(output.footers[4]).toContain("Page 5 of 7");
-    expect(output.footers[5]).toContain("Page 6 of 7");
+    // The lists and effects sections use a different first-page header and
+    // no footer there. Continuation pages return to the inherited stories.
+    expect(output.headers).toBe(output.pages.length);
+    for (const page of coverage) {
+      const firstPage = page === lists || page === effects;
+      expect(page.header).toContain(firstPage ? "First-page header" : "NILE FRAME STUDIO");
+      if (firstPage) expect(page.footer).toBeNull();
+      else expect(page.footer).toContain(`Page ${page.page} of ${output.pages.length}`);
+    }
+    expect(output.footers).toHaveLength(output.pages.filter((page) => page.footer !== null).length);
     // Footnotes follow their references onto the owning pages.
     expect(output.notes).toEqual([
-      { id: "aared-footnote-f1", page: "2" },
-      { id: "aared-footnote-f2", page: "3" },
+      { id: "aared-footnote-f1", page: specs.page },
+      { id: "aared-footnote-f2", page: schedule.page },
     ]);
     // The pull quote paints its gold `w:pBdr` left border, not a bare line.
     expect(output.quote).toMatchObject({ borderStyle: "solid" });
@@ -415,24 +453,20 @@ visual("visual DOM output: DOCX layout mode paginates the coverage fixture to Wo
     // with its last row present on the same page as its caption.
     expect(output.tableFit).not.toBeNull();
     expect(output.tableFit!.tableBottom).toBeLessThanOrEqual(output.tableFit!.contentBottom + 1);
-    expect(output.pages[1]?.text).toContain("Subtitles");
+    expect(specs.text).toContain("Subtitles");
     // Centered source paragraphs center their images: the appendix figure
     // splits leftover space equally on both sides.
-    const appendixFigures = output.figures[3] ?? [];
+    const appendixFigures = output.figures[Number(appendix.page) - 1] ?? [];
     expect(appendixFigures.length).toBeGreaterThan(0);
     const appendixFigure = appendixFigures[appendixFigures.length - 1]!;
     expect(parseFloat(appendixFigure.left)).toBeGreaterThan(0);
     expect(appendixFigure.left).toBe(appendixFigure.right);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
 visual("visual DOM output: DOCX run vertical-align maps OOXML super/subscript to the CSS keywords", async () => {
   const { server, sections } = await serveDocxHarness();
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 900 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 900 }, async (view) => {
     await view.evaluate(`renderFixture(${JSON.stringify(sections)})`);
     const output = await view.evaluate(`(() => {
       // The "25pPAL" run carries w:vertAlign superscript; footnote markers
@@ -451,9 +485,7 @@ visual("visual DOM output: DOCX run vertical-align maps OOXML super/subscript to
     expect(pal!.inlineVa).toBe("3.5pt");
     expect(parseFloat(pal!.computedVa)).toBeCloseTo(4.667, 2);
     expect(pal!.inlineFs).toBe("7pt");
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
 /**
@@ -469,9 +501,7 @@ visual("visual DOM output: DOCX layout pages paint lazily and lay out tabs when 
           return window.handle.pageCount;
         };
       </script>`);
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 700 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 700 }, async (view) => {
     const page = { widthTwips: 12240, heightTwips: 15840, orientation: "portrait", margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720, gutter: 0 } };
     const root = Array.from({ length: 12 }, (_, index) => [
       ...(index === 0 ? [] : [{ type: "pageBreak", strength: "mandatory" }]),
@@ -524,9 +554,7 @@ visual("visual DOM output: DOCX layout pages paint lazily and lay out tabs when 
     })`) as { width: string; shown: boolean };
     expect(after.shown).toBe(true);
     expect(after.width).not.toBe("48px");
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
 /**
@@ -589,9 +617,7 @@ visual("visual DOM output: DOCX heading and page navigation use the outline's ow
           }
         };
       </script>`);
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 800 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 800 }, async (view) => {
     const model = JSON.stringify(sections);
     for (const mode of ["flow", "layout"] as const) {
       const result = await view.evaluate(`probe(${model}, "${mode}")`) as {
@@ -634,9 +660,7 @@ visual("visual DOM output: DOCX heading and page navigation use the outline's ow
         expect(result.pageError).toBe("unsupported-feature");
       }
     }
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
 /**
@@ -678,9 +702,7 @@ visual("visual DOM output: DOCX right-to-left tables mirror columns and borders,
           return result;
         };
       </script>`);
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 700 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 700 }, async (view) => {
     const result = await view.evaluate(`probe(${JSON.stringify(sections)})`) as {
       direction: string;
       firstText: string;
@@ -711,9 +733,7 @@ visual("visual DOM output: DOCX right-to-left tables mirror columns and borders,
     expect(Number.parseFloat(result.indent.right)).toBeCloseTo(25 / 15, 1);
     expect(result.ltrRun).toEqual({ mark: '"‎"', percentRightOfDigits: true });
     expect(result.canvasCount).toBe(0);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
 /**
@@ -751,9 +771,7 @@ visual("visual DOM output: DOCX exact line pitch, justified spacing and cell bor
           return result;
         };
       </script>`);
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 700 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 700 }, async (view) => {
     const result = await view.evaluate(`probe(${JSON.stringify(sections)})`) as {
       exact: { lineHeight: string; height: number; fonts: string[]; runLineHeights: string[] };
       justifiedSpacing: number;
@@ -779,15 +797,13 @@ visual("visual DOM output: DOCX exact line pitch, justified spacing and cell bor
     // Last column: paints the divider on its left and the outer right edge.
     expect(result.second[0]).toBeCloseTo(8 + divider / 2 - 1, 2);
     expect(result.second[1]).toBeCloseTo(8 + outer / 2 - 1, 2);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
 /**
  * A delivered font substitute actually gets chosen, on a machine that lacks
  * the requested family entirely — not just registered and never selected
- * (DECISION_LOG §45; this was an open question in ARCHITECTURE.md before the
+ * (Notes §45; this was an open question in ARCHITECTURE.md before the
  * fix). Renames one run to a family name guaranteed not to exist anywhere,
  * then registers a `FontFace` under that name's alias (`fontAlias`, never
  * the bare requested name) sourced from a real, dramatically different
@@ -800,9 +816,7 @@ visual("visual DOM output: a delivered font substitute is actually painted, not 
   const NONEXISTENT_FAMILY = "Definitely Not A Real Font Zzqx";
   const ALIAS = fontAlias(NONEXISTENT_FAMILY);
   const { server, sections } = await serveDocxHarness();
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 900 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 900 }, async (view) => {
     const renamed = structuredClone(sections);
     let targetText: string | undefined;
     outer: for (const section of renamed) {
@@ -848,15 +862,13 @@ visual("visual DOM output: a delivered font substitute is actually painted, not 
     const gap = Math.abs(result.courierWidth - result.sansSerifWidth);
     expect(gap).toBeGreaterThan(10);
     expect(result.spanWidth).toBeCloseTo(result.courierWidth, 0);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
 /**
  * A Latin-only substitute (Arimo for Arial) has no Arabic glyphs, so `aared-fonts`
  * adds a second, `unicode-range`-limited Arabic face to the same alias
- * (DECISION_LOG §45). Registered exactly the way the resolver does it — added
+ * (Notes §45). Registered exactly the way the resolver does it — added
  * to `document.fonts`, never `.load()`ed — under an alias no font answers to:
  * a Courier face for non-Arabic text and a much wider, calibrated face
  * (`size-adjust`) for Arabic. Arabic paints in the Arabic face and Latin in
@@ -925,9 +937,7 @@ visual("visual DOM output: an Arabic-limited fallback face paints only Arabic an
       return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 900 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 900 }, async (view) => {
     await view.evaluate(`(async () => {
       const latinFace = new FontFace(${JSON.stringify(ALIAS)}, "local('Courier New')", { unicodeRange: "U+0000-05FF" });
       await latinFace.load();
@@ -977,15 +987,13 @@ visual("visual DOM output: an Arabic-limited fallback face paints only Arabic an
     // was registered but never waited for would leave.
     expect(Math.abs(result.arabicControl - result.arabicGeneric)).toBeGreaterThan(20);
     expect(result.arabicWidth).toBeCloseTo(result.arabicControl, 0);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
 /**
  * The fixture's anchored pictures (`wp:anchor`, pages 5 and 6), read back from
  * the layout DOM against Word's own export of the same file
- * (tools/word-render, word-spans.json). Word centres a column-centred picture
+ * (tools/review/docx, word-spans.json). Word centres a column-centred picture
  * on the text column; runs text down both sides of a square or through
  * picture with room on each; keeps a top-and-bottom picture on a band of its
  * own; and starts the paragraph after a picture that hangs below its text at
@@ -1020,55 +1028,69 @@ visual("visual DOM output: DOCX anchored pictures wrap text as Word places them"
               }
               const besides = text.filter((rect) => rect.bottom > box.top + 2 && rect.top < box.bottom - 2);
               const next = paragraph.nextElementSibling;
-              return {
-                placement: element.dataset.aaredPlacement,
+              // The layer marker and z-index sit on the picture, which an overlay measured
+              // from its paragraph reaches through the zero-size anchor point.
+              const layered = element.querySelector("[data-aared-layer]") ?? element;
+               return {
+                text: paragraph.textContent.trim(),
+                alt: picture.getAttribute('alt'),
+                 placement: element.dataset.aaredPlacement,
                 wrap: element.dataset.aaredWrap,
                 centreOffset: (box.left + box.right) / 2 - (body.left + body.right) / 2,
                 overlapsText: besides.some((rect) => rect.right > box.left + 1 && rect.left < box.right - 1),
                 textLeft: besides.some((rect) => rect.right <= box.left),
                 textRight: besides.some((rect) => rect.left >= box.right),
-                layer: picture.dataset.aaredLayer ?? null,
-                zIndex: getComputedStyle(picture).zIndex,
+                layer: layered.dataset.aaredLayer ?? null,
+                zIndex: getComputedStyle(layered).zIndex,
                 nextStep: next === null ? null : next.getBoundingClientRect().top - paragraph.getBoundingClientRect().top,
               };
             });
           };
-          const result = { pageCount: handle.pageCount, five: pages.flatMap(read).slice(0, 4), six: pages.flatMap(read).slice(4), canvasCount: document.querySelectorAll("canvas").length };
+          const pictures = pages.flatMap(read);
+          const forLabels = (labels) => labels.map((label) => {
+            const matches = pictures.filter((picture) => picture.text.startsWith(label));
+            if (matches.length !== 1) throw new Error('expected one anchored picture for ' + label);
+            return matches[0];
+          });
+          const result = {
+            edges: forLabels(['التفاف مربع عند الطرف الأيسر', 'التفاف مربع عند الطرف الأيمن', 'أعلى وأسفل الصورة', 'صورة خلف النص']),
+            splits: forLabels(['التفاف محكم حول الصورة', 'التفاف مربع في الوسط', 'التفاف عبر الصورة']),
+            effects: pictures.filter((picture) => picture.alt === 'Word effect anchored picture'),
+            canvasCount: document.querySelectorAll("canvas").length };
           handle.destroy();
           return result;
         };
       </script>`);
-  try {
-    await using view = new Bun.WebView({ width: 1300, height: 900 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1300, height: 900 }, async (view) => {
     type Read = { placement: string; wrap: string; centreOffset: number; overlapsText: boolean; textLeft: boolean; textRight: boolean; layer: string | null; zIndex: string; nextStep: number | null };
-    const result = await view.evaluate(`probe(${JSON.stringify(sections)})`) as { pageCount: number; five: Read[]; six: Read[]; canvasCount: number };
-    expect(result.pageCount).toBe(9);
+    const result = await view.evaluate(`probe(${JSON.stringify(sections)})`) as { edges: Read[]; splits: Read[]; effects: Read[]; canvasCount: number };
     expect(result.canvasCount).toBe(0);
     // Page 5: square at each column edge, top and bottom, behind text.
-    expect(result.five.map((read) => [read.wrap, read.placement])).toEqual([["square", "wrap"], ["square", "wrap"], ["topAndBottom", "band"], ["none", "overlay"]]);
+    expect(result.edges.map((read) => [read.wrap, read.placement])).toEqual([["square", "wrap"], ["square", "wrap"], ["topAndBottom", "band"], ["none", "overlay"]]);
     // Page 6: tight at the edge, then square and through in the centre, text down both sides.
-    expect(result.six.map((read) => [read.wrap, read.placement])).toEqual([["tight", "wrap"], ["square", "split"], ["through", "split"]]);
-    for (const read of [...result.five, ...result.six]) {
+    expect(result.splits.map((read) => [read.wrap, read.placement])).toEqual([["tight", "wrap"], ["square", "split"], ["through", "split"]]);
+    for (const read of [...result.edges, ...result.splits]) {
       if (read.placement !== "overlay") expect(read.overlapsText).toBe(false);
     }
     // A wrapped picture at the left column edge has text on its right only, and the other way round.
-    expect([result.five[0]!.textLeft, result.five[0]!.textRight]).toEqual([false, true]);
-    expect([result.five[1]!.textLeft, result.five[1]!.textRight]).toEqual([true, false]);
+    expect([result.edges[0]!.textLeft, result.edges[0]!.textRight]).toEqual([false, true]);
+    expect([result.edges[1]!.textLeft, result.edges[1]!.textRight]).toEqual([true, false]);
     // The band keeps its rows to itself; the split runs text on both sides.
-    expect([result.five[2]!.textLeft, result.five[2]!.textRight]).toEqual([false, false]);
-    for (const read of result.six.slice(1)) expect([read.textLeft, read.textRight]).toEqual([true, true]);
+    expect([result.edges[2]!.textLeft, result.edges[2]!.textRight]).toEqual([false, false]);
+    for (const read of result.splits.slice(1)) expect([read.textLeft, read.textRight]).toEqual([true, true]);
     // Column-centred pictures sit on the column's centre, as in Word.
-    for (const read of [result.five[2]!, result.five[3]!, result.six[1]!, result.six[2]!]) expect(Math.abs(read.centreOffset)).toBeLessThanOrEqual(1);
+    for (const read of [result.edges[2]!, result.edges[3]!, result.splits[1]!, result.splits[2]!]) expect(Math.abs(read.centreOffset)).toBeLessThanOrEqual(1);
     // Behind text: under the paragraph's text, which runs straight across it.
-    expect(result.five[3]).toMatchObject({ layer: "behind", zIndex: "-1", overlapsText: true });
+    expect(result.edges[3]).toMatchObject({ layer: "behind", zIndex: "-1", overlapsText: true });
     // Portrait text increases the paragraph step. Aared currently uses 128.66px;
     // Word uses 112.68px (merged-coverage/word-spans.json). Keep this remaining
     // layout difference explicit while pinning the current renderer output.
-    expect(Math.abs(result.six[1]!.nextStep! - 128.66)).toBeLessThanOrEqual(3);
-  } finally {
-    server.stop();
-  }
+    expect(Math.abs(result.splits[1]!.nextStep! - 128.66)).toBeLessThanOrEqual(3);
+    // The shared-effects page's picture is authored "in front of text"
+    // (`wdWrapNone`), so it paints as an overlay like Word lays it out.
+    expect(result.effects.map((read) => [read.wrap, read.placement])).toEqual([["none", "overlay"]]);
+    expect(result.effects[0]).toMatchObject({ layer: "front" });
+  });
 }, 30000);
 
 /**
@@ -1086,7 +1108,7 @@ visual("visual DOM output: a split paragraph shows its text once after the conta
           const handle = await render({ document: model, target: host, zoom: 1, mediaResolver: async (id) => (await fetch("/media/" + id.split("/").at(-1))).arrayBuffer() });
           await document.fonts.ready;
           await frames();
-          const paragraph = host.querySelector("[data-aared-split]");
+          const paragraph = [...host.querySelectorAll('[data-aared-split]')].find(line => line.textContent.includes('التفاف مربع في الوسط'));
           const shown = () => {
             let text = "";
             const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
@@ -1105,14 +1127,17 @@ visual("visual DOM output: a split paragraph shows its text once after the conta
           await frames();
           const widened = read();
           handle.destroy();
-          return { wide, narrow, widened };
+          const rows = [...paragraph.querySelectorAll('[data-aared-split-row]')];
+          host.style.width = '60px';
+          await frames();
+          const afterDestroy = read();
+          const unchangedNodes = rows.every((row, index) => paragraph.querySelectorAll('[data-aared-split-row]')[index] === row);
+          return { wide, narrow, widened, afterDestroy, unchangedNodes };
         };
       </script>`);
-  try {
-    await using view = new Bun.WebView({ width: 1300, height: 900 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1300, height: 900 }, async (view) => {
     type Read = { text: string; rows: number };
-    const result = await view.evaluate(`probe(${JSON.stringify(sections)})`) as { wide: Read; narrow: Read; widened: Read };
+    const result = await view.evaluate(`probe(${JSON.stringify(sections)})`) as { wide: Read; narrow: Read; widened: Read; afterDestroy: Read; unchangedNodes: boolean };
     expect(result.wide.rows).toBeGreaterThan(0);
     // Too narrow for the split: plain text, no rows, the same words.
     expect(result.narrow.rows).toBe(0);
@@ -1120,9 +1145,93 @@ visual("visual DOM output: a split paragraph shows its text once after the conta
     // Wide again: split rows, and still each word once.
     expect(result.widened.rows).toBeGreaterThan(0);
     expect(result.widened.text).toBe(result.wide.text);
-  } finally {
-    server.stop();
-  }
+    expect(result.afterDestroy).toEqual(result.widened);
+    expect(result.unchangedNodes).toBe(true);
+  });
+}, 30000);
+
+visual("visual DOM output: split-wrap preserves RTL/LTR reading order, styled text and owner cleanup in flow and layout", async () => {
+  const { server, sections } = await serveDocx(FIXTURE_PATH, `<!doctype html><style>html,body{margin:0}#host{width:900px}</style><main id="host"></main><script type="module">
+    import {render} from '/docx.mjs';
+    const frames=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    window.probe=async(model,mode)=>{
+      const host=document.querySelector('#host'); host.replaceChildren(); host.style.width='900px';
+      const nativeReady=document.fonts.ready;
+      let finishFonts;
+      const lateFonts=new Promise(resolve=>{finishFonts=resolve});
+      // A font-settlement notification can arrive after teardown. Keep that
+      // notification pending while the real fixture text and picture paint.
+      Object.defineProperty(document.fonts,'ready',{configurable:true,value:lateFonts});
+      Object.defineProperty(document.fonts,'status',{configurable:true,value:'loading'});
+      let handle;
+      try{
+        handle=await render({document:model,target:host,pagination:{mode},zoom:1,
+          mediaResolver:async id=>(await fetch('/media/'+id.split('/').at(-1))).arrayBuffer()});
+        await nativeReady; await frames();
+        const paragraph=host.querySelector('[data-aared-split]');
+        if(!paragraph)throw new Error('fixture paragraph did not activate split-wrap');
+        const picture=paragraph.querySelector('img'); const box=picture.getBoundingClientRect();
+        const rows=[...paragraph.querySelectorAll('[data-aared-split-row="beside"]')];
+        const shown=()=>{
+          let text='';const walker=document.createTreeWalker(paragraph,NodeFilter.SHOW_TEXT);
+          for(let node=walker.nextNode();node;node=walker.nextNode())if(!node.parentElement.closest('[hidden],[aria-hidden="true"]'))text+=node.textContent;
+          return text.replace(/\\s+/g,'');
+        };
+        const cells=rows[0]?[...rows[0].children]:[];
+        const painted=[...paragraph.querySelectorAll('[data-aared-split-row] span,[data-aared-split-rest] span')];
+        const bold=painted.find(span=>getComputedStyle(span).fontWeight==='700');
+        const colored=painted.find(span=>getComputedStyle(span).color==='rgb(176, 0, 32)');
+        const result={text:shown(),rows:rows.length,
+          cells:cells.map(cell=>{const rect=cell.getBoundingClientRect();return {left:rect.left,right:rect.right,text:cell.textContent,justify:getComputedStyle(cell).textAlignLast}}),
+          box:{left:box.left,right:box.right},bold:!!bold,colored:!!colored,
+          overlaps:rows.some(row=>[...row.children].some(cell=>{const range=document.createRange();range.selectNodeContents(cell);const rect=range.getBoundingClientRect();return rect.width>0&&rect.right>box.left+1&&rect.left<box.right-1}))};
+        const nodeRows=[...paragraph.querySelectorAll('[data-aared-split-row]')];
+        handle.destroy(); finishFonts(); host.style.width='60px'; await frames();
+        result.afterDestroy=shown();
+        result.unchangedNodes=nodeRows.every((row,index)=>paragraph.querySelectorAll('[data-aared-split-row]')[index]===row);
+        return result;
+      }finally{finishFonts();delete document.fonts.ready;delete document.fonts.status;handle?.destroy()}
+    };
+    </script>`);
+  const section = sections.find((candidate) => candidate.root.some((node) => node.type === "paragraph" && node.runs.map((run) => run.text).join("").startsWith("التفاف مربع في الوسط")));
+  const paragraph = section?.root.find((node) => node.type === "paragraph" && node.runs.map((run) => run.text).join("").startsWith("التفاف مربع في الوسط"));
+  if (section === undefined || paragraph?.type !== "paragraph" || paragraph.floats?.[0]?.type !== "image") throw new Error("DOCX fixture has no centred square-wrap paragraph");
+  const text = paragraph.runs.map((run) => run.text).join("");
+  const first = Math.floor(text.length / 3), second = Math.floor(text.length * 2 / 3);
+  await withVisualPage({ server, width: 1100, height: 1100 }, async (view) => {
+    for (const direction of ["rtl", "ltr"] as const) for (const mode of ["flow", "layout"] as const) {
+      const styled = structuredClone(paragraph);
+      styled.direction = direction;
+      styled.align = "justify";
+      styled.runs = [
+        { ...paragraph.runs[0]!, text: text.slice(0, first), bold: false },
+        { ...paragraph.runs[0]!, text: text.slice(first, second), bold: true },
+        { ...paragraph.runs[0]!, text: text.slice(second), bold: false, color: "#B00020" },
+      ];
+      const model = [{ properties: section.properties, root: [styled] }];
+      const output = await view.evaluate(`probe(${JSON.stringify(model)},${JSON.stringify(mode)})`) as {
+        text: string; rows: number; cells: Array<{ left: number; right: number; text: string; justify: string }>;
+        box: { left: number; right: number }; bold: boolean; colored: boolean; overlaps: boolean; afterDestroy: string; unchangedNodes: boolean;
+      };
+      expect(output.rows).toBeGreaterThan(0);
+      expect(output.cells).toHaveLength(2);
+      expect(output.text).toBe(text.replace(/\s+/g, ""));
+      expect(output.bold).toBe(true);
+      expect(output.colored).toBe(true);
+      expect(output.overlaps).toBe(false);
+      expect(output.cells[0]!.text.length).toBeGreaterThan(0);
+      expect(output.cells[0]!.justify).toBe("justify");
+      if (direction === "rtl") {
+        expect(output.cells[0]!.left).toBeGreaterThanOrEqual(output.box.right - 0.5);
+        expect(output.cells[1]!.right).toBeLessThanOrEqual(output.box.left + 0.5);
+      } else {
+        expect(output.cells[0]!.right).toBeLessThanOrEqual(output.box.left + 0.5);
+        expect(output.cells[1]!.left).toBeGreaterThanOrEqual(output.box.right - 0.5);
+      }
+      expect(output.afterDestroy).toBe(output.text);
+      expect(output.unchangedNodes).toBe(true);
+    }
+  });
 }, 30000);
 
 /** Every run's `fontFamily` set to `family`, deep-walked across sections including tables/lists/footnotes/headers/footers. */
@@ -1143,12 +1252,12 @@ function renameAllFonts(sections: unknown, family: string): void {
 /**
  * Layout pagination waits for a delivered substitute's `FontFace` to finish
  * loading before it measures — not just registers it and measures whatever
- * was painted first (DECISION_LOG §45). `aared-fonts`'s resolver sources a
+ * was painted first (Notes §45). `aared-fonts`'s resolver sources a
  * substitute from a `url()` (Google Fonts), a genuine network fetch, so this
  * serves a real font from a deliberately delayed same-origin route and
  * renames every run in the document to a nonexistent family. Paginating
  * immediately after registering the face (never awaiting its `.load()`,
- * exactly how the resolver leaves it — DECISION_LOG §45) must still measure
+ * exactly how the resolver leaves it — Notes §45) must still measure
  * the *loaded* face once the render settles, matching a render started only
  * once the face was already fully loaded.
  */
@@ -1183,9 +1292,7 @@ visual("visual DOM output: layout pagination waits for a font to finish loading 
       return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 900 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 900 }, async (view) => {
     const renamed = structuredClone(sections);
     renameAllFonts(renamed, NONEXISTENT_FAMILY);
     const model = JSON.stringify(renamed);
@@ -1214,15 +1321,13 @@ visual("visual DOM output: layout pagination waits for a font to finish loading 
     expect(coldPages).not.toBe(noFontPages);
     // The point: whether the caller awaited `.load()` must not matter.
     expect(coldPages).toBe(warmPages);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
 /**
  * `DocxRenderHandle.warnings` names a family that painted with nothing of
  * its own — the browser's generic fallback, not even a delivered substitute
- * (DECISION_LOG §45). A working, real font and a working, delivered
+ * (Notes §45). A working, real font and a working, delivered
  * substitute both produce no warning: only genuine unavailability does.
  */
 visual("visual DOM output: DocxRenderHandle.warnings names fonts that painted with the generic fallback", async () => {
@@ -1250,9 +1355,7 @@ visual("visual DOM output: DocxRenderHandle.warnings names fonts that painted wi
       return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 900 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 900 }, async (view) => {
 
     // The unmodified fixture: every family is real, nothing warns.
     const realFontWarnings = (await view.evaluate(`renderFlowFixture(${JSON.stringify(sections)})`)) as Array<{ code: string }>;
@@ -1274,9 +1377,7 @@ visual("visual DOM output: DocxRenderHandle.warnings names fonts that painted wi
       return renderFlowFixture(${JSON.stringify(renamed)});
     })()`)) as Array<{ code: string }>;
     expect(substitutedWarnings.filter((w) => w.code === "font-unavailable")).toEqual([]);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
 /**
@@ -1286,7 +1387,10 @@ visual("visual DOM output: DocxRenderHandle.warnings names fonts that painted wi
 visual("visual DOM output: DocxRenderHandle.warnings reports drawings the file gave no id, once", async () => {
   const pkg = await OpcPackage.open(await Bun.file(FIXTURE_PATH).arrayBuffer());
   const whole = await parseDocxSections(pkg, await indexDocx(pkg));
-  const stripped = await withPart("docx-coverage.docx", "word/document.xml", (xml) => xml.replace(/(<wp:docPr) id="[^"]*"/g, "$1"));
+  let removedIds = 0;
+  const stripped = await withPart("docx-coverage.docx", "word/document.xml", (xml) =>
+    xml.replace(/(<wp:docPr) id="[^"]*"/g, (_, tag: string) => { removedIds++; return tag; }));
+  expect(removedIds).toBeGreaterThan(0);
   const damaged = await parseDocxSections(stripped, await indexDocx(stripped));
   const renderer = await browserModule(`${import.meta.dir}/../src/docx/index.ts`);
   const page = `<!doctype html><style>html,body{margin:0}#host{width:1200px}</style><main id="host"></main><script type="module">
@@ -1304,24 +1408,59 @@ visual("visual DOM output: DocxRenderHandle.warnings reports drawings the file g
       return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
     },
   });
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 900 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1000, height: 900 }, async (view) => {
     type Rendered = { warnings: Array<{ code: string; message: string }>; paragraphs: number };
     const clean = (await view.evaluate(`renderFlowFixture(${JSON.stringify(whole)})`)) as Rendered;
     expect(clean.warnings.filter((w) => w.code === "docx-missing-id")).toEqual([]);
     const repaired = (await view.evaluate(`renderFlowFixture(${JSON.stringify(damaged)})`)) as Rendered;
     const warnings = repaired.warnings.filter((w) => w.code === "docx-missing-id");
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]!.message).toContain("12 drawings in this document have no id");
+    expect(warnings[0]!.message).toContain(`${removedIds} drawings in this document have no id`);
     expect(warnings[0]!.message).toMatch(/^[\x20-\x7e]+$/);
     // Drawn in full: the same paragraphs as for the document with its ids.
     expect(repaired.paragraphs).toBe(clean.paragraphs);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);
 
+visual("visual DOM output: a zoomed container does not change the DOCX page count", async () => {
+  // A CSS `zoom` on the render target scales what `getBoundingClientRect()`
+  // reports and leaves computed styles and the page's own box in layout pixels.
+  // The pagination probe used to read block heights straight from the rect, so
+  // every block measured inflated and the document paginated long: measured in
+  // Chrome, `zoom: 1.5` on the container turned this fixture's 7 pages into 10.
+  // The zoom is in place before `render()` runs, which is the case that matters —
+  // a consumer's browser zoom lands before the first paint too.
+  const { server, sections } = await serveDocx(FIXTURE_PATH, `<!doctype html><style>html,body{margin:0}</style><main id="host"></main><script type="module">
+    import { render } from "/docx.mjs";
+    const mediaResolver = async (mediaId) => (await fetch("/media/" + mediaId.split("/").at(-1))).arrayBuffer();
+    window.pageCountAt = async (model, zoom) => {
+      const host = document.querySelector("#host");
+      host.style.zoom = zoom === 1 ? "" : String(zoom);
+      const handle = await render({ document: model, target: host, pagination: { mode: "layout" }, zoom: 1, mediaResolver });
+      await document.fonts.ready;
+      const count = handle.pageCount;
+      const painted = host.querySelector('[data-aared-element="page"] p');
+      const measured = { rect: painted.getBoundingClientRect().height, client: painted.clientHeight };
+      handle.destroy();
+      host.replaceChildren();
+      return { count, ratio: +(measured.rect / measured.client).toFixed(3) };
+    };
+  </script>`);
+  await withVisualPage({ server, width: 1400, height: 1000 }, async (view) => {
+    type At = { count: number; ratio: number };
+    const plain = await view.evaluate(`pageCountAt(${JSON.stringify(sections)}, 1)`) as At;
+    // Zoomed past 1 is what inflated the rects; the two readings below are the
+    // regression: the same pages at every zoom, whatever the rects say.
+    for (const zoom of [1.5, 0.9]) {
+      const zoomed = await view.evaluate(`pageCountAt(${JSON.stringify(sections)}, ${zoom})`) as At;
+      expect(zoomed.count).toBe(plain.count);
+    }
+    expect(plain.count).toBeGreaterThan(1);
+    // The rect really is scaled, so this is not passing because zoom did nothing.
+    const zoomed = await view.evaluate(`pageCountAt(${JSON.stringify(sections)}, 1.5)`) as At;
+    expect(zoomed.ratio).not.toBe(plain.ratio);
+  });
+}, 60000);
 
 visual("DOCX result navigation identifies the displayed header source part", async () => {
   const { server, sections } = await serveDocx(FIXTURE_PATH, `<!doctype html><main id="host"></main><script type="module">
@@ -1337,9 +1476,7 @@ visual("DOCX result navigation identifies the displayed header source part", asy
       return scrolled;
     };
   </script>`);
-  try {
-    await using view = new Bun.WebView({ width: 1200, height: 1200 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1200, height: 1200 }, async (view) => {
     expect(await view.evaluate(`probe(${JSON.stringify(sections)})`) as boolean).toBe(true);
-  } finally { server.stop(); }
+  });
 }, 30000);

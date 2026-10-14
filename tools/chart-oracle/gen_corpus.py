@@ -588,8 +588,9 @@ def build_xlsx(cases, path):
 
 
 if __name__ == "__main__":
-    # Next to this script by default: export-office.ps1, render.ts and score.py read from here.
-    out = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.abspath(__file__))
+    # Generate into scratch by default; refreshing the tracked test corpus is explicit.
+    here = os.path.dirname(os.path.abspath(__file__))
+    out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "..", "out", "charts", "corpus")
     os.makedirs(out, exist_ok=True)
     cs = cases()
     frames = build_pptx(cs, os.path.join(out, "chart-oracle.pptx"))

@@ -1,10 +1,10 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 import { indexPptx, parsePptxSlide } from "../src/core/pptx.js";
 import { OpcPackage } from "../src/core/opc.js";
 import { mixResolvedColorsLinear } from "../src/core/color.js";
 import { findCoverageSlide } from "./fixture.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 
 visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table order", async () => {
@@ -17,21 +17,10 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
     findCoverageSlide(slides, "shapes"),
     findCoverageSlide(slides, "gradients"),
   ]);
-  const build = await Bun.build({
-    entrypoints: [`${import.meta.dir}/../src/pptx/index.ts`],
-    target: "browser",
-    format: "esm",
-  });
-  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
-  const module = await build.outputs[0]!.text();
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      const url = new URL(request.url);
-      if (url.pathname === "/pptx.mjs") {
-        return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      }
-      return new Response(`<!doctype html><style>html,body{margin:0;font-family:Manrope,ui-sans-serif,system-ui,sans-serif}#host{width:1280px}</style><main id="host"></main><script type="module">
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  await withVisualPage({
+    modules: { "/pptx.mjs": module },
+    page: `<!doctype html><style>html,body{margin:0;font-family:Manrope,ui-sans-serif,system-ui,sans-serif}#host{width:1280px}</style><main id="host"></main><script type="module">
         import { render } from "/pptx.mjs";
         window.renderedFixture = null;
         window.renderFixture = async (model) => {
@@ -39,12 +28,10 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
           window.renderedFixture = await render({ slide: model, target: document.querySelector("#host") });
         };
         window.destroyFixture = () => window.renderedFixture?.destroy();
-      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
+      </script>`,
+    width: 1280,
+    height: 720,
+  }, async (view) => {
     await view.evaluate(`renderFixture(${JSON.stringify(textSlide)})`);
     const textOutput = await view.evaluate(`(() => {
       const control = [...document.querySelectorAll('[data-aared-element="shape"] p')]
@@ -231,11 +218,8 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
     expect(tableOutput.cellDirections).toEqual(["ltr", "ltr", "ltr"]);
     expect(tableOutput.cellAlignments).toEqual(["center", "center", "center"]);
     expect(tableOutput.cellBackgrounds).toEqual([
-      "rgb(21, 96, 130)", "rgb(21, 96, 130)", "rgb(21, 96, 130)",
-      "rgb(204, 210, 216)", "rgb(204, 210, 216)", "rgb(204, 210, 216)",
-      "rgb(231, 234, 237)", "rgb(231, 234, 237)", "rgb(231, 234, 237)",
-      "rgb(204, 210, 216)", "rgb(204, 210, 216)", "rgb(204, 210, 216)",
-    ]);
+      "rgb(21, 96, 130)", "rgb(204, 210, 216)", "rgb(231, 234, 237)", "rgb(204, 210, 216)",
+    ].flatMap((color) => Array(3).fill(color)));
     expect(tableOutput.cellLefts[0]).toBeGreaterThan(tableOutput.cellLefts[1]!);
     expect(tableOutput.cellLefts[1]).toBeGreaterThan(tableOutput.cellLefts[2]!);
     // Each painted row is at least its authored height (a row only ever
@@ -371,15 +355,16 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
     expect(shapeOutput.titleGeometry!.range.left).toBeGreaterThanOrEqual(shapeOutput.titleGeometry!.container.left);
     expect(shapeOutput.titleGeometry!.range.right).toBeLessThanOrEqual(shapeOutput.titleGeometry!.container.right);
     expect(shapeOutput.fallback).toBe("unsupported");
-    // Unsupported geometry is an empty dashed outline, never a filled
-    // rectangle that reads as a wrong shape.
+    // Unsupported geometry stands in with a dashed outline but still paints the
+    // shape's own fill, so its text stays legible; the dash marks that the
+    // outline is a stand-in rather than an authored edge.
     const fallbackShape = await view.evaluate(`(() => {
       const shape = [...document.querySelectorAll('[data-aared-shape-id]')]
         .find((s) => s.dataset.aaredGeometryFallback === "unsupported");
       const path = shape?.querySelector("path");
       return { fill: path?.getAttribute("fill"), dashed: path?.hasAttribute("stroke-dasharray") === true };
     })()`) as { fill?: string; dashed: boolean };
-    expect(fallbackShape.fill).toBe("none");
+    expect(fallbackShape.fill).toBe("#156082");
     expect(fallbackShape.dashed).toBe(true);
     // Degenerate-axis shapes paint: the ellipse resolves to non-zero area,
     // the hairline connector gets a real svg viewport (its stroke extends
@@ -449,7 +434,7 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
       titleFontFamily?: string;
       titleGeometry: { range: { left: number; right: number; top: number; bottom: number }; container: { left: number; right: number; top: number; bottom: number } } | null;
     };
-    expect(gradientOutput.gradientId).toMatch(/^aared-gradient-[a-z0-9]+-\d+-\d+$/);
+    expect(gradientOutput.gradientId).toMatch(/^aared-gradient-[a-z0-9-]+$/);
     expect(gradientOutput.gradientPathFill).toBe(`url(#${gradientOutput.gradientId})`);
     // Unscaled (no `scaled` attribute): a true 45° in the shape's own units,
     // running top-left to bottom-right through the box's centre.
@@ -470,7 +455,7 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
     blended(gradientOutput.stops, "#156082", "#E8A33D");
     // Centered `path="circle"` gradient (the oval) paints a real SVG
     // radialGradient instead of vanishing as an unsupported fallback.
-    expect(gradientOutput.radialId).toMatch(/^aared-gradient-[a-z0-9]+-\d+-\d+$/);
+    expect(gradientOutput.radialId).toMatch(/^aared-gradient-[a-z0-9-]+$/);
     expect(gradientOutput.radialPathFill).toBe(`url(#${gradientOutput.radialId})`);
     blended(gradientOutput.radialStops, "#156082", "#73A0B4");
     expect(gradientOutput.canvasCount).toBe(0);
@@ -482,7 +467,9 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
 
     await view.evaluate(`renderFixture(${JSON.stringify(gradientSlide)})`);
     const repeatedGradientId = await view.evaluate(`document.querySelector('linearGradient')?.id`) as string | undefined;
-    expect(repeatedGradientId).toBe(gradientOutput.gradientId);
+    // A new render owns fresh definitions, even for the very same source slide.
+    expect(repeatedGradientId).toBeDefined();
+    expect(repeatedGradientId).not.toBe(gradientOutput.gradientId);
     const destroyedOutput = await view.evaluate(`(() => new Promise((resolve) => {
       const scene = document.querySelector('[data-aared-element="slide-scene"]');
       const before = scene?.style.transform;
@@ -491,8 +478,5 @@ visual("visual DOM output: PPTX preserves RTL bullets and logical RTL table orde
       requestAnimationFrame(() => requestAnimationFrame(() => resolve({ before, after: scene?.style.transform })));
     }))()`) as { before?: string; after?: string };
     expect(destroyedOutput.after).toBe(destroyedOutput.before);
-
-  } finally {
-    server.stop();
-  }
+  });
 });

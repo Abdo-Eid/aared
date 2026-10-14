@@ -1,0 +1,17 @@
+/**
+ * Shared Shiki dual-theme rendering: `defaultColor: false` emits every
+ * token carrying --shiki-light / --shiki-dark, and the site's data-theme
+ * picks which set applies. One sheet for the docs, home and light table.
+ */
+pre.astro-code,
+pre.astro-code span {
+  color: var(--shiki-light);
+}
+:root[data-theme='dark'] pre.astro-code,
+:root[data-theme='dark'] pre.astro-code span {
+  color: var(--shiki-dark);
+}
+/* github-dark comments (#6a737d) are ~3:1 on the dark code background */
+:root[data-theme='dark'] pre.astro-code span[style*="--shiki-dark:#6A737D" i] {
+  color: #a3adb7 !important;
+}

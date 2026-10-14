@@ -1,7 +1,7 @@
 > ⚠️ **Superseded — provenance only.** This proposal predates the API as
 > built. The current public API is the API reference page
 > (`site/src/content/docs/api.mdx`); why it took the shape it did is in
-> [`docs/DECISION_LOG.md`](../DECISION_LOG.md). Nothing here is a
+> [`docs/Notes.md`](../Notes.md). Nothing here is a
 > contract.
 
 # aared Public API Redesign Proposal

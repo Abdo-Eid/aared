@@ -28,7 +28,7 @@ describe("PPTX DrawingML parser", () => {
   test("re-reads slides and RTL text from the real Arabic fixture", async () => {
     const doc = await fixture();
     expect(doc.deck.size).toEqual({ width: 12192000 / 914400, height: 6858000 / 914400 });
-    expect(doc.deck.slideParts).toHaveLength(18);
+    expect(doc.deck.slideParts).toHaveLength(20);
     expect(doc.deck.theme.colors.dk1).toBe("#000000");
     expect(doc.deck.theme.fonts.minor.scripts.Arab).toBe("Arial");
     // Medium Style 2 Accent 1, every region read: fills, text, fonts and all six edges.
@@ -109,7 +109,8 @@ describe("PPTX DrawingML parser", () => {
       fontFamily: "Times New Roman",
     });
     // A layout can override the anchor while each omitted inset falls through
-    // to the matching master attribute. Ground truth: tools/probe/title-insets.
+    // to the matching master attribute. Setting margins at each scope in the
+    // title-insets Office probe confirmed that each omitted inset inherits alone.
     expect(title.text.insets).toEqual({ left: 0.1, right: 0.1, top: 0.05, bottom: 0.05 });
     expect(title.text.autofit).toBeUndefined();
   });
@@ -146,7 +147,7 @@ describe("PPTX DrawingML parser", () => {
     expect(text.insets).toEqual({ left: 0.1, right: 0.2, top: 0.05, bottom: 0 });
   });
 
-  // Ground truth: tools/probe/line-spacing-units (PowerPoint's own PDF of nine
+  // Ground truth: the line-spacing-units Office probe (PowerPoint's PDF of nine
   // stored-scale boxes). PowerPoint never re-measures on open: only the stored
   // `fontScale` / `lnSpcReduction` change what it paints.
   test("applies the autofit scale and line-spacing cut PowerPoint stored, and nothing else", async () => {
@@ -472,6 +473,18 @@ describe("PPTX DrawingML parser", () => {
     const chart = flattenElements(slide.elements).find((element) => element.kind === "chart");
     if (chart === undefined) throw new Error("fixture structure changed: expected the waterfall chart on slide 14");
     expect(chart.unsupportedReason).toBeUndefined();
+    // The chartEx frame resolves through the same parseChartFrame as a classic
+    // one, so it carries the same identity: its own id and name, and the part
+    // its chartEx relationship named.
+    expect(chart.sourceChartId).toBe("ppt/charts/chartEx1.xml");
+    expect(chart.name).not.toBe("");
+    expect(chart.bounds!.width).toBeGreaterThan(0);
+    expect(chart.bounds!.height).toBeGreaterThan(0);
+    // The frame sits in mc:AlternateContent, whose mc:Fallback is the same
+    // picture PowerPoint's own 2016 readers show. aared reads the chart and
+    // never paints the fallback beside it.
+    expect(slide.elements.map((element) => element.kind)).not.toContain("picture");
+    expect(flattenElements(slide.elements).filter((element) => element.kind === "chart")).toHaveLength(1);
     const series = chart.spec!.groups[0]!.series[0]!;
     expect(series.categories).toEqual(["البداية", "المبيعات", "التكاليف", "الضرائب", "الصافي"]);
     expect(series.values).toEqual([100, 60, -40, -15, 105]);

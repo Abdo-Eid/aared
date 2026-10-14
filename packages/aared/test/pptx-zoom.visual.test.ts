@@ -1,22 +1,17 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { indexPptx, parsePptxSlide } from "../src/core/pptx.js";
 import { OpcPackage } from "../src/core/opc.js";
-import { browserModule } from "./harness.js";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 
 visual("visual DOM output: a slide opens whole — fit-page by default, width when the container has no height", async () => {
   const pkg = await OpcPackage.open(await Bun.file(FIXTURE_PATH).arrayBuffer());
   const slide = await parsePptxSlide(pkg, await indexPptx(pkg), 0);
   const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      if (new URL(request.url).pathname === "/pptx.mjs") {
-        return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      }
-      return new Response(`<!doctype html><style>html,body{margin:0}</style>
+  await withVisualPage({
+    modules: { "/pptx.mjs": module },
+    page: `<!doctype html><style>html,body{margin:0}</style>
         <div id="wide" style="width:1000px;height:300px"></div>
         <div id="auto" style="width:600px"></div>
         <script type="module">
@@ -37,12 +32,10 @@ visual("visual DOM output: a slide opens whole — fit-page by default, width wh
             handle.destroy();
             return result;
           };
-        </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 900 });
-    await view.navigate(server.url.href);
+        </script>`,
+    width: 1280,
+    height: 900,
+  }, async (view) => {
     const model = JSON.stringify(slide);
     // A wide, short container: the 16:9 slide fits its 300px height and sits centred.
     const wide = await view.evaluate(`measure(${model}, "wide")`) as { zoom: string; width: number; height: number; left: number };
@@ -57,7 +50,5 @@ visual("visual DOM output: a slide opens whole — fit-page by default, width wh
     // fit-width stays available, and overflows a short container as asked.
     const widthFit = await view.evaluate(`measure(${model}, "wide", "fit-width")`) as { zoom: string; width: number };
     expect(widthFit).toMatchObject({ zoom: "fit-width", width: 1000 });
-  } finally {
-    server.stop();
-  }
+  });
 });

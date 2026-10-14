@@ -58,6 +58,16 @@ describe("class sheet", () => {
     expect(doc.adoptedStyleSheets).toEqual([embedder as unknown as CSSStyleSheet]);
   });
 
+  test("pseudo-element classes are distinct and a hash collision fails rather than changing another class", () => {
+    expect(cssClass('content:"x"', ["::before"])).not.toBe(cssClass('content:"x"', ["::after"]));
+    // Two valid declaration blocks with colliding FNV-1a hashes for their
+    // encoded keys. A registration-order suffix would not be cross-copy safe.
+    const first = cssClass("--probe:229599");
+    expect(() => cssClass("--probe:432382")).toThrow("renderer style hash collision");
+    expect(cssClass("--probe:229599")).toBe(first);
+    expect(classSheetText()).not.toContain("--probe:432382");
+  });
+
   test("the sheet is filled once and refilled only when a class was added since", () => {
     const doc = fakeDocument();
     cssClass("color:red");

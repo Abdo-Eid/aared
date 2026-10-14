@@ -10,7 +10,7 @@
  * esbuild prints with `charset: "utf8"`), and `String.fromCharCode(…)` is
  * constant-folded by rolldown. `JSON.parse` of an ASCII escape is evaluated
  * only at runtime. `test/shipped-latin1.test.ts` and
- * `tools/check-consumer-build.ts` enforce it.
+ * `tools/checks/consumer-build.ts` enforce it.
  */
 
 const chars = (...escapes: string[]): string => JSON.parse(`"${escapes.map((escape) => `\\u${escape}`).join("")}"`) as string;

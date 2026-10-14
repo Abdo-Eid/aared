@@ -16,7 +16,6 @@ type HookWindow = Window &
           index: number | null;
           zoom: unknown;
           error: string | null;
-          navigationError: string | null;
         }
       | undefined;
     /** Distinct viewers a probe has seen (a remount makes a new one) and distinct result objects. */
@@ -48,7 +47,6 @@ function publish(result: UsePreviewResult): void {
     zoom: result.zoom,
     // Typed by the union: an AaredError when failed, null otherwise; no casts.
     error: result.error?.message ?? null,
-    navigationError: result.navigationError?.message ?? null,
   };
   const seen = w.seen ?? { viewers: 0, results: 0 };
   if (result.viewer !== null && result.viewer !== lastViewer) seen.viewers += 1;
@@ -127,10 +125,10 @@ function AutoProbe({ source }: { source: string }) {
 function WorkerProbe({ source }: { source: string }) {
   const result = usePreview({
     source,
-    worker: () => {
+    worker: { create: () => {
       w.workerFactoryCalls = (w.workerFactoryCalls ?? 0) + 1;
       return new Worker("/custom-worker.mjs", { type: "module" });
-    },
+    } },
   });
   publish(result);
   return <div ref={result.ref} />;

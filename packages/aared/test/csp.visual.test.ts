@@ -1,7 +1,7 @@
-import { expect, test } from "bun:test";
-import { browserModule } from "./harness.js";
+import { expect } from "bun:test";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
+
 const PPTX_FIXTURE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 const XLSX_FIXTURE = `${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`;
 const DOCX_FIXTURE = `${import.meta.dir}/../../../fixtures/docx-coverage.docx`;
@@ -31,19 +31,10 @@ visual("visual CSP: every format and the element render under style-src without 
   // Every request that reaches the server. The policy below blocks any other
   // origin (`default-src 'self'`), so this is the whole network of the run.
   const requests: string[] = [];
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      const { pathname } = new URL(request.url);
-      requests.push(`${request.method} ${pathname}`);
-      const script = scripts[pathname];
-      if (script !== undefined) return new Response(script, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      const file = files[pathname];
-      if (file !== undefined) return new Response(file);
-      if (pathname === "/page.css") return new Response(PAGE_CSS, { headers: { "content-type": "text/css" } });
-      // The listener is a classic script ahead of the markup, so it hears a
-      // violation from the element's upgrade (when its chrome is attached) too.
-      return new Response(`<!doctype html><link rel="stylesheet" href="/page.css"><script>
+  await withVisualPage({
+    modules: scripts,
+    files,
+    page: `<!doctype html><link rel="stylesheet" href="/page.css"><script>
         window.violations = [];
         document.addEventListener("securitypolicyviolation", (event) => {
           window.violations.push({ directive: event.violatedDirective, sample: event.sample });
@@ -71,6 +62,18 @@ visual("visual CSP: every format and the element render under style-src without 
           await frame();
           out.pages = paged.docx.pageCount;
           paged.destroy();
+          // Search highlighting must also stay clean: its ::highlight rule
+          // lives in a constructed stylesheet, never in a <style> element.
+          const probed = await preview({ source: "/doc.docx", target: document.querySelector("#paged") });
+          await frame();
+          await probed.search("nile");
+          await frame();
+          const probedTarget = document.querySelector("#paged");
+          const highlightName = probedTarget.dataset.aaredSearchHighlight;
+          out.searchHighlights = [...(CSS.highlights.get(highlightName) ?? [])].length;
+          out.searchRule = document.adoptedStyleSheets.some((sheet) => [...sheet.cssRules].some((rule) => rule.cssText.includes("::highlight(" + highlightName + ")")));
+          out.searchLegacyStyle = document.querySelectorAll('style[data-aared-search-highlight-style]').length;
+          probed.destroy();
           out.aared = window.violations.splice(0);
           // The control: inline style text in a shadow root, as the element used to write.
           const shadow = document.querySelector("#control").attachShadow({ mode: "open" });
@@ -81,22 +84,26 @@ visual("visual CSP: every format and the element render under style-src without 
           out.control = window.violations.splice(0).map((violation) => violation.directive);
           return out;
         };
-      </script>`, {
-        headers: {
-          "content-type": "text/html; charset=utf-8",
-          "content-security-policy":
-            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; worker-src 'self' blob:; img-src 'self' blob: data:; font-src 'self' blob: data:",
-        },
-      });
+      </script>`,
+    pageHeaders: {
+      "content-security-policy":
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self'; worker-src 'self' blob:; img-src 'self' blob: data:; font-src 'self' blob: data:",
     },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 900 });
-    await view.navigate(server.url.href);
+    onRequest: (url, request) => {
+      requests.push(`${request.method} ${url.pathname}`);
+      if (url.pathname === "/page.css") return new Response(PAGE_CSS, { headers: { "content-type": "text/css" } });
+      return undefined;
+    },
+    width: 1280,
+    height: 900,
+  }, async (view) => {
     const out = await view.evaluate(`run()`) as {
       shown: string[];
       stage: string;
       pages: number;
+      searchHighlights: number;
+      searchRule: boolean;
+      searchLegacyStyle: number;
       aared: Array<{ directive: string; sample: string }>;
       control: string[];
     };
@@ -104,6 +111,11 @@ visual("visual CSP: every format and the element render under style-src without 
     // The element's chrome still styles the stage (the light theme's own colour).
     expect(out.stage).toBe("rgb(242, 242, 242)");
     expect(out.pages).toBeGreaterThan(1);
+    // Highlighted search ran under the same policy: matches found, its rule
+    // in a constructed sheet, no legacy <style> element, no violation.
+    expect(out.searchHighlights).toBeGreaterThan(0);
+    expect(out.searchRule).toBe(true);
+    expect(out.searchLegacyStyle).toBe(0);
     expect(out.aared).toEqual([]);
     expect(out.control.length).toBe(1);
     expect(out.control[0]).toStartWith("style-src");
@@ -114,7 +126,5 @@ visual("visual CSP: every format and the element render under style-src without 
     expect(requests.filter((request) => !request.startsWith("GET "))).toEqual([]);
     expect(requests.filter((request) => !known.has(request.slice(4)))).toEqual([]);
     for (const path of ["/deck.pptx", "/book.xlsx", "/doc.docx"]) expect(requests).toContain(`GET ${path}`);
-  } finally {
-    server.stop();
-  }
+  });
 }, 60000);

@@ -1,9 +1,8 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { OpcPackage } from "../src/core/opc.js";
 import { indexPptx, parsePptxLayout, parsePptxSlide } from "../src/core/pptx.js";
-import { browserModule } from "./harness.js";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const COVERAGE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 
 /**
@@ -35,18 +34,18 @@ visual("visual DOM output: master and layout graphics paint under the slide, and
           return { order, background: viewport?.dataset.aaredBackground ?? "none", mediaId: viewport?.dataset.aaredMediaId ?? "" };
         };
       </script>`;
-  const server = Bun.serve({
-    port: 0,
-    async fetch(request) {
-      const path = new URL(request.url).pathname;
-      if (path.startsWith("/media/")) return new Response((await pkg.readPart(decodeURIComponent(path.slice("/media/".length)))).slice().buffer as ArrayBuffer, { headers: { "content-type": "image/png" } });
-      if (path === "/pptx.mjs") return new Response(renderer, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
+  await withVisualPage({
+    modules: { "/pptx.mjs": renderer },
+    page,
+    onRequest: async (url) => {
+      if (url.pathname.startsWith("/media/")) {
+        return new Response((await pkg.readPart(decodeURIComponent(url.pathname.slice("/media/".length)))).slice().buffer as ArrayBuffer, { headers: { "content-type": "image/png" } });
+      }
+      return undefined;
     },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1000, height: 700 });
-    await view.navigate(server.url.href);
+    width: 1000,
+    height: 700,
+  }, async (view) => {
     type Painted = { order: string[]; background: string; mediaId: string };
     const paint = async (index: number): Promise<Painted> => (await view.evaluate(`paint(${JSON.stringify(models[index])})`)) as Painted;
     const first = await paint(0);
@@ -71,7 +70,5 @@ visual("visual DOM output: master and layout graphics paint under the slide, and
     // Hiding background graphics leaves the background itself: the same inherited picture.
     expect(onHidden.background).toBe("picture");
     expect(onHidden.mediaId).toBe(first.mediaId);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30000);

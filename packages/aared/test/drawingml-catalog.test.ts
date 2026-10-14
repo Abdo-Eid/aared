@@ -51,7 +51,8 @@ describe("preset catalog", () => {
       let program = programOf(entry.preset);
       if (program === undefined) {
         // A fast-path preset (hand-coded, so not catalogued) answers to the
-        // oracle too: same endpoints, in order.
+        // oracle too: same endpoints, in order. `straightConnector1` is the one
+        // such case in the corpus.
         const fast = geometryForPreset(entry.preset, { width: entry.width, height: entry.height }, entry.adjustments);
         if (fast === undefined) throw new Error(`catalog lacks ${entry.preset}`);
         const want = entry.paths.flat().filter((command) => command.length === 3).map((command) => [command[1], command[2]]);
@@ -61,24 +62,25 @@ describe("preset catalog", () => {
       // Aliases render another preset under a symmetry; endpoints compare
       // as multisets, so a mirrored start vertex still matches.
       let symmetry = "";
+      let base = program;
       if (program.startsWith("= ")) {
-        const [, spelled, base] = program.split(" ");
+        const [, spelled, spelledBase] = program.split(" ");
         symmetry = spelled!;
-        program = programOf(base!)!;
-        expect(program.startsWith("= ")).toBe(false);
+        base = programOf(spelledBase!)!;
+        expect(base.startsWith("= ")).toBe(false);
       }
       // Evaluate the whole program at once (segmentation differs by design:
       // mid-path closes, LO subpath splits, full-turn halves), flatten every
       // paint bucket into one endpoint multiset, and compare verb-insensitively.
       const label = `${entry.preset} ${entry.width}x${entry.height} ${JSON.stringify(entry.adjustments)}`;
-      const evaluated = evaluateGeometry(program, entry.width, entry.height, entry.adjustments, symmetry);
+      const evaluated = evaluateGeometry(base, entry.width, entry.height, entry.adjustments, symmetry);
       if (evaluated === undefined) throw new Error(`engine returned undefined for ${label}`);
       const got = [...pointsOf(evaluated.path), ...pointsOf(evaluated.fillOnly), ...pointsOf(evaluated.strokeOnly)];
       // An ECMA path flagged neither-fill-nor-stroke paints nothing; when
       // LibreOffice's segmentation aligns 1:1 with ECMA's, its record of
       // that subpath is not compared (flowChartMultidocument's invisible
       // third path).
-      const ecmaPaths = program.split(";").filter((statement) => statement.startsWith("p "));
+      const ecmaPaths = base.split(";").filter((statement) => statement.startsWith("p "));
       const aligned = ecmaPaths.length === entry.paths.length;
       const want: Array<[number, number]> = [];
       entry.paths.forEach((subpath, index) => {
@@ -184,6 +186,57 @@ describe("deferred geometry resolution", () => {
     expect(can.fallback).toBeUndefined();
     expect(can.fillOnly).toBeDefined();
     expect(can.strokeOnly).toBeDefined();
+  });
+
+  /**
+   * The preset text rectangle, measured against PowerPoint's own laid-out text
+   * edges (probe `pptx-text-rectangle`, Word/Excel build 16 era, Office's
+   * authored `bodyPr` insets removed). `left` is the geometry inset alone; the
+   * measured column edge is that plus whatever insets the shape authored.
+   * Two aspect ratios per preset, because an inset defined on the short side
+   * and one defined per axis differ under each.
+   */
+  test("preset text rectangles match the columns PowerPoint lays text out in", () => {
+    const rectOf = (preset: string, width: number, height: number): NonNullable<ShapeGeometryModel["textRect"]> => {
+      const geometry = geometryForPreset(preset, { width, height });
+      expect(geometry?.textRect).toBeDefined();
+      return geometry!.textRect!;
+    };
+    // PowerPoint 16.0, points, default adjustments, insets already subtracted.
+    expect(rectOf("rect", 320, 120).left).toBeCloseTo(0, 6);
+    expect(rectOf("roundRect", 320, 120).left).toBeCloseTo(5.86, 2);
+    expect(rectOf("roundRect", 140, 300).left).toBeCloseTo(6.83, 2);
+    expect(rectOf("ellipse", 320, 120).left).toBeCloseTo(46.86, 2);
+    expect(rectOf("ellipse", 140, 300).left).toBeCloseTo(20.50, 2);
+    expect(rectOf("diamond", 320, 120).left).toBeCloseTo(80, 2);
+    expect(rectOf("diamond", 140, 300).left).toBeCloseTo(35, 2);
+    expect(rectOf("octagon", 320, 120).left).toBeCloseTo(17.57, 2);
+    expect(rectOf("octagon", 140, 300).left).toBeCloseTo(20.50, 2);
+    expect(rectOf("parallelogram", 320, 120).left).toBeCloseTo(39.17, 2);
+    expect(rectOf("parallelogram", 140, 300).left).toBeCloseTo(26.25, 2);
+    // The one that was wrong: hexagon read 16.67pt where PowerPoint lays the
+    // column at 36.67pt, because `q5` is `q2 ? q1 : 0`, not `q2 ? a : 0`.
+    expect(rectOf("hexagon", 320, 120).left).toBeCloseTo(36.67, 2);
+    expect(rectOf("hexagon", 140, 300).left).toBeCloseTo(23.33, 2);
+    expect(rectOf("rtTriangle", 320, 120).left).toBeCloseTo(26.67, 2);
+    expect(rectOf("rtTriangle", 140, 300).left).toBeCloseTo(11.67, 2);
+    expect(rectOf("triangle", 320, 120).left).toBeCloseTo(80, 2);
+    // ECMA star5 `a:rect l="sx1" t="sy1" r="sx4" b="sy3"`: radius multiplies
+    // the trig result (`iwd2*cos(342deg)`), never the angle, and the hf/vf
+    // defaults exceed 100000 so they must not be clamped to it.
+    const star5 = rectOf("star5", 320, 120);
+    expect(star5.left).toBeCloseTo(98.89, 2);
+    expect(star5.top).toBeCloseTo(45.84, 2);
+    expect(star5.right).toBeCloseTo(221.11, 2);
+    expect(star5.bottom).toBeCloseTo(91.67, 2);
+    const star5Tall = rectOf("star5", 140, 300);
+    expect(star5Tall.left).toBeCloseTo(43.26, 2);
+    expect(star5Tall.top).toBeCloseTo(114.59, 2);
+    expect(star5Tall.right).toBeCloseTo(96.74, 2);
+    expect(star5Tall.bottom).toBeCloseTo(229.18, 2);
+    // A rectangle's text box is the whole box; the inset presets are symmetric.
+    expect(rectOf("ellipse", 320, 120).right).toBeCloseTo(320 - 46.86, 2);
+    expect(rectOf("hexagon", 140, 300).right).toBeCloseTo(140 - 23.33, 2);
   });
 
   test("anything it cannot resolve keeps the worker's fallback, minus the transport field", () => {

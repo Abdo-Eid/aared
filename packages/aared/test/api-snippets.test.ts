@@ -50,9 +50,12 @@ export function checkedBlocks(mdx: string, page: string): Snippet[] {
  */
 test("the docs pages' examples and the playground snippets compile against the package", async () => {
   const api = checkedBlocks(await Bun.file(join(DOCS_DIR, "api.mdx")).text(), "api");
-  expect(api.length).toBeGreaterThanOrEqual(8);
+  // Exact counts, not a floor: a page that quietly loses half its runnable
+  // examples is a regression, and a floor would not notice. Raise this in the
+  // same edit that adds one.
+  expect(api.length).toBe(24);
   const start = checkedBlocks(await Bun.file(join(DOCS_DIR, "start.mdx")).text(), "start");
-  expect(start.length).toBeGreaterThanOrEqual(6);
+  expect(start.length).toBe(13);
   type Group = Record<string, { title: string; lang: string; code: string }>;
   const site = (await import(PLAYGROUND_SNIPPETS)) as { reactSnippets: Group; facadeSnippets: Group; headlessSnippets: Group };
   const playground: Snippet[] = [site.reactSnippets, site.facadeSnippets, site.headlessSnippets].flatMap((group) =>

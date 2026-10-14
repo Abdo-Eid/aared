@@ -69,6 +69,17 @@ test("API reference callable examples resolve to public implementations", async 
     "deck.search",
     "sheet.search",
     "doc.search",
+    // The borrowed-content grammar (§122) and the viewer-level search steps.
+    "content.slides.list",
+    "content.slides.get",
+    "content.sheets.get",
+    "content.sections.list",
+    "content.media.get",
+    "searchNavigation.next",
+    "viewer.scale",
+    "render({ slide",
+    "render({ sheet",
+    "render({ document",
     "deck.close",
     "render",
     "viewer.setZoom",
@@ -81,6 +92,8 @@ test("API reference callable examples resolve to public implementations", async 
     "viewer.resetZoom",
     "viewer.defaultZoom",
     "viewer.search",
+    "viewer.goToSearchMatch",
+    "viewer.content",
     "viewer.xlsx.goToCell",
     "viewer.xlsx.goToSheet",
     "viewer.docx.goToHeading",
@@ -139,4 +152,30 @@ test("API reference callable examples resolve to public implementations", async 
   expect(element).toContain("async open(): Promise<void>");
   expect(element).toContain("get viewer(): AaredViewerHandle | null");
   expect(element).not.toContain("async goTo(");
+});
+
+/**
+ * The other half of the gate. Export parity does not stop a page from
+ * reintroducing an API that was deliberately removed, so the surfaces that
+ * outlived each correction are checked for absence across every consumer page
+ * the charter treats as one contract.
+ */
+test("removed APIs stay out of every consumer page", async () => {
+  const pages = await Promise.all([
+    Bun.file(API_PATH).text(),
+    Bun.file(`${import.meta.dir}/../../../site/src/content/docs/start.mdx`).text(),
+    Bun.file(`${import.meta.dir}/../../../site/src/partials/choosing-a-layer.mdx`).text(),
+  ]);
+  for (const [index, page] of pages.entries()) {
+    const where = ["api", "start", "choosing-a-layer"][index]!;
+    // §122: viewers lend restricted content, never the document's lifecycle.
+    expect(page, where).not.toContain("viewer.document");
+    expect(page, where).not.toMatch(/viewer\.document\b/);
+    // §120: one `error` field on the hook result, one `error` event.
+    expect(page, where).not.toContain("navigationError");
+    // §119: any format's match is activated on the viewer itself.
+    expect(page, where).not.toMatch(/docx\.goToSearchMatch/);
+    // §121: the Worker takes exactly one object-form input.
+    expect(page, where).not.toMatch(/worker:\s*(?:create|async|\(\))/);
+  }
 });

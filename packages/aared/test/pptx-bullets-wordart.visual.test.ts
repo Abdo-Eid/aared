@@ -1,9 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 import { indexPptx, parsePptxSlide } from "../src/core/pptx.js";
 import { OpcPackage } from "../src/core/opc.js";
 import { findCoverageSlide } from "./fixture.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 
 visual("visual DOM output: explicit bullet paint and WordArt markers re-read from the DOM", async () => {
@@ -16,21 +16,10 @@ visual("visual DOM output: explicit bullet paint and WordArt markers re-read fro
   ]);
   const bulletSvg = await pkg.readPart("ppt/media/image10.svg");
   const bulletB64 = Buffer.from(bulletSvg).toString("base64");
-  const build = await Bun.build({
-    entrypoints: [`${import.meta.dir}/../src/pptx/index.ts`],
-    target: "browser",
-    format: "esm",
-  });
-  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
-  const module = await build.outputs[0]!.text();
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      const url = new URL(request.url);
-      if (url.pathname === "/pptx.mjs") {
-        return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      }
-      return new Response(`<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  await withVisualPage({
+    modules: { "/pptx.mjs": module },
+    page: `<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">
         import { render } from "/pptx.mjs";
         window.renderedFixture = null;
         window.renderFixture = async (model, media) => {
@@ -58,13 +47,10 @@ visual("visual DOM output: explicit bullet paint and WordArt markers re-read fro
           window.renderedFixture = await render({ slide: model, target: host.shadowRoot.querySelector("#shadow-target") });
         };
         window.destroyFixture = () => window.renderedFixture?.destroy();
-      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
-
+      </script>`,
+    width: 1280,
+    height: 720,
+  }, async (view) => {
     // Bullets without a media resolver: explicit colors/sizes paint, the
     // picture bullet falls back to its character with a marker.
     await view.evaluate(`renderFixture(${JSON.stringify(bulletsSlide)})`);
@@ -198,7 +184,5 @@ visual("visual DOM output: explicit bullet paint and WordArt markers re-read fro
       };
     })()`) as { inShadowRoot: boolean; filterInRun: boolean; resolves: boolean };
     expect(shadowHollow).toEqual({ inShadowRoot: true, filterInRun: true, resolves: true });
-  } finally {
-    server.stop();
-  }
+  });
 });

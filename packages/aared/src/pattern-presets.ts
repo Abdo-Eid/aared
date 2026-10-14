@@ -1,5 +1,6 @@
 /**
- * DrawingML's 54 preset patterns (`ST_PresetPatternVal`) as 8×8 bitmaps: 16
+ * DrawingML's 54 preset patterns (`ST_PresetPatternVal`), then SpreadsheetML's
+ * 17 cell patterns (`ST_PatternType`, below), as 8×8 bitmaps: 16
  * hex digits, one byte per row top to bottom, most significant bit leftmost,
  * a set bit painting the foreground colour. The spec names the presets but
  * gives no bitmaps, so these were read from PowerPoint itself: every preset
@@ -8,7 +9,7 @@
  * halved, every preset repeats within 8 px at 1280, and shapes offset off the
  * 8 px grid show the same bitmap shifted by the offset — so a cell is one
  * CSS pixel (the 8×8 tile is 1/12 inch), patterns scale with the slide, and
- * they are anchored to the slide's origin (DECISION_LOG §28). `cross` and
+ * they are anchored to the slide's origin (Notes §28). `cross` and
  * `lgGrid` really are the same bitmap.
  */
 export const PATTERN_PRESETS: Readonly<Record<string, string>> = {
@@ -66,4 +67,28 @@ export const PATTERN_PRESETS: Readonly<Record<string, string>> = {
   wave: "c0001825c0001825",
   trellis: "99ff66ff99ff66ff",
   zigZag: "0cc021120cc02112",
+  // SpreadsheetML's 17 cell patterns (`ST_PatternType`), read from Excel's own
+  // screen bitmaps (probe xlsx-cell-fills): each pattern black on white in a
+  // large cell, copied with `Range.CopyPicture` at 100%, its repeating tile
+  // taken from the cell's top-left. Every one repeats within 8 x 4 px, so
+  // the tile is a CSS pixel per cell like DrawingML's. Excel anchors the tiles
+  // to each cell (cells at odd pixel offsets show the same phase), not to the
+  // sheet. darkGray, mediumGray and lightTrellis equal pct70, pct50 and pct30.
+  darkGray: "eebbeebbeebbeebb",
+  mediumGray: "aa55aa55aa55aa55",
+  lightGray: "8822882288228822",
+  gray125: "8800220088002200",
+  gray0625: "8000080080000800",
+  darkHorizontal: "ffff0000ffff0000",
+  darkVertical: "cccccccccccccccc",
+  darkDown: "cc663399cc663399",
+  darkUp: "3366cc993366cc99",
+  darkGrid: "9966669999666699",
+  darkTrellis: "ff66ff99ff66ff99",
+  lightHorizontal: "ff000000ff000000",
+  lightVertical: "8888888888888888",
+  lightDown: "8844221188442211",
+  lightUp: "1122448811224488",
+  lightGrid: "ff888888ff888888",
+  lightTrellis: "8855225588552255",
 };

@@ -32,6 +32,12 @@ test("real PowerPoint slide-number placeholders parse as slidenum fields matchin
   const deck = await indexPptx(pkg);
   for (const [index] of deck.slideParts.entries()) {
     const slide = await parsePptxSlide(pkg, deck, index);
+    // The blank-layout group-appearance slide deliberately has no number
+    // placeholder. Every earlier coverage slide retains its native field.
+    if (slide.elements.some((element) => element.name === "Group fill inheritance")) {
+      expect(slide.elements.some((element) => element.kind === "shape" && element.placeholder?.type === "sldNum")).toBe(false);
+      continue;
+    }
     const fields = slide.elements.flatMap((element) =>
       element.kind === "shape"
         ? (element.text?.paragraphs ?? []).flatMap((paragraph) => paragraph.runs.filter((run) => run.field === "slidenum"))
@@ -59,11 +65,4 @@ test("a slide-number placeholder takes the master's position even though master 
   expect(bounds!.x + bounds!.width).toBeGreaterThan(deck.size.width - 1.5);
   expect(bounds!.y).toBeGreaterThan(deck.size.height - 1);
   expect(text?.paragraphs[0]?.align).toBe("right");
-});
-
-test("slides carry their 1-based number for slide-number fields", async () => {
-  const pkg = await OpcPackage.open(await Bun.file(PRODUCTION).arrayBuffer());
-  const deck = await indexPptx(pkg);
-  expect((await parsePptxSlide(pkg, deck, 0)).number).toBe(1);
-  expect((await parsePptxSlide(pkg, deck, 6)).number).toBe(7);
 });

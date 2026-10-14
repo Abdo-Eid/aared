@@ -3,7 +3,7 @@
  * its frame and return the primitives to paint. `chart-svg.ts` loads this
  * module with a dynamic `import()` the first time a chart shows, so a file
  * with no charts never downloads the layout code, and the Worker (which only
- * reads charts, `core/chart.ts`) never contains it (DECISION_LOG §71).
+ * reads charts, `core/chart.ts`) never contains it (Notes §71).
  */
 
 import { PT_PER_INCH } from "../units.js";

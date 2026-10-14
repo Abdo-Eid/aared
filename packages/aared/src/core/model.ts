@@ -102,7 +102,7 @@ export interface TextRunModel {
   baselinePct?: number;
   /** DrawingML `a:noFill`: outline-only text (fill explicitly none). */
   noFill?: boolean;
-  /** DrawingML `a:grpFill`: fill inherits the group (marked, not resolved). */
+  /** DrawingML text `a:grpFill`; PowerPoint paints no fill, and the source remains flagged. */
   groupFill?: boolean;
   /** DrawingML text outline (`a:ln` on the run): stroke color + width in points. Painted via text-stroke. */
   outline?: { color: string; widthPt: number };
@@ -134,11 +134,16 @@ export interface TextRunModel {
    * Live field this run evaluates. DOCX: `PAGE`/`NUMPAGES` (`w:instrText` or
    * `w:fldSimple`); `text` carries the field's cached result from the file
    * (`"1"` when it has none), layout pagination substitutes the real value per
-   * page, and flow rendering shows the cached text.
+   * page, and flow rendering shows the cached text. `PAGEREF` is a table-of-
+   * contents page reference: `hyperlink` names its target fragment
+   * (`#aared-heading-N` for an outline heading, else the target heading's
+   * `tocAnchor`); layout mode substitutes the target's printed page number
+   * and flow rendering shows the cached text (empty for entries added since
+   * the TOC was last saved).
    * PPTX: `slidenum` (the renderer shows `SlideModel.number`) and `datetime`
    * (`text` keeps the value cached in the file).
    */
-  field?: "PAGE" | "NUMPAGES" | "slidenum" | "datetime";
+  field?: "PAGE" | "NUMPAGES" | "PAGEREF" | "slidenum" | "datetime";
   /**
    * Word inline drawing that sits on the text line (`wp:inline` inside a
    * paragraph that also carries text). `text` is empty; the renderer paints
@@ -151,9 +156,18 @@ export interface TextRunModel {
 export interface DocxInlineImage {
   mediaId: string;
   contentType: string;
+  /**
+   * Office's own raster fallback beside an SVG source (`a:blip` next to
+   * `asvg:svgBlip`): painted when the SVG cannot be read or decoded.
+   */
+  fallbackMediaId?: string;
+  fallbackContentType?: string;
   width: number;
   height: number;
   alt?: string;
+  effects?: DrawingEffectsModel;
+  /** Word's authored effect overflow, in inches; separate from picture geometry. */
+  effectInsets?: InsetsModel;
 }
 
 export interface TextParagraphModel {
@@ -179,6 +193,9 @@ export interface TextParagraphModel {
      */
     pictureMediaId?: string;
     pictureContentType?: string;
+    /** The raster beside an SVG picture bullet, painted when the SVG fails. */
+    pictureFallbackMediaId?: string;
+    pictureFallbackContentType?: string;
   };
   level?: number;
   /** Paragraph margins and first-line indent in inches. */
@@ -228,7 +245,7 @@ export interface TextBodyModel {
    * WordArt preset warp (`a:bodyPr/a:prstTxWarp/@prst`, e.g. `textArchUp`).
    * Painted unwarped and marked. Most presets are free-form envelopes with no
    * DOM form; the arch and circle ones could follow an SVG `textPath`
-   * (docs/ROADMAP.md open gaps).
+   * (docs/ARCHITECTURE.md § Gaps, limits and fidelity gaps, PPTX WordArt).
    */
   textWarp?: string;
 }
@@ -256,6 +273,8 @@ export interface ShapeGeometryModel {
    */
   strokeOnly?: string;
   viewBox: LocalViewBoxModel;
+  /** Geometry-defined text rectangle edges in local `viewBox` units, before body insets. */
+  textRect?: { left: number; top: number; right: number; bottom: number };
   /** Source geometry could not be rendered faithfully; `path` is a visible bounds fallback. */
   fallback?: "unsupported" | "custom" | "missing";
   /**
@@ -305,6 +324,8 @@ export interface LinearGradientFillModel {
   /** Whether the gradient follows the shape's transform. */
   rotatesWithShape: boolean;
   stops: LinearGradientStopModel[];
+  /** `srgb`: blend straight in sRGB, as Excel paints cell gradients. Absent: PowerPoint's blend (see `gradientColorAt`). */
+  blend?: "srgb";
 }
 
 /**
@@ -323,7 +344,7 @@ export interface RelativeRectModel {
 /**
  * An `a:path` gradient: the first stop paints the `focus` rectangle and
  * colour runs outward to the last stop. How far "outward" reaches depends on
- * `path`, each measured against PowerPoint renders (DECISION_LOG §28):
+ * `path`, each measured against PowerPoint renders (Notes §28):
  *
  * - `circle` — a true circle in slide units (never an ellipse fitted to the
  *   box): the weight is the distance from the focus divided by half the
@@ -347,17 +368,20 @@ export interface PathGradientFillModel {
   /** The gradient box (`a:tileRect`); zeros are the fill box itself. */
   extent: RelativeRectModel;
   stops: LinearGradientStopModel[];
+  /** `srgb`: blend straight in sRGB, as Excel paints cell gradients. Absent: PowerPoint's blend. */
+  blend?: "srgb";
 }
 
 /**
- * A two-colour pattern (`a:pattFill`): one of DrawingML's 54 preset 8×8
- * bitmaps. Each bitmap cell is one CSS pixel (the tile is 1/12 inch), the
- * pattern scales with the slide, and it is anchored to the slide's origin
- * rather than to each shape, as PowerPoint draws it.
+ * A two-colour pattern: one of DrawingML's 54 preset 8×8 bitmaps
+ * (`a:pattFill`) or SpreadsheetML's 17 cell patterns (`patternFill`). Each
+ * bitmap cell is one CSS pixel (the tile is 1/12 inch) and the pattern scales
+ * with its content. PowerPoint anchors the tiles to the slide's origin, Excel
+ * to each cell's top-left; the painter's fill box says which.
  */
 export interface PatternFillModel {
   kind: "pattern";
-  /** `ST_PresetPatternVal`, e.g. `dkDnDiag`, `smGrid`, `pct50`. */
+  /** `ST_PresetPatternVal` (`dkDnDiag`, `smGrid`, `pct50`) or `ST_PatternType` (`darkGrid`, `gray125`, `lightTrellis`). */
   preset: string;
   /** Resolved CSS colour of the bitmap's set cells (`a:fgClr`). */
   foreground: string;
@@ -389,6 +413,12 @@ export interface PictureFillModel {
   /** Identifier accepted by `MediaCollection.get()` (the OPC part path). */
   mediaId: string;
   contentType: string;
+  /**
+   * Office's own raster fallback beside an SVG source (`a:blip` next to
+   * `asvg:svgBlip`): painted when the SVG cannot be read or decoded.
+   */
+  fallbackMediaId?: string;
+  fallbackContentType?: string;
   /** `a:srcRect`: fractions of the image cut from each edge; negative pads. */
   crop?: RelativeRectModel;
   /** `a:stretch/a:fillRect`: where the stretched image sits inside the fill box. */
@@ -416,6 +446,17 @@ export type ShapeFillModel =
   | PictureFillModel
   | UnsupportedShapeFillModel;
 
+/** Resolved 2D DrawingML effects, applied to one shape or a group's composite. */
+export interface DrawingEffectsModel {
+  outerShadow?: { color: string; blurPt: number; dxPt: number; dyPt: number; rotatesWithShape: boolean };
+  innerShadow?: { color: string; blurPt: number; dxPt: number; dyPt: number; rotatesWithShape: boolean };
+  glow?: { color: string; radiusPt: number };
+  softEdgePt?: number;
+  reflection?: { distancePt: number; startOpacity: number; endOpacity: number; startPosition: number; endPosition: number };
+  /** Effects outside the supported 2D vocabulary; never silently discarded. */
+  unsupported?: string[];
+}
+
 export interface ShapeModel {
   kind: "shape";
   id: string;
@@ -433,6 +474,9 @@ export interface ShapeModel {
   geometry?: ShapeGeometryModel;
   /** Resolved shape paint when the parser supports the source fill. */
   fill?: ShapeFillModel;
+  /** Group-inherited paint box in the shape's parent coordinates, in inches. */
+  fillBounds?: BoundsModel;
+  effects?: DrawingEffectsModel;
   stroke?: StrokeModel;
   transform?: TransformModel;
 }
@@ -497,9 +541,16 @@ export interface PictureModel {
   mediaId: string;
   /** Resolved MIME content type used to create the media Blob. */
   contentType: string;
+  /**
+   * Office's own raster fallback beside an SVG source (`a:blip` next to
+   * `asvg:svgBlip`): painted when the SVG cannot be read or decoded.
+   */
+  fallbackMediaId?: string;
+  fallbackContentType?: string;
   /** Fractions (0..1) cropped from each edge via DrawingML `a:srcRect`. */
   crop?: { left: number; top: number; right: number; bottom: number };
   transform?: TransformModel;
+  effects?: DrawingEffectsModel;
 }
 
 export interface ChartModel {
@@ -537,6 +588,8 @@ export interface GroupModel {
   transform?: TransformModel;
   /** Child coordinate space (`a:chOff` + `a:chExt`), absent when identity. */
   childSpace?: BoundsModel;
+  /** Effects operate on the combined child appearance, not each child separately. */
+  effects?: DrawingEffectsModel;
   /** Back-to-front children: shapes, tables, pictures, charts, nested groups. */
   children: SlideElementModel[];
 }
@@ -625,8 +678,12 @@ export interface XlsxCellBorderSideModel {
 
 /** Resolved direct cell formatting: the SheetJS Community gap (fills, fonts, borders). */
 export interface XlsxCellStyleModel {
-  /** Resolved CSS fill color. */
-  fill?: string;
+  /**
+   * The cell background, through the same fill model as shapes: `solid`, a
+   * `linear-gradient` or `path-gradient` (`gradientFill`, blended in sRGB) or
+   * a `pattern` (`patternFill`'s 17 non-solid types).
+   */
+  fill?: ShapeFillModel;
   /** Resolved CSS font color. */
   color?: string;
   bold?: boolean;
@@ -672,7 +729,28 @@ export interface CellModel {
     fill?: string;
     color?: string;
     bold?: boolean;
-    dataBar?: { ratio: number; color: string };
+    dataBar?: {
+      /** Final bar length as a fraction of the cell width, including min/max length settings. */
+      ratio: number;
+      color: string;
+      gradient: boolean;
+      showValue: boolean;
+      direction: "context" | "leftToRight" | "rightToLeft";
+      border: boolean;
+      borderColor?: string;
+      axisPosition: "automatic" | "middle" | "none";
+      axisColor?: string;
+      negativeFillColor?: string;
+      negativeBorderColor?: string;
+    };
+    icon?: {
+      /** Family as written (`3Arrows`, `4TrafficLights`, `5Boxes`, ...). */
+      family: string;
+      /** Zero-based icon within the family in Excel's defined order (0 is the lowest tier). */
+      icon: number;
+      /** When false, the icon paints alone and the cell's text is hidden. */
+      showValue: boolean;
+    };
   };
 }
 
@@ -692,6 +770,16 @@ export interface SheetPictureModel {
   mediaId: string;
   /** Resolved MIME content type used to create the media Blob. */
   contentType: string;
+  /**
+   * Office's own raster fallback beside an SVG source (`a:blip` next to
+   * `asvg:svgBlip`): painted when the SVG cannot be read or decoded.
+   */
+  fallbackMediaId?: string;
+  fallbackContentType?: string;
+  /** Resolved DrawingML 2D effects (`pic/spPr/effectLst`), painted by the shared effect painter. */
+  effects?: DrawingEffectsModel;
+  /** The picture's own rotation/flips, for effects that do not rotate with it. */
+  transform?: TransformModel;
   /** Absolute bounds in inches from the grid origin. */
   bounds: BoundsModel;
   /** Anchor cells the bounds were derived from. */
@@ -893,10 +981,38 @@ export interface DocxHeadingNode extends DocxParagraphLayout {
   floats?: DocxDrawingNode[];
   /** Word outline level 1–9 (`Heading 1`–`Heading 9` styles or `w:outlineLvl`). */
   level: number;
-  /** Joined run text, for heading outlines and document titles. */
+  /**
+   * Joined run text, for heading outlines and document titles. When the
+   * heading carries numbering (`marker`), the marker leads it (`1. Project
+   * Overview`), matching what Word paints and what a refreshed table of
+   * contents lists; `runs` hold the authored text alone.
+   */
   text: string;
   direction: TextDirection;
   runs: TextRunModel[];
+  /** Source paragraph style id, for diagnostics only (as `DocxParagraphNode.styleId`). */
+  styleId?: string;
+  /**
+   * Resolved numbering marker for a numbered heading (`1.`, `b)`), advanced
+   * through the same sequence as list items. Absent when the heading carries
+   * no numbering, or its level suppresses the marker (`w:numFmt w:val="none"`).
+   */
+  marker?: string;
+  /**
+   * The marker's own run formatting from the numbering level (`w:lvl/w:rPr`):
+   * colour, weight, size, family. Absent when the level authors none, in which
+   * case the marker follows the heading text (as `DocxListItemNode.markerRun`).
+   * `text` repeats the marker without its following gap.
+   */
+  markerRun?: TextRunModel;
+  /** What follows the marker (`w:suff`); absent is Word's default, a tab to the text indent. */
+  markerSuffix?: "space" | "nothing";
+  /**
+   * Fragment id for a refreshed table-of-contents entry to link at when the
+   * heading is outside the outline (a table-cell heading Word's TOC lists).
+   * Outline headings keep their `aared-heading-N` fragment instead.
+   */
+  tocAnchor?: string;
 }
 
 /** A table or cell edge: `"none"` is an authored `nil` that clears an inherited border. */
@@ -929,7 +1045,14 @@ export interface DocxTableCellNode {
 }
 
 export interface DocxTableRowNode {
-  /** Row height in inches, when authored. */
+  /**
+   * Row height in inches, when authored.
+   *
+   * The authored `w:trHeight/@w:val` alone; `w:hRule` is not read. The height
+   * is a floor, not a ceiling: a row taller than this grows to fit its cells,
+   * so a `hRule="exact"` row paints taller here than Word clips it to. Nothing
+   * in aared clips a row, matching its rule that rows never split.
+   */
   height?: number;
   /** Logical XML cell order, regardless of table display direction. */
   cells: DocxTableCellNode[];
@@ -975,10 +1098,18 @@ export interface DocxImageNode {
   mediaId: string;
   /** Resolved MIME content type used to create the media Blob. */
   contentType: string;
+  /**
+   * Office's own raster fallback beside an SVG source (`a:blip` next to
+   * `asvg:svgBlip`): painted when the SVG cannot be read or decoded.
+   */
+  fallbackMediaId?: string;
+  fallbackContentType?: string;
   /** Extent in inches, from `wp:extent` or VML sizing. */
   width: number;
   height: number;
   alt?: string;
+  effects?: DrawingEffectsModel;
+  effectInsets?: InsetsModel;
   /**
    * Where an anchored picture (`wp:anchor`) sits and how text wraps around it.
    * Absent for an inline picture, which flows like a glyph. An anchored picture
@@ -987,8 +1118,10 @@ export interface DocxImageNode {
   anchor?: DocxImageAnchor;
   /**
    * Host paragraph alignment for inline images (`w:jc`); centered source
-   * paragraphs center their image. Absent when unauthored — and never set
-   * for anchored pictures, which paragraph alignment does not position.
+   * paragraphs center their image. A picture has no text to justify, so an
+   * unauthored or justified alignment resolves to the paragraph's start side
+   * (right in a right-to-left paragraph). Absent when unauthored - and never
+   * set for anchored pictures, which paragraph alignment does not position.
    */
   align?: TextAlign;
 }
@@ -1014,7 +1147,9 @@ export interface DocxChartNode {
   align?: TextAlign;
 }
 
-/** A Word text box and the ordinary flow content inside it. */
+type CellVerticalAlign = NonNullable<DocxTableCellNode["verticalAlign"]>;
+
+/** A Word text box and the ordinary flow content inside it. Treat resolved data as read-only. */
 export interface DocxTextBoxNode {
   type: "textBox";
   /** Content uses the same paragraph, table and list model as the document body. */
@@ -1023,10 +1158,21 @@ export interface DocxTextBoxNode {
   height: number;
   direction: TextDirection;
   insets?: InsetsModel;
-  fill?: string;
+  fill?: ShapeFillModel;
   border?: DocxParagraphBorder;
-  /** `wps:bodyPr/@vertOverflow="clip"`; otherwise Word lets text overflow the frame. */
-  verticalOverflow?: "clip" | "overflow";
+  geometry?: ShapeGeometryModel;
+  transform?: TransformModel;
+  effects?: DrawingEffectsModel;
+  effectInsets?: InsetsModel;
+  verticalAlign?: CellVerticalAlign;
+  /** Internal text wrapping, independent of the anchor's wrapping around the shape. */
+  wrapping?: TextWrappingMode;
+  /**
+   * Word grows the frame for `spAutoFit`; all other modes keep fixed extents and
+   * font sizes. `shrinkText` is never resolved for DOCX, because Word ignores a
+   * stored `normAutofit` scale (probe `autofit`, Notes §94).
+   */
+  autofit?: TextAutofitMode;
   /** Set for a legacy `w:pict`/VML text box. */
   legacy?: true;
   /** As `DocxImageNode.anchor`; absent for an inline box. */

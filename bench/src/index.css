@@ -11,11 +11,11 @@
   --color-warning: var(--warning);
   --color-warning-soft: var(--warning-soft);
   --color-neutral-soft: var(--neutral-soft);
-  --color-surface-2: var(--surface-2);
   --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
 }
 
 :root {
+  color-scheme: light;
   --background: hsl(30 12% 97%);
   --foreground: hsl(0 0% 3%);
   --card: hsl(0 0% 100%);
@@ -26,11 +26,10 @@
   --warning: #d97706;
   --warning-soft: color-mix(in oklab, #d97706 12%, transparent);
   --neutral-soft: hsl(213 8% 67%);
-  --surface-2: hsl(0 0% 97%);
-  --text-scale: 1;
 }
 
 .dark {
+  color-scheme: dark;
   --background: hsl(0 0% 8%);
   --foreground: hsl(0 0% 95%);
   --card: hsl(0 0% 12%);
@@ -41,8 +40,6 @@
   --warning: #f59e0b;
   --warning-soft: color-mix(in oklab, #f59e0b 18%, transparent);
   --neutral-soft: hsl(213 8% 67%);
-  --surface-2: hsl(0 0% 14%);
-  --text-scale: 1;
 }
 
 body {

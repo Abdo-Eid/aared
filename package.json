@@ -13,10 +13,12 @@
     "docs:dev": "bun run --cwd site --no-orphans dev",
     "docs:build": "bun run --cwd site build",
     "build": "bun --filter aared --filter aared-fonts build",
-    "typecheck": "bun --filter '*' typecheck",
+    "typecheck": "bun --filter '*' typecheck && bun run typecheck:tools",
+    "typecheck:tools": "tsc --project tools/tsconfig.json",
+    "tools": "bun tools/cli.ts",
     "test": "bun test",
-    "test:visual": "bun tools/run-visual-tests.ts",
-    "test:visual:artifacts": "bun tools/run-visual-tests.ts --artifacts"
+    "test:visual": "bun tools/checks/visual-tests.ts",
+    "test:visual:artifacts": "bun tools/checks/visual-tests.ts --artifacts"
   },
   "devDependencies": {
     "@types/bun": "^1.4.0",

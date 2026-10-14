@@ -34,10 +34,10 @@ const FONT_LOAD_TIMEOUT_MS = 2000;
  * session awaits the resolver's own promise settling, `core/session.ts`), but
  * `aared-fonts` never loads them itself: the browser fetches a face only when
  * text first needs it, so a document downloads only the subsets it paints
- * (DECISION_LOG §50). Measuring before the real bytes arrive reads whatever
+ * (Notes §50). Measuring before the real bytes arrive reads whatever
  * was painted first instead — an installed real font, or the browser's own
  * unrelated fallback — which differs from what paints a moment later once
- * the intended face is ready (DECISION_LOG §45: this is what let pagination
+ * the intended face is ready (Notes §45: this is what let pagination
  * measure with a swapped-in font after the page count was already decided).
  * Loading through `document.fonts.load` with a sample is also what makes the
  * download happen for exactly those faces and subsets.

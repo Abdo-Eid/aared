@@ -109,10 +109,17 @@ export function useViewerFrame(args: {
   const [baselineSheet, setBaselineSheet] = useState(0);
   const activeSheet = viewer?.format === "xlsx" ? index : baselineSheet;
   const setActiveSheet = (next: number): void => {
-    if (viewer?.format === "xlsx") void viewer.goTo(next).catch(() => {});
+    if (viewer?.format === "xlsx") void viewer.goTo(next).then(reportViewerSuccess, reportViewerFailure);
     else setBaselineSheet(next);
   };
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const reportViewerFailure = (error: unknown): void => {
+    if (isAbort(error)) return;
+    reportError?.(error instanceof Error ? error.message : "Could not go there.", status.state === "ready" ? status.handle.ms : 0);
+  };
+  const reportViewerSuccess = (): void => {
+    reportError?.("", status.state === "ready" ? status.handle.ms : 0);
+  };
   const paperWidthRef = useRef(0);
 
   // Fresh document: pager, zoom, and sheet selection restart. Theme is
@@ -225,11 +232,11 @@ export function useViewerFrame(args: {
   const goToPage = (page: number): void => {
     const next = clamp(page, 1, Math.max(pageCount, 1));
     if (viewer?.format === "pptx") {
-      void viewer.goTo(next - 1).catch(() => {});
+      void viewer.goTo(next - 1).then(reportViewerSuccess, reportViewerFailure);
       return;
     }
     if (viewer?.format === "docx") {
-      void viewer.docx.goToPage(next - 1).catch(() => {});
+      void viewer.docx.goToPage(next - 1).then(reportViewerSuccess, reportViewerFailure);
       return;
     }
     setScrollPage(next);

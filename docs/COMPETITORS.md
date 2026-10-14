@@ -2,7 +2,7 @@
 
 > Who else renders Office documents client-side, what they actually cover,
 > and where aared differs. For why aared is shaped the way it is, see
-> [DECISION_LOG.md](DECISION_LOG.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
+> [Notes.md](Notes.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 > Public summary table: [../README.md](../README.md#compared-to-other-libraries).
 
 **The recurring pattern:** single-format libraries exist and are individually
@@ -22,7 +22,7 @@ was found. Sizes are given only where published; otherwise "not published".
 
 | Library | Formats | Client-side | Renders via | Paragraph-level RTL | License | Weight |
 |---|---|---|---|---|---|---|
-| **aared** (this) | PPTX, XLSX, DOCX | ✅ | DOM/SVG | ✅ (design goal — see [DECISION_LOG.md §3](DECISION_LOG.md#3-text-is-rendered-by-the-browser-never-rasterized--the-load-bearing-decision)) | Apache-2.0 | Per-format lazy load; measured gzip in [BENCHMARKS.md](BENCHMARKS.md) |
+| **aared** (this) | PPTX, XLSX, DOCX | ✅ | DOM/SVG | ✅ (design goal — see [Notes.md §3](Notes.md#note-3)) | Apache-2.0 | Per-format lazy load; measured gzip in [BENCHMARKS.md](BENCHMARKS.md) |
 | [`@silurus/ooxml`](https://github.com/yukiyokotani/office-open-xml-viewer) | PPTX, XLSX, DOCX | ✅ | Canvas 2D (Rust→WASM parsers) | Verified fixes (DOCX RTL-number, UAX#9 mixed-text; Arabic-layout test work) | MIT | Published per-format: DOCX ~4.0 MB / 1.2 MB gzip; XLSX ~2.6 / 0.82 MB; PPTX ~2.5 / 0.78 MB |
 | [`@opentf/office-docs-viewer`](https://github.com/Open-Tech-Foundation/office-docs-viewer) | DOCX today; PPTX/XLSX slot in as engine modules | ✅ | Canvas (`ImageBitmap` LRU, DPR-correct) + Worker host | Not verified | Check repo (engine Rust→WASM + TS core/react) | Not published |
 | [`@extend-ai/react-pptx` / `react-docx` / `react-xlsx`](https://github.com/extend-hq) | PPTX (+legacy `.ppt`), DOCX, XLSX — one package each | ✅ (Rust/WASM parsers in Workers) | React components: DOM/SVG for PPTX and DOCX (selectable text); XLSX grid on canvas by default (`experimentalCanvas={false}` for DOM) | Mixed, measured Sep 2026: PPTX sets `direction:rtl` per paragraph; DOCX sets none (Arabic paragraphs compute `ltr`, browser bidi only); XLSX ignores sheet `rightToLeft` (grid not mirrored) | MIT | Measured gzip: PPTX 495 KB, DOCX 620 KB, XLSX 2478 KB (mostly WASM) — see [BENCHMARKS.md](BENCHMARKS.md) |
@@ -33,7 +33,7 @@ was found. Sizes are given only where published; otherwise "not published".
 | [`@aiden0z/pptx-renderer`](https://github.com/aiden0z/pptx-renderer) | PPTX | ✅ | DOM (HTML/SVG, selectable text; charts via ECharts canvas) | Minimal, verified: parses `a:pPr rtl` → CSS `direction` + `textAlign`; no bidi algorithm or table-cell `dir` — browser-bidi-reliant | Apache-2.0 | Measured entry ~774 KB / 169 KB gzip (standalone ESM ~1783 KB bundles JSZip+ECharts) — see [BENCHMARKS.md](BENCHMARKS.md) |
 | [`pptx-preview`](https://www.npmjs.com/package/pptx-preview) | PPTX | ✅ | DOM (front-end viewer from ArrayBuffer) | Not verified | npm says ISC, but README has restrictive source-use language — legal review needed | Not published (ECharts, JSZip, Lodash) |
 | [`pptx-browser`](https://www.npmjs.com/package/pptx-browser) | PPTX | ✅ | Canvas 2D, zero dependencies (SVG/PDF export as separate subpaths) | Not verified — text shapes fail to draw in 4.1.5 (see PPTX-only) | MIT | Measured 49 KB gzip |
-| [`pptxviewjs`](https://www.npmjs.com/package/pptxviewjs) | PPTX | ✅ | Canvas | ❌ — drops paragraph `algn`/`rtl` entirely; see [DECISION_LOG.md §1](DECISION_LOG.md#1-why-this-project-exists-at-all) | MIT | Medium (bundles Chart.js unconditionally) |
+| [`pptxviewjs`](https://www.npmjs.com/package/pptxviewjs) | PPTX | ✅ | Canvas | ❌ — drops paragraph `algn`/`rtl` entirely; see [Notes.md §1](Notes.md#note-1) | MIT | Medium (bundles Chart.js unconditionally) |
 | [`@datagridxl/spreadsheet-preview`](https://github.com/DataGridXL/spreadsheet-preview) | XLSX | ✅ | Grid (self-described "PDF.js for spreadsheets") | Not verified | Community badge / commercial to remove | Not published |
 | [`@xlscalc/xlsx-preview`](https://github.com/Victor-EU/xls-renderer-calc) | XLSX | ✅ (+Worker path) | DOM grid (React `ExcelView` / `renderToHtml`), recomputes formulas | Not verified | MIT | Not published |
 | [SheetJS Community Edition](https://sheetjs.com/) | XLSX (parse only, no renderer) | ✅ | — `sheet_to_html` gives a plain HTML table, not a grid renderer | N/A — parses `sheet.rightToLeft`, but returns empty `cell.s` even with `cellStyles: true` | Apache-2.0 | Small |
@@ -43,12 +43,12 @@ was found. Sizes are given only where published; otherwise "not published".
 | [Apryse WebViewer](https://docs.apryse.com/web/guides/office) | DOCX, XLSX, PPTX (+legacy); view/annotate, paid DOCX/sheet editing | ✅ (true client-side WASM; server optional) | Own WASM engine | Verified: Arabic/Farsi/Hebrew/Urdu localization + RTL layout/view/edit | Commercial | Not public |
 | [Nutrient Web SDK](https://www.nutrient.io/guides/web/viewer/office-documents/) (ex-PSPDFKit) | DOC/DOCX, XLS/XLSX, PPT/PPTX (view/annotate; editing applies to the converted PDF) | ✅ (browser Office→PDF via WASM, no Office/server needed) | Converts to PDF, then paints it | Not verified | Commercial | Not public |
 | [LibreOffice-WASM (allotropia)](https://github.com/allotropia/lowasm) / [ZetaJS](https://github.com/allotropia/zetajs) | Everything LibreOffice supports | ✅ | Own renderer, compiled to WASM | ✅ (real LO engine) | MPL-2.0 | Very large (~300 MB) — the fidelity ceiling, not a practical dependency |
-| [`pdf.js`](https://github.com/mozilla/pdf.js) | PDF only | ✅ | DOM + Canvas hybrid, real text layer | N/A (PDF glyphs are pre-positioned) | Apache-2.0 | Medium — the reason PDF is out of aared's scope, see [DECISION_LOG.md §2](DECISION_LOG.md#2-pdf-was-scoped-out-deliberately) |
+| [`pdf.js`](https://github.com/mozilla/pdf.js) | PDF only | ✅ | DOM + Canvas hybrid, real text layer | N/A (PDF glyphs are pre-positioned) | Apache-2.0 | Medium — the reason PDF is out of aared's scope, see [Notes.md §2](Notes.md#note-2) |
 
 ## Measured snapshot
 
 Qualitative table above; numbers live in
-[BENCHMARKS.md](BENCHMARKS.md) (generated from `tools/bench-measure.ts`
+[BENCHMARKS.md](BENCHMARKS.md) (generated from `tools/benchmarks/measure.ts`
 JSON — never hand-filled). A weight figure here is aared-measured only where
 it cites that file; the others ("Small", "~300 MB", vendor MB figures) are
 vendor-stated or unpublished.
@@ -222,8 +222,8 @@ vendor-stated or unpublished.
   with a filmstrip, MUI/Emotion UI and `canvg`. npm license `UNLICENSED`
   (no public license grant); no RTL evidence found. Not benched: nobody can
   depend on it, and canvas output repeats `pptxviewjs`'s RTL objection.
-- **`pptx-preview` / `pptxviewjs`** prove canvas rendering is *fast* and
-  *simple to ship* — and prove exactly why that trade fails for RTL content.
+- **`pptxviewjs`** proves canvas rendering is *fast* and
+  *simple to ship* — and proves exactly why that trade fails for RTL content.
   This is the evidence base the whole project sits on. Note the
   `pptx-preview` license caveat in the table.
 - Smaller/older converters: **`PPTX2HTML`**, **`pptx-react-renderer`**,

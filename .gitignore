@@ -11,11 +11,9 @@ test-results/
 # Astro's generated content store (the site)
 .astro/
 
-# native Office renders and captures are generated locally, not committed
-tools/powerpoint-render/out/
-tools/excel-render/out/
-tools/word-render/out/
-tools/chart-oracle/out/
+# All generated tool captures, chart outputs, benchmark runs and large timing fixtures.
+# Tracked chart corpora and frozen font evidence remain outside this directory.
+tools/out/
 
 # ground-truth probe sandbox (nested git; never the main repo's concern).
 # The shared helpers and the standard stay tracked: a fresh clone must have
@@ -33,12 +31,6 @@ Thumbs.db
 
 # local agent/editor config, per-developer
 .claude/
-
-# generated search-benchmark fixtures
-tools/bench-search/out/
-
-# deterministic benchmark JSON runs (docs tables regenerate from the latest)
-tools/bench-results/
 
 # api-snippets scratch directory (removed after each run; a killed run leaves it)
 packages/aared/test/.api-snippets/

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createTableCell, createTableGrid, tableCellJustifyContent } from "../src/table-dom.js";
+import { createTableCell, createTableGrid } from "../src/table-dom.js";
 
 // The shells need a DOM; the unit suite is headless, so a stand-in records what
 // is set on each element. The real-DOM output of PPTX and DOCX tables is covered
@@ -71,13 +71,8 @@ describe("table cell", () => {
   });
 
   test("aligns its content vertically as a flex column", () => {
+    expect(cell({ verticalAlign: "top" }).style.justifyContent).toBe("flex-start");
     expect(cell({ verticalAlign: "middle" }).style).toMatchObject({ display: "flex", flexDirection: "column", justifyContent: "center" });
     expect(cell({ verticalAlign: "bottom" }).style.justifyContent).toBe("flex-end");
   });
-});
-
-test("maps table cell vertical alignment to flex justification", () => {
-  expect(tableCellJustifyContent("top")).toBe("flex-start");
-  expect(tableCellJustifyContent("middle")).toBe("center");
-  expect(tableCellJustifyContent("bottom")).toBe("flex-end");
 });

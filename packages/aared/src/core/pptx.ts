@@ -9,13 +9,15 @@
 
 import { BULLET } from "./chars.js";
 import { attr, childElements, firstChild, numberAttr, onOff, parseNumber, parseXml, textContent } from "./xml.js";
-import { resolveDirectFill, resolveGradientFill } from "./fill.js";
+import { directFillProperty, resolveDirectFill, resolveGradientFill } from "./fill.js";
 import type { FillOwner } from "./fill.js";
 import type { XmlElement } from "./xml.js";
 import { guessMediaContentType } from "./opc.js";
 import type { OpcPackage } from "./opc.js";
 import { EMU_PER_PT, emuToInches, emuToPt } from "./units.js";
 import { clampSpan } from "./table-span.js";
+import { TABLE_STYLE_REGIONS, tableCellRegions } from "./table-style.js";
+import type { TableStyleFlags, TableStyleRegionName } from "./table-style.js";
 import { parseHexColor, relativeLuminance } from "./color.js";
 import { readDrawingTheme, readThemePart, resolveDrawingColor, resolveThemeTypeface, themeForColorMap } from "./theme.js";
 import { arabicPunctuationPieces, isLtrRunInRtl, usesArabic } from "./typography.js";
@@ -39,10 +41,16 @@ import type {
   TextBodyModel,
   TextParagraphModel,
   TextRunModel,
-  TransformModel,
 } from "./model.js";
-import { geometryForPreset, unresolvedGeometry } from "./drawingml-shape.js";
+import { drawingGeometryAdjustments, drawingShapeTransform, geometryForPreset, unresolvedGeometry } from "./drawingml-shape.js";
 import { symbolFontStandIn } from "./symbol-fonts.js";
+import { readDrawingEffects } from "./drawingml-effects.js";
+import { resolveImageSource } from "./image-source.js";
+
+interface GroupPaint {
+  fill?: ShapeFillModel | null;
+  bounds?: BoundsModel;
+}
 
 /** `a:ln` width PowerPoint paints when the line states none: one point. */
 const DEFAULT_LINE_WIDTH_EMU = EMU_PER_PT;
@@ -87,15 +95,6 @@ interface TableStyleRegion {
   font?: string;
   borders?: Partial<Record<"left" | "right" | "top" | "bottom" | "insideH" | "insideV" | "tl2br" | "tr2bl", TableStyleEdge>>;
 }
-
-/** The regions a table style can author. */
-const TABLE_STYLE_REGIONS = [
-  "wholeTbl", "band1H", "band2H", "band1V", "band2V",
-  "lastCol", "firstCol", "lastRow", "firstRow",
-  "seCell", "swCell", "neCell", "nwCell",
-] as const;
-
-type TableStyleRegionName = typeof TABLE_STYLE_REGIONS[number];
 
 type PptxTableStyle = Partial<Record<TableStyleRegionName, TableStyleRegion>>;
 
@@ -261,7 +260,8 @@ function readTableStyleRegion(region: XmlElement | undefined, theme: DrawingThem
   return Object.keys(out).length === 0 ? undefined : out;
 }
 
-/** Which grid rows and columns a table-style region covers, given the table's flags. */
+/** PowerPoint's own spelling of the shared region flags (`a:tbl` calls the
+ * column flags `firstCol`/`bandCol`; the shared module says `firstColumn`). */
 interface TableShape {
   rows: number;
   columns: number;
@@ -273,45 +273,13 @@ interface TableShape {
   bandCol: boolean;
 }
 
-/**
- * The regions that apply to the cell spanning rows `r0..r1` and columns
- * `c0..c1`, weakest first (PowerPoint's precedence: whole table, column
- * bands, row bands, last/first column, last/first row, then the corner
- * cells), each with the extent its outer edges belong to.
- */
-function tableCellRegions(
-  shape: TableShape,
-  r0: number, r1: number, c0: number, c1: number,
-): Array<{ name: TableStyleRegionName; rows: [number, number]; columns: [number, number] }> {
-  const all: [number, number] = [0, shape.rows - 1];
-  const allColumns: [number, number] = [0, shape.columns - 1];
-  const regions: Array<{ name: TableStyleRegionName; rows: [number, number]; columns: [number, number] }> = [
-    { name: "wholeTbl", rows: all, columns: allColumns },
-  ];
-  const isHeaderRow = shape.firstRow && r0 === 0;
-  const isTotalRow = shape.lastRow && r1 === shape.rows - 1;
-  const isFirstColumn = shape.firstCol && c0 === 0;
-  const isLastColumn = shape.lastCol && c1 === shape.columns - 1;
-  if (shape.bandCol && !isFirstColumn && !isLastColumn) {
-    const band = (c0 - (shape.firstCol ? 1 : 0)) % 2 === 0 ? "band1V" : "band2V";
-    regions.push({ name: band, rows: all, columns: [c0, c1] });
-  }
-  if (shape.bandRow && !isHeaderRow && !isTotalRow) {
-    const band = (r0 - (shape.firstRow ? 1 : 0)) % 2 === 0 ? "band1H" : "band2H";
-    regions.push({ name: band, rows: [r0, r1], columns: allColumns });
-  }
-  if (isLastColumn) regions.push({ name: "lastCol", rows: all, columns: [shape.columns - 1, shape.columns - 1] });
-  if (isFirstColumn) regions.push({ name: "firstCol", rows: all, columns: [0, 0] });
-  if (isTotalRow) regions.push({ name: "lastRow", rows: [shape.rows - 1, shape.rows - 1], columns: allColumns });
-  if (isHeaderRow) regions.push({ name: "firstRow", rows: [0, 0], columns: allColumns });
-  const corner = (name: TableStyleRegionName, r: number, c: number): void => {
-    regions.push({ name, rows: [r, r], columns: [c, c] });
+function sharedFlags(shape: TableShape): TableStyleFlags {
+  return {
+    rows: shape.rows, columns: shape.columns,
+    firstRow: shape.firstRow, lastRow: shape.lastRow,
+    firstColumn: shape.firstCol, lastColumn: shape.lastCol,
+    bandRow: shape.bandRow, bandColumn: shape.bandCol,
   };
-  if (isTotalRow && isLastColumn) corner("seCell", shape.rows - 1, shape.columns - 1);
-  if (isTotalRow && isFirstColumn) corner("swCell", shape.rows - 1, 0);
-  if (isHeaderRow && isLastColumn) corner("neCell", 0, shape.columns - 1);
-  if (isHeaderRow && isFirstColumn) corner("nwCell", 0, 0);
-  return regions;
 }
 
 /** A cell's table-style formatting: every applicable region layered weakest first, outer edges from the region's extent, inner ones from its `insideH`/`insideV`. */
@@ -327,7 +295,7 @@ function resolveTableStyleCell(
 } {
   const out: ReturnType<typeof resolveTableStyleCell> = { edges: {} };
   if (style === undefined) return out;
-  for (const { name, rows, columns } of tableCellRegions(shape, r0, r1, c0, c1)) {
+  for (const { name, rows, columns } of tableCellRegions(sharedFlags(shape), r0, r1, c0, c1)) {
     const region = style[name];
     if (region === undefined) continue;
     if (region.fill !== undefined) out.fill = region.fill;
@@ -494,19 +462,33 @@ function bulletEmbeds(
 }
 
 /**
- * First embedded-image reference (`r:embed`) anywhere under a picture
- * bullet (`a:buBlip/a:blip`, including `asvg:svgBlip` extension embeds).
+ * Image references under a picture bullet (`a:buBlip/a:blip`): the `svgBlip`
+ * extension embed and the main `blip` embed, each by `r:id`. The SVG paints
+ * first with the raster as its fallback; a lone `svgBlip` (what Office
+ * writes for a bullet, with no main `blip` reference) paints alone.
  * `attr()` matches the local name, so prefixed `r:embed` resolves.
  */
-function findBulletEmbed(buBlip: XmlElement): string | undefined {
+function findBulletEmbeds(buBlip: XmlElement): { svg?: string; main?: string } {
   const stack = [...buBlip.children];
+  let blip: XmlElement | undefined;
   while (stack.length > 0) {
     const element = stack.pop()!;
-    const embed = attr(element, "embed");
-    if (embed !== undefined) return embed;
+    if (element.local === "blip" && blip === undefined) blip = element;
     stack.push(...element.children);
   }
-  return undefined;
+  if (blip === undefined) return {};
+  const out: { svg?: string; main?: string } = {};
+  const main = attr(blip, "embed");
+  if (main !== undefined) out.main = main;
+  const list = firstChild(blip, "extLst");
+  if (list !== undefined) {
+    for (const ext of childElements(list, "ext")) {
+      const svg = firstChild(ext, "svgBlip");
+      const embed = svg === undefined ? undefined : attr(svg, "embed");
+      if (embed !== undefined && out.svg === undefined) out.svg = embed;
+    }
+  }
+  return out;
 }
 
 /** A paragraph's runs in document order: `a:r`, and `a:fld` (slide number, date), which carries the same rPr/t. `a:br` is not text. */
@@ -543,7 +525,8 @@ function parseRun(
   const properties = runProperties(run, paragraphProperties);
   const sizeElement = properties.find((property) => attr(property, "sz") !== undefined);
   const size = sizeElement === undefined ? undefined : numberAttr(sizeElement, "sz", "a:rPr");
-  const solidFill = firstElement(properties, "solidFill");
+  const textFill = properties.map(directFillProperty).find((fill) => fill !== undefined);
+  const solidFill = textFill?.local === "solidFill" ? textFill : undefined;
   const latin = firstElement(properties, "latin");
   const cs = firstElement(properties, "cs");
   const out: TextRunModel = { text: runText(run) };
@@ -567,6 +550,10 @@ function parseRun(
   // white — "Automatic" contrast wins for fill-less runs.
   if (color !== undefined) out.color = color;
   else if (autoColor !== undefined) out.color = autoColor;
+  // Native PowerPoint preserves text grpFill but paints no ink, not the
+  // parent's blue fill: its PNG has no glyphs and its PDF trace has opacity
+  // zero. The PDF's extracted black colour alone misleadingly looks painted.
+  if (textFill?.local === "grpFill") out.noFill = true;
   // Underline: `u="none"` (or absent) means none; any other token underlines.
   // Explicit `uFill`/`uLn` colors resolve, else the line follows the run.
   const underlineToken = firstAttribute(properties, "u");
@@ -601,8 +588,8 @@ function parseRun(
   const highlight = firstElement(properties, "highlight");
   const highlightColor = highlight === undefined ? undefined : resolveDrawingColor(highlight, theme);
   if (highlightColor !== undefined) out.highlight = highlightColor;
-  if (firstElement(properties, "noFill") !== undefined) out.noFill = true;
-  if (firstElement(properties, "grpFill") !== undefined) out.groupFill = true;
+  if (textFill?.local === "noFill") out.noFill = true;
+  if (textFill?.local === "grpFill") out.groupFill = true;
   const hlink = firstElement(properties, "hlinkClick");
   if (hlink !== undefined && links !== undefined) {
     const rid = attr(hlink, "id");
@@ -625,7 +612,7 @@ function parseRun(
   // WordArt text gradient fill. Linear gradients paint; path gradients (and
   // other failures) resolve to the marked `unsupported` kind — same contract
   // as shape fills, never silently approximated.
-  const runGradient = firstElement(properties, "gradFill");
+  const runGradient = textFill?.local === "gradFill" ? textFill : undefined;
   if (runGradient !== undefined) out.gradient = resolveGradientFill(runGradient, theme);
   const effectList = firstElement(properties, "effectLst");
   if (effectList !== undefined) {
@@ -785,13 +772,14 @@ function formatAutoNum(type: string, value: number): string {
 export function parseTextBody(txBody: XmlElement, theme: DrawingTheme, inheritance?: TextBodyInheritance): TextBodyModel {
   const bodies = [txBody, ...(inheritance?.bodies ?? [])];
   // Anchor, wrapping, and autofit retain the existing highest-bodyPr behavior.
-  // Insets are resolved independently below, as PowerPoint does for
-  // placeholders. Ground truth: tools/probe/title-insets.
+  // Insets are resolved independently below. In the title-insets Office
+  // probe, setting a title's bottom margin on master, layout and slide in
+  // turn showed that an authored slide value wins, otherwise layout then
+  // master supplies it; an explicit zero must not fall through.
   const bodyProperties = bodies.map((body) => firstChild(body, "bodyPr")).find((properties): properties is XmlElement => properties !== undefined
     && (Object.keys(properties.attrs).length > 0 || properties.children.length > 0));
   // Insets inherit independently: a layout can override the anchor while the
-  // master still supplies the text-frame margins. Ground truth:
-  // tools/probe/title-insets.
+  // master still supplies the text-frame margins (the same Office probe).
   const bodyPropertySources = bodies
     .map((body) => firstChild(body, "bodyPr"))
     .filter((properties): properties is XmlElement => properties !== undefined);
@@ -950,8 +938,16 @@ export function parseTextBody(txBody: XmlElement, theme: DrawingTheme, inheritan
         // Picture bullets resolve their embed through the owning part's
         // rels (threaded as `embeds`); the renderer paints the image with a
         // character fallback when fetch fails or no resolver is wired.
-        const rid = findBulletEmbed(buBlip);
-        const picture = rid === undefined ? undefined : inheritance?.embeds?.get(rid);
+        const rids = findBulletEmbeds(buBlip);
+        // A dangling SVG reference falls back to the main `blip` as the
+        // source itself, not just as a decode fallback.
+        const primary = rids.svg !== undefined && (inheritance?.embeds?.get(rids.svg) !== undefined || rids.main === undefined)
+          ? rids.svg
+          : rids.main;
+        const picture = primary === undefined ? undefined : inheritance?.embeds?.get(primary);
+        const fallback = primary === rids.svg && rids.main !== undefined && rids.main !== rids.svg
+          ? inheritance?.embeds?.get(rids.main)
+          : undefined;
         const buCharText = buChar === undefined ? undefined : attr(buChar, "char");
         out.bullet = {
           ...(buCharText === undefined ? {} : { char: buCharText }),
@@ -959,8 +955,12 @@ export function parseTextBody(txBody: XmlElement, theme: DrawingTheme, inheritan
           ...(picture === undefined ? {} : {
             pictureMediaId: picture.mediaId,
             pictureContentType: picture.contentType,
+            ...(fallback === undefined ? {} : {
+              pictureFallbackMediaId: fallback.mediaId,
+              pictureFallbackContentType: fallback.contentType,
+            }),
           }),
-          ...(picture === undefined && rid !== undefined ? { char: BULLET } : {}),
+          ...(picture === undefined && primary !== undefined ? { char: BULLET } : {}),
         };
         if (out.bullet !== undefined && Object.keys(out.bullet).length === 0) out.bullet = { char: BULLET };
       } else {
@@ -1140,19 +1140,6 @@ function localGeometrySize(xfrm: XmlElement | undefined): { width?: number; heig
   };
 }
 
-function parseAdjustments(prstGeom: XmlElement | undefined): Record<string, number> {
-  const values: Record<string, number> = {};
-  const avLst = prstGeom === undefined ? undefined : firstChild(prstGeom, "avLst");
-  if (avLst === undefined) return values;
-  for (const guide of childElements(avLst, "gd")) {
-    const name = attr(guide, "name");
-    const formula = attr(guide, "fmla");
-    const match = formula === undefined ? null : /^val\s+(-?(?:\d+(?:\.\d*)?|\.\d+))$/.exec(formula);
-    if (name !== undefined && match !== null) values[name] = Number(match[1]);
-  }
-  return values;
-}
-
 function matchingPlaceholder(root: XmlElement, target: NonNullable<ShapeModel["placeholder"]>): XmlElement | undefined {
   const cSld = firstChild(root, "cSld");
   const tree = cSld === undefined ? undefined : firstChild(cSld, "spTree");
@@ -1281,6 +1268,7 @@ async function parseShape(
   slideRels?: Array<{ id: string; type: string; target: string; targetMode: string }>,
   autoColor?: string,
   defaultSizes?: ReadonlyArray<number | undefined>,
+  groupPaint?: GroupPaint,
 ): Promise<ShapeModel> {
   throwIfAborted(signal);
   const text = firstChild(shape, "txBody");
@@ -1331,7 +1319,7 @@ async function parseShape(
     ...(shapeHyperlink === undefined ? {} : { hyperlink: shapeHyperlink }),
   };
   const size = localGeometrySize(xfrm);
-  const adjustments = parseAdjustments(prstGeom);
+  const adjustments = drawingGeometryAdjustments(prstGeom);
   // Hand-coded presets resolve here; everything else (the rest of the preset
   // catalog, custGeom) is described now and evaluated by the session.
   out.geometry = geometryForPreset(preset, size, adjustments)
@@ -1340,8 +1328,14 @@ async function parseShape(
     relationships: slideRels ?? [],
     mediaContentType: (target) => pkg.mediaContentType(target),
     inherited: false,
+    ...(groupPaint?.fill === undefined ? {} : { groupFill: groupPaint.fill }),
   });
   if (fill !== undefined) out.fill = fill;
+  if (spPr !== undefined && firstChild(spPr, "grpFill") !== undefined && groupPaint?.bounds !== undefined) {
+    out.fillBounds = groupPaint.bounds;
+  }
+  const effects = readDrawingEffects(spPr, theme);
+  if (effects !== undefined) out.effects = effects;
   const directLineHasNoFill = line !== undefined && firstChild(line, "noFill") !== undefined;
   const styleLine = style === undefined ? undefined : firstChild(style, "lnRef");
   const strokeColor = directLineHasNoFill ? undefined : resolveSolidFill(line, theme) ?? (line === undefined ? resolveStyleRef(styleLine, theme) : undefined);
@@ -1351,23 +1345,10 @@ async function parseShape(
     const dash = lineDash(line === undefined ? undefined : firstChild(line, "prstDash"));
     if (dash !== undefined) out.stroke.dash = dash;
   }
-  const transform = parseXfrmTransform(xfrm);
+  const transform = drawingShapeTransform(xfrm);
   if (transform !== undefined) out.transform = transform;
   throwIfAborted(signal);
   return out;
-}
-
-function parseXfrmTransform(xfrm: XmlElement | undefined): TransformModel | undefined {
-  if (xfrm === undefined) return undefined;
-  const rotation = numberAttr(xfrm, "rot", "a:xfrm");
-  const flipHorizontal = onOff(xfrm, "flipH");
-  const flipVertical = onOff(xfrm, "flipV");
-  if (rotation === undefined && flipHorizontal === undefined && flipVertical === undefined) return undefined;
-  return {
-    ...(rotation === undefined ? {} : { rotation: rotation / 60000 }),
-    ...(flipHorizontal === undefined ? {} : { flipHorizontal }),
-    ...(flipVertical === undefined ? {} : { flipVertical }),
-  };
 }
 
 function findSrcRect(blipFill: XmlElement | undefined): XmlElement | undefined {
@@ -1396,14 +1377,15 @@ export function parsePicture(
 ): PictureModel | undefined {
   const { id, name } = identityOf(pic, firstChild(pic, "nvPicPr"));
   const blipFill = firstChild(pic, "blipFill");
-  const blip = blipFill === undefined ? undefined : firstChild(blipFill, "blip");
-  const embed = blip === undefined ? undefined : attr(blip, "embed");
-  if (embed === undefined) return undefined;
-  const rel = relationships.find((candidate) => candidate.id === embed);
-  if (rel === undefined || rel.targetMode === "External") return undefined;
-  if (!rel.type.endsWith("/image")) return undefined;
-  const mediaId = rel.target;
-  const contentType = pkg.mediaContentType(mediaId);
+  // An embedded SVG (`asvg:svgBlip`) paints first; the main `blip` stays as
+  // its raster fallback, so an SVG that cannot be decoded still shows
+  // Office's own PNG of it.
+  const source = resolveImageSource(blipFill === undefined ? undefined : firstChild(blipFill, "blip"), {
+    relationships,
+    mediaContentType: (target) => pkg.mediaContentType(target),
+    hasPart: (target) => pkg.hasPart(target),
+  });
+  if (source === undefined) return undefined;
   const spPr = firstChild(pic, "spPr");
   const xfrm = spPr === undefined ? undefined : firstChild(spPr, "xfrm");
   const bounds = parseBounds(xfrm);
@@ -1412,8 +1394,12 @@ export function parsePicture(
     id,
     name,
     ...(bounds === undefined ? {} : { bounds }),
-    mediaId,
-    contentType,
+    mediaId: source.mediaId,
+    contentType: source.contentType,
+    ...(source.fallbackMediaId === undefined || source.fallbackContentType === undefined ? {} : {
+      fallbackMediaId: source.fallbackMediaId,
+      fallbackContentType: source.fallbackContentType,
+    }),
   };
   const srcRect = findSrcRect(blipFill);
   if (srcRect !== undefined) {
@@ -1432,7 +1418,7 @@ export function parsePicture(
       out.crop = { left, top, right, bottom };
     }
   }
-  const transform = parseXfrmTransform(xfrm);
+  const transform = drawingShapeTransform(xfrm);
   if (transform !== undefined) out.transform = transform;
   return out;
 }
@@ -1509,7 +1495,7 @@ async function parseChartFrame(
     ...(alt === undefined ? {} : { alt }),
     ...(bounds === undefined ? {} : { bounds }),
   };
-  const transform = parseXfrmTransform(xfrm);
+  const transform = drawingShapeTransform(xfrm);
   if (transform !== undefined) base.transform = transform;
   const missing = "this chart points at a part the file does not hold; the file may be damaged";
   const chartId = attr(chartRef, "id");
@@ -1706,7 +1692,7 @@ export function parseTable(
     rows,
     cellFills,
   };
-  const transform = parseXfrmTransform(xfrm);
+  const transform = drawingShapeTransform(xfrm);
   if (transform !== undefined) out.transform = transform;
   return out;
 }
@@ -1858,7 +1844,7 @@ async function parseShapeTree(
 ): Promise<SlideModel["elements"]> {
   numberShapeTree(tree);
   const isPlaceholder = (element: XmlElement): boolean => options.graphicsOnly && hasPlaceholder(element);
-  const visit = async (child: XmlElement, target: SlideModel["elements"]): Promise<void> => {
+  const visit = async (child: XmlElement, target: SlideModel["elements"], groupPaint?: GroupPaint): Promise<void> => {
     throwIfAborted(signal);
     const pushFallbackPicture = (container: XmlElement): void => {
       const fallback = firstChild(container, "Fallback");
@@ -1871,14 +1857,18 @@ async function parseShapeTree(
     // and line, so it paints through the shape path.
     if (child.local === "sp" || child.local === "cxnSp") {
       if (isPlaceholder(child)) return;
-      target.push(await parseShape(pkg, part, child, theme, signal, relationships, options.autoColor, deck.defaultTextSizes));
+      target.push(await parseShape(pkg, part, child, theme, signal, relationships, options.autoColor, deck.defaultTextSizes, groupPaint));
       throwIfAborted(signal);
       return;
     }
     if (child.local === "pic") {
       if (isPlaceholder(child)) return;
       const picture = parsePicture(child, relationships, pkg);
-      if (picture !== undefined) target.push(picture);
+      if (picture !== undefined) {
+        const effects = readDrawingEffects(firstChild(child, "spPr"), theme);
+        if (effects !== undefined) picture.effects = effects;
+        target.push(picture);
+      }
       return;
     }
     if (child.local === "AlternateContent") {
@@ -1895,7 +1885,9 @@ async function parseShapeTree(
       return;
     }
     if (child.local === "grpSp") {
-      target.push(await parseGroup(child, visit));
+      target.push(await parseGroup(child, visit, theme, {
+        relationships, mediaContentType: (target) => pkg.mediaContentType(target), inherited: options.graphicsOnly,
+      }, groupPaint));
       return;
     }
     if (child.local === "graphicFrame") {
@@ -1938,16 +1930,35 @@ function parseChildSpace(xfrm: XmlElement | undefined): BoundsModel | undefined 
  */
 async function parseGroup(
   group: XmlElement,
-  visit: (child: XmlElement, target: SlideModel["elements"]) => Promise<void>,
+  visit: (child: XmlElement, target: SlideModel["elements"], groupPaint?: GroupPaint) => Promise<void>,
+  theme: DrawingTheme,
+  owner: FillOwner,
+  parentPaint?: GroupPaint,
 ): Promise<GroupModel> {
   const { id, name } = identityOf(group, firstChild(group, "nvGrpSpPr"));
   const grpSpPr = firstChild(group, "grpSpPr");
   const xfrm = grpSpPr === undefined ? undefined : firstChild(grpSpPr, "xfrm");
   const bounds = parseBounds(xfrm);
-  const transform = parseXfrmTransform(xfrm);
+  const transform = drawingShapeTransform(xfrm);
   const childSpace = parseChildSpace(xfrm);
+  const effects = readDrawingEffects(grpSpPr, theme);
+  const fill = grpSpPr === undefined ? undefined : resolveDirectFill(grpSpPr, theme, {
+    ...owner, ...(parentPaint?.fill === undefined ? {} : { groupFill: parentPaint.fill }),
+  });
+  // A nested grpFill keeps the ancestor's paint box, mapped into its child
+  // space; a directly authored group fill starts a new box. PowerPoint's COM
+  // group formatting writes grpFill on both nested groups and child shapes.
+  let fillBounds = childSpace ?? bounds;
+  if (grpSpPr !== undefined && firstChild(grpSpPr, "grpFill") !== undefined && parentPaint?.bounds !== undefined
+    && bounds !== undefined && childSpace !== undefined && bounds.width > 0 && bounds.height > 0) {
+    const sx = childSpace.width / bounds.width, sy = childSpace.height / bounds.height;
+    fillBounds = { x: childSpace.x + (parentPaint.bounds.x - bounds.x) * sx,
+      y: childSpace.y + (parentPaint.bounds.y - bounds.y) * sy,
+      width: parentPaint.bounds.width * sx, height: parentPaint.bounds.height * sy };
+  }
+  const paint: GroupPaint = { ...(fill === undefined ? {} : { fill }), ...(fillBounds === undefined ? {} : { bounds: fillBounds }) };
   const children: SlideModel["elements"] = [];
-  for (const child of group.children) await visit(child, children);
+  for (const child of group.children) await visit(child, children, paint);
   return {
     kind: "group",
     id,
@@ -1955,6 +1966,7 @@ async function parseGroup(
     ...(bounds === undefined ? {} : { bounds }),
     ...(transform === undefined ? {} : { transform }),
     ...(childSpace === undefined ? {} : { childSpace }),
+    ...(effects === undefined ? {} : { effects }),
     children,
   };
 }

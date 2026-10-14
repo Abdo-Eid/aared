@@ -61,18 +61,19 @@ export function collectStrings(model: unknown, key: string, into: Set<string>): 
 // characters, and a single character above U+00FF makes the whole shipped script two bytes per
 // character (see `chars.ts`). The pattern's own `\u` escapes stay as text and RegExp reads them.
 const ARABIC_TEXT = /* @__PURE__ */ new RegExp("[\\u0600-\\u06FF\\u0750-\\u077F\\u0870-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFF]");
+const TEXT_FIELDS = ["text", "value", "formatted"] as const;
 
 /** The CSS `font` shorthand prefix of one style a family paints in. */
 export type FontVariant = "" | "bold " | "italic " | "italic bold ";
 
 /**
- * Every distinct `fontFamily` in a DOCX or PPTX `model` with the variants it
+ * Every distinct `fontFamily` in a format's `model` with the variants it
  * paints in (a run's own `bold`/`italic`), and whether any of its `text` runs
  * contains Arabic script — one walk, for the font wait that must know all
  * three: a delivered face downloads only when something loads it, so the wait
  * loads exactly the faces the document paints, and an Arabic-limited fallback
- * face only when the document has Arabic. Not for spreadsheets: no format
- * that measures text off screen reads a sheet.
+ * face only when the document has Arabic. Spreadsheet text lives in `value`
+ * and `formatted`, rather than the `text` field on DOCX/PPTX runs.
  */
 export function collectFontUse(model: unknown): { families: Map<string, Set<FontVariant>>; arabic: boolean } {
   const families = new Map<string, Set<FontVariant>>();
@@ -87,7 +88,11 @@ export function collectFontUse(model: unknown): { families: Map<string, Set<Font
       if (variants === undefined) families.set(family, (variants = new Set()));
       variants.add(variant);
     }
-    if (!arabic && typeof record.text === "string") arabic = ARABIC_TEXT.test(record.text);
+    if (!arabic) {
+      for (const key of TEXT_FIELDS) {
+        if (typeof record[key] === "string" && ARABIC_TEXT.test(record[key])) { arabic = true; break; }
+      }
+    }
   });
   return { families, arabic };
 }

@@ -9,7 +9,7 @@ import type { ChartModel } from "../src/core/model.js";
 
 // The rules the chart engine once assumed, each now checked against PowerPoint on the chart oracle's
 // `g-*` cases (tools/chart-oracle: cases.json, chart-oracle.pptx, and PowerPoint's PDF of it).
-// The numbers asserted are what PowerPoint drew. DECISION_LOG §74.
+// The numbers asserted are what PowerPoint drew. Notes §74.
 
 const ORACLE = `${import.meta.dir}/../../../tools/chart-oracle`;
 const cases = (await Bun.file(`${ORACLE}/cases.json`).json()) as { cases: Array<{ id: string }> };

@@ -7,6 +7,7 @@
  */
 
 import { attr, firstChild, numberAttr, onOff } from "./xml.js";
+import { resolveImageSource } from "./image-source.js";
 import type { XmlElement } from "./xml.js";
 import { emuToInches } from "./units.js";
 import { resolveDrawingColor } from "./theme.js";
@@ -72,7 +73,7 @@ export function resolveGradientFill(gradient: XmlElement, theme: DrawingTheme): 
     angle: ((drawingMlAngle / 60000) % 360 + 360) % 360,
     // An absent `scaled` is false: PowerPoint draws slide 4's `<a:lin
     // ang="2700000"/>` with bands square to a true 45° across a 1.7:1 box
-    // (DECISION_LOG §28), not squashed to the box's diagonal.
+    // (Notes §28), not squashed to the box's diagonal.
     scaled: onOff(linear, "scaled") ?? false,
     rotatesWithShape: onOff(gradient, "rotWithShape") ?? true,
     stops,
@@ -89,6 +90,8 @@ export interface FillOwner {
   mediaContentType: (target: string) => string;
   /** Inherited from the layout or master, so many slides share the picture. */
   inherited: boolean;
+  /** Resolved parent group paint; null is an explicitly unfilled group. */
+  groupFill?: ShapeFillModel | null;
 }
 
 /**
@@ -118,14 +121,22 @@ const TILE_FLIPS = new Set(["none", "x", "y", "xy"]);
 export function resolvePictureFill(blipFill: XmlElement, owner: FillOwner | undefined): ShapeFillModel {
   const unsupported = { kind: "unsupported", source: "image" } as const;
   if (owner === undefined) return unsupported;
-  const blip = firstChild(blipFill, "blip");
-  const embed = blip === undefined ? undefined : attr(blip, "embed");
-  const rel = embed === undefined ? undefined : owner.relationships.find((candidate) => candidate.id === embed);
-  if (rel === undefined || rel.targetMode === "External" || !rel.type.endsWith("/image")) return unsupported;
+  // An embedded SVG (`asvg:svgBlip`) paints first; the main `blip` stays as
+  // its raster fallback, so an SVG Office cannot decode still shows Office's
+  // own PNG of it.
+  const source = resolveImageSource(firstChild(blipFill, "blip"), {
+    relationships: owner.relationships,
+    mediaContentType: owner.mediaContentType,
+  });
+  if (source === undefined) return unsupported;
   const out: PictureFillModel = {
     kind: "picture",
-    mediaId: rel.target,
-    contentType: owner.mediaContentType(rel.target),
+    mediaId: source.mediaId,
+    contentType: source.contentType,
+    ...(source.fallbackMediaId === undefined || source.fallbackContentType === undefined ? {} : {
+      fallbackMediaId: source.fallbackMediaId,
+      fallbackContentType: source.fallbackContentType,
+    }),
     ...(owner.inherited ? { shared: true as const } : {}),
   };
   const crop = relativeRect(firstChild(blipFill, "srcRect"));
@@ -150,19 +161,53 @@ export function resolvePictureFill(blipFill: XmlElement, owner: FillOwner | unde
   return out;
 }
 
+/** The `EG_FillProperties` child authored directly on `container`, if any. */
+const FILL_PROPERTIES = new Set(["noFill", "solidFill", "gradFill", "blipFill", "pattFill", "grpFill"]);
+
+/**
+ * The one fill child `container` authors itself, and nothing else.
+ *
+ * Direct children only, on purpose: a container's own fill sits beside its
+ * `a:ln`, its effects and its `a:extLst`, and a deep search finds a colour in
+ * one of those and reports it as the shape's fill. Word gives every inserted
+ * DrawingML shape a black outline, so `<a:ln><a:solidFill><a:prstClr
+ * val="black"/>` is under almost every shape; a hidden outline adds
+ * `a:extLst/a:ext/a14:hiddenLine` with the same payload. Both read as the shape's
+ * own fill under a subtree search, which paints a text box solid black or in its
+ * outline colour.
+ */
+export function directFillProperty(container: XmlElement | undefined): XmlElement | undefined {
+  if (container === undefined) return undefined;
+  for (const child of container.children) {
+    if (FILL_PROPERTIES.has(child.local)) return child;
+  }
+  return undefined;
+}
+
 /**
  * The fill authored directly on `container` (`p:spPr`, `p:bgPr`, `a:tcPr`):
  * `null` for an explicit `a:noFill`, `undefined` when no fill is authored so
  * the caller's style fallback applies.
  */
 export function resolveDirectFill(container: XmlElement, theme: DrawingTheme, owner: FillOwner | undefined): ShapeFillModel | null | undefined {
-  if (firstChild(container, "noFill") !== undefined) return null;
-  const gradient = firstChild(container, "gradFill");
-  if (gradient !== undefined) return resolveGradientFill(gradient, theme);
-  const blipFill = firstChild(container, "blipFill");
-  if (blipFill !== undefined) return resolvePictureFill(blipFill, owner);
-  const pattern = firstChild(container, "pattFill");
-  if (pattern !== undefined) return resolvePatternFill(pattern, theme);
-  const color = resolveDrawingColor(firstChild(container, "solidFill"), theme);
+  const fill = directFillProperty(container);
+  if (fill === undefined) return undefined;
+  switch (fill.local) {
+    case "noFill":
+      return null;
+    case "gradFill":
+      return resolveGradientFill(fill, theme);
+    case "blipFill":
+      return resolvePictureFill(fill, owner);
+    case "pattFill":
+      return resolvePatternFill(fill, theme);
+    case "grpFill":
+      return owner?.groupFill ?? (owner?.groupFill === null ? null : { kind: "unsupported", source: "group" });
+    case "solidFill":
+      break;
+    default:
+      return undefined;
+  }
+  const color = resolveDrawingColor(fill, theme);
   return color === undefined ? undefined : { kind: "solid", color };
 }

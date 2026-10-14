@@ -20,8 +20,8 @@
  * sheets; a document is one unit), and per-format controls move within the
  * unit on screen (`xlsx.goToCell`, `docx.goToHeading`/`goToPage`). `search()`
  * finds places to go in the viewer's own document. To build from the file's
- * contents (range reads, media access, several units at once), use the
- * headless format entrypoints directly.
+ * contents (range reads, media access, thumbnails), use `viewer.content`
+ * with the format entrypoint's `render()`: the same parse, owned by the viewer.
  */
 
 import type {
@@ -37,11 +37,13 @@ import type {
   WorkerInit,
   ZoomValue,
 } from "../core/index.js";
-import type { PptxInfo, PptxRenderEventMap, PptxSearchMatch } from "../pptx/index.js";
-import type { XlsxInfo, XlsxRenderEventMap, XlsxSearchMatch } from "../xlsx/index.js";
-import type { DocxInfo, DocxPageInfo, DocxPagination, DocxRenderEventMap, DocxSearchMatch, HeadingInfo } from "../docx/index.js";
-import { sourceBytes, WorkerSession } from "../core/session.js";
-import { throwIfAborted } from "../core/errors.js";
+import type { PptxContent, PptxInfo, PptxRenderEventMap, PptxSearchMatch } from "../pptx/index.js";
+import type { XlsxContent, XlsxInfo, XlsxRenderEventMap, XlsxSearchMatch } from "../xlsx/index.js";
+import type { DocxContent, DocxInfo, DocxPageInfo, DocxPagination, DocxRenderEventMap, DocxSearchMatch, HeadingInfo } from "../docx/index.js";
+export type { PptxContent, SlideContent } from "../pptx/index.js";
+export type { XlsxContent, SheetContent } from "../xlsx/index.js";
+export type { DocxContent } from "../docx/index.js";
+import { WorkerSession } from "../core/session.js";
 import type { EventTargetOf, ZoomChangeEvent } from "../render-handle.js";
 import { openAutoViewer } from "../auto-viewer.js";
 
@@ -83,9 +85,13 @@ export interface DocxPreviewControls {
   goToHeading(target: string | number): Promise<void>;
   /** Scroll a laid-out page into view (layout mode). See `DocxRenderHandle.goToPage`. */
   goToPage(index: number): Promise<void>;
-  /** Navigate to a result; active search highlights remain in place. */
-  goToSearchMatch(match: DocxSearchMatch): Promise<void>;
 }
+
+/**
+ * One result of any format's `search()`: what `goToSearchMatch()` takes, so
+ * a results list over an unknown format needs no branch per format.
+ */
+export type PreviewSearchMatch = PptxSearchMatch | XlsxSearchMatch | DocxSearchMatch;
 
 /**
  * Optional settings for `preview()`; `PreviewInput` adds its source and target.
@@ -156,17 +162,24 @@ export interface SearchNavigation extends SearchNavigationState {
 export interface PptxPreview extends PreviewBase {
   readonly format: "pptx";
   readonly info: PptxInfo;
+  /**
+   * Borrowed reads/media and render inputs, not the opened document or its
+   * lifecycle: `render({ slide: viewer.content.slides.get(i), target })`.
+   * Search stays on the viewer. Destroy additional renders before the viewer;
+   * after destroy, content calls fail with `closed`. Resolved data already
+   * returned remain readable and must be treated as read-only.
+   */
+  readonly content: PptxContent;
   readonly xlsx: null;
   readonly docx: null;
   /**
    * Search the deck the viewer has open (no second parse): one result for each
-   * text occurrence, a place to go with `goTo(match.slide.index)`. The same search as
+   * text occurrence, a place to go with `goToSearchMatch(match)`. The same search as
    * the format's `deck.search()` (the API page's Search grammar); `signal` cancels it.
    * Highlights painted matches by default; `highlight: false` returns data only
    * and clears previous highlights. Empty query clears. The query stays active
-   * across navigation and text redraws. A failure rejects and fires no `error`
-   * (that event is for moves); after
-   * `destroy()` it rejects with `closed`.
+   * across navigation and text redraws. A failure rejects only, like every
+   * public call; after `destroy()` it rejects with `closed`.
    */
   search(query: string, options?: PreviewSearchOptions): Promise<PptxSearchMatch[]>;
 }
@@ -175,13 +188,19 @@ export interface PptxPreview extends PreviewBase {
 export interface XlsxPreview extends PreviewBase {
   readonly format: "xlsx";
   readonly info: XlsxInfo;
+  /**
+   * Borrowed sheet reads/media and render inputs, with no owner/session:
+   * `render({ sheet: viewer.content.sheets.get(i), target })` for a second
+   * view. Same lifetime and read-only data rules as `PptxPreview.content`.
+   */
+  readonly content: XlsxContent;
   /** Moving within the sheet on screen. See `XlsxPreviewControls`. */
   readonly xlsx: XlsxPreviewControls;
   readonly docx: null;
   /**
    * Search the sheet on screen, as Excel's Find does: each match is a cell
-   * of that sheet, reached with `xlsx.goToCell(match.address)`. Another
-   * sheet is searched by `goTo()`ing it first. The same rules as
+   * of that sheet, reached with `goToSearchMatch(match)`. Another sheet is
+   * searched by `goTo()`ing it first. The same rules as
    * `PptxPreview.search()`.
    */
   search(query: string, options?: PreviewSearchOptions): Promise<XlsxSearchMatch[]>;
@@ -191,13 +210,19 @@ export interface XlsxPreview extends PreviewBase {
 export interface DocxPreview extends PreviewBase {
   readonly format: "docx";
   readonly info: DocxInfo;
+  /**
+   * Borrowed sections, headings and media, or
+   * `render({ document: viewer.content, target })` for a second view with
+   * automatic media resolution. Same lifetime as `PptxPreview.content`.
+   */
+  readonly content: DocxContent;
   readonly xlsx: null;
   /** Moving within the document. See `DocxPreviewControls`. */
   readonly docx: DocxPreviewControls;
   /**
    * Search the document the viewer has open: each match names the nearest
-   * heading above it. `docx.goToSearchMatch(match)` navigates to its story
-   * copy or nearest body heading.
+   * heading above it. `goToSearchMatch(match)` navigates to its story copy
+   * or nearest body heading.
    * The same rules as `PptxPreview.search()`.
    */
   search(query: string, options?: PreviewSearchOptions): Promise<DocxSearchMatch[]>;
@@ -206,7 +231,7 @@ export interface DocxPreview extends PreviewBase {
 /**
  * The events a preview handle fires, by name: `addEventListener` types each
  * `event.detail`. The render handle's own events are forwarded; the unit
- * events and `error` are the facade's.
+ * events are the facade's; `error` reports built-in actions only.
  */
 export interface PreviewEventMap {
   /** Active highlighted search position or total changed. */
@@ -218,7 +243,7 @@ export interface PreviewEventMap {
   /** XLSX, alongside `indexchange`. */
   sheetchange: CustomEvent<UnitRef>;
   zoomchange: ZoomChangeEvent;
-  /** A navigation failed (`goTo()`, or a move on `xlsx`/`docx`); `cause` is what the call rejected with. */
+  /** A built-in action failed (such as a sheet-tab click). Public calls reject only. */
   error: CustomEvent<{ message: string; cause: AaredError }>;
   linkactivate: PptxRenderEventMap["linkactivate"] | XlsxRenderEventMap["linkactivate"] | DocxRenderEventMap["linkactivate"];
   /** XLSX. */
@@ -250,22 +275,36 @@ interface PreviewBase extends EventTargetOf<PreviewEventMap> {
    * `AaredError` outside `0 <= index < info.count`. Emits `indexchange`
    * plus the format-native sibling (`slidechange` for PPTX, `sheetchange`
    * for XLSX, both `{ index, title }`); going to the unit already shown
-   * emits nothing. Zoom and appearance carry over. A failure rejects and
-   * also fires `error` (`{ message, cause }`), so whoever holds the handle
-   * hears it even when the caller drops the promise; the unit on screen
-   * stays. After `destroy()` it rejects with `closed`.
+   * emits nothing. Zoom and appearance carry over. A failure rejects only;
+   * the caller owns its reporting and the unit on screen stays.
+   * After `destroy()` it rejects with `closed`.
    */
   goTo(index: number): Promise<void>;
   /**
    * The next unit: `goTo()` one step on from where the newest move is
    * heading, so three quick presses move three units, not one. At the last
    * unit it changes nothing and resolves; a document is one unit, so there it
-   * always does. Rejects and fires `error` like `goTo()`; after `destroy()`
+   * always does. Rejects only like `goTo()`; after `destroy()`
    * it rejects with `closed`.
    */
   next(): Promise<void>;
   /** The previous unit, the same way as `next()`; at the first unit it changes nothing. */
   previous(): Promise<void>;
+  /**
+   * Go to one result of `search()`, whatever the format: a slide result shows
+   * its slide; a cell result shows its sheet (switching sheets if another is
+   * on screen) and selects its cell; a document result scrolls to its place
+   * (a header or footer match goes to its first displayed copy, a body match
+   * to its nearest heading). A result of the newest highlighted search also
+   * becomes the active one (`searchNavigation.index`); in a workbook a sheet
+   * switch clears that search, as `goTo()` does. A DOCX header or footer
+   * result is painted on many pages, so it becomes the copy on the first page
+   * still in view (else the first copy); a body result becomes the first
+   * occurrence in its own paragraph. A result of another format
+   * rejects `invalid-argument`. Rejects only like `goTo()`;
+   * after `destroy()` it rejects with `closed`.
+   */
+  goToSearchMatch(match: PreviewSearchMatch): Promise<void>;
   /** Change zoom; fires `zoomchange` only when the value changes. Kept across `goTo()`. */
   setZoom(zoom: ZoomValue): void;
   /**
@@ -287,13 +326,13 @@ interface PreviewBase extends EventTargetOf<PreviewEventMap> {
   /** Back to `defaultZoom`, the zoom the format opens at. */
   resetZoom(): void;
   /**
-   * Replace the viewer appearance in place without re-opening the document:
+   * Update the viewer appearance in place without re-opening the document:
    * forwards to the current render handle, keeping the unit index, zoom,
    * selection, and Worker session, and applies to every later `goTo()`.
-   * Replaces, never merges: what it leaves out goes back to the default (a
-   * workbook's sheet tabs stay on unless `spreadsheet.sheetTabs` is `false`).
-   * Content stays source-faithful; only the theme marker and viewer chrome
-   * follow the theme.
+   * Changes only what it sets: `setAppearance({ theme: "dark" })` keeps
+   * hidden sheet tabs hidden. A knob goes back to its default only when you
+   * pass the default. Content stays source-faithful; only the theme marker
+   * and viewer chrome follow the theme.
    */
   setAppearance(appearance: Appearance): void;
   /**
@@ -312,9 +351,7 @@ export async function detect(
   source: Source,
   options?: { signal?: AbortSignal; worker?: WorkerInit },
 ): Promise<DocumentFormat> {
-  const bytes = await sourceBytes("aared/preview", source, options?.signal);
-  throwIfAborted(options?.signal);
-  return WorkerSession.detectFormat("aared/preview", bytes, options);
+  return WorkerSession.detectFormat("aared/preview", source, options);
 }
 
 /**

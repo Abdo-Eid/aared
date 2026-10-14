@@ -2,29 +2,21 @@ import { expect, test } from "bun:test";
 import { AaredError, isAbort, isAaredError, messageFor } from "../src/core/index.js";
 import { itemAt } from "../src/core/errors.js";
 
-test("isAbort recognizes AaredError with code 'aborted'", () => {
-  const error = new AaredError("aborted", "test: cancelled");
-  expect(isAbort(error)).toBe(true);
-  expect(error.name).toBe("AbortError");
-});
-
-test("isAbort recognizes a plain Error named AbortError", () => {
-  const error = new Error("cancelled");
-  error.name = "AbortError";
-  expect(isAbort(error)).toBe(true);
-});
-
-test("isAbort recognizes DOMException AbortError", () => {
-  const error = new DOMException("aborted", "AbortError");
-  expect(isAbort(error)).toBe(true);
-});
-
-test("isAbort returns false for non-abort errors", () => {
-  expect(isAbort(new AaredError("invalid-document", "bad"))).toBe(false);
-  expect(isAbort(new Error("something"))).toBe(false);
-  expect(isAbort(null)).toBe(false);
-  expect(isAbort(undefined)).toBe(false);
-  expect(isAbort("string")).toBe(false);
+test("isAbort recognizes every abort shape, and nothing else", () => {
+  const aared = new AaredError("aborted", "test: cancelled");
+  expect(isAbort(aared)).toBe(true);
+  expect(aared.name).toBe("AbortError");
+  const named = new Error("cancelled");
+  named.name = "AbortError";
+  expect(isAbort(named)).toBe(true);
+  expect(isAbort(new DOMException("aborted", "AbortError"))).toBe(true);
+  // Once narrowed, a caller reads name and message without a cast.
+  const unknown: unknown = aared;
+  if (!isAbort(unknown)) throw new Error("expected an abort");
+  expect(`${unknown.name}: ${unknown.message}`).toBe("AbortError: test: cancelled");
+  for (const other of [new AaredError("invalid-document", "bad"), new Error("something"), null, undefined, "string"]) {
+    expect(isAbort(other)).toBe(false);
+  }
 });
 
 test("messageFor maps codes to human-readable strings", () => {
@@ -38,13 +30,6 @@ test("messageFor returns fallback for unknown errors", () => {
   expect(messageFor(new Error("oops"))).toBe("An unexpected error occurred");
   expect(messageFor(null)).toBe("An unexpected error occurred");
   expect(messageFor(42)).toBe("An unexpected error occurred");
-});
-
-test("isAbort narrows to Error so callers read name and message without a cast", () => {
-  const error: unknown = new AaredError("aborted", "test: cancelled");
-  if (!isAbort(error)) throw new Error("expected an abort");
-  expect(error.name).toBe("AbortError");
-  expect(error.message).toBe("test: cancelled");
 });
 
 test("itemAt returns an in-range item: a whole number outside is not-found, anything else invalid-argument", () => {

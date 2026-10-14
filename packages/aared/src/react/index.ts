@@ -7,11 +7,12 @@
  * and full teardown (`destroy()`) on unmount or source change. It is the
  * same open → render → navigate → destroy boundary as `aared/preview`:
  * `viewer.search()` finds places in the open document, and range reads and
- * media stay on the headless format entrypoints.
+ * media are available from the same opened viewer.content, without lifecycle access.
  *
  * The result is a union on `status`: once `status` is `"ready"`, `viewer`
  * (typed by format), `index` and `zoom` are there; once it is `"error"`,
- * `error` is an `AaredError`; before either, they are `null`. Destructuring
+ * `error` is an `AaredError`; while ready it can report a built-in action's
+ * failure without replacing the view. Before loading finishes it is null. Destructuring
  * keeps the narrowing (`const { status, viewer } = ...`).
  *
  * `index` and `zoom` are start values; change them with `viewer.goTo()` and
@@ -34,7 +35,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { AaredError, isAbort } from "../core/index.js";
-import type { DocumentFormat, Source, ZoomValue } from "../core/index.js";
+import type { Appearance, DocumentFormat, Source, ZoomValue } from "../core/index.js";
+import { REPLACE_APPEARANCE } from "../format-route.js";
 import { preview } from "../preview/index.js";
 import type { DocxPreview, PptxPreview, PreviewHandle, PreviewOptions, XlsxPreview } from "../preview/index.js";
 
@@ -91,7 +93,6 @@ export interface UsePreviewPending extends UsePreviewActions {
   index: null;
   zoom: null;
   error: null;
-  navigationError: null;
 }
 
 /** A document on screen: the viewer, typed by format, and what it shows. */
@@ -103,16 +104,9 @@ export interface UsePreviewReady<V extends PreviewHandle = PreviewHandle> extend
   index: number;
   /** Active zoom, mirrored from `zoomchange`. The painted scale is `viewer.scale` (it changes on resize, with no event). */
   zoom: ZoomValue;
-  error: null;
-  /**
-   * The last failed navigation, or `null`: whatever the mounted handle
-   * reported through its `error` event, so `viewer.goTo()` and moves inside
-   * the unit (`viewer.xlsx.goToCell`, `viewer.docx.goToHeading`, ...) all
-   * land. What is on screen stays, so a host can say "that could not be
-   * shown" without losing the view. Cleared when the unit changes and on
-   * every mount; a cancelled or overtaken call never lands here.
-   */
-  navigationError: AaredError | null;
+  /** Last failed built-in action, or null. Cleared by a unit change or mount.
+   * The view remains ready. Public calls reject to their caller instead. */
+  error: AaredError | null;
 }
 
 /** The mount failed (an aborted mount never lands here). */
@@ -123,7 +117,6 @@ export interface UsePreviewFailed extends UsePreviewActions {
   zoom: null;
   /** Why; `retry()` mounts again. */
   error: AaredError;
-  navigationError: null;
 }
 
 /**
@@ -141,6 +134,11 @@ export interface UseXlsxOptions extends Omit<UsePreviewOptions, "type" | "pagina
 
 /** Options for `useDocx()`: `UsePreviewOptions` without `type`. */
 export interface UseDocxOptions extends Omit<UsePreviewOptions, "type"> {}
+
+/** The viewer's internal whole-appearance update (`REPLACE_APPEARANCE`), not on the public handle. */
+interface ReplacesAppearance {
+  [REPLACE_APPEARANCE](appearance: Appearance): void;
+}
 
 function isCancellation(error: unknown, signal: AbortSignal): boolean {
   return signal.aborted || isAbort(error);
@@ -161,7 +159,6 @@ export function usePreview(options: UsePreviewOptions): UsePreviewResult {
   const [shownIndex, setShownIndex] = useState(0);
   const [shownZoom, setShownZoom] = useState<ZoomValue | null>(null);
   const [error, setError] = useState<AaredError | null>(null);
-  const [navigationError, setNavigationError] = useState<AaredError | null>(null);
   const [nonce, setNonce] = useState(0);
 
   // Everything a mount reads but that never re-opens the document by itself:
@@ -184,6 +181,7 @@ export function usePreview(options: UsePreviewOptions): UsePreviewResult {
     options.appearance?.spreadsheet?.fill,
     options.appearance?.spreadsheet?.selection,
     options.appearance?.spreadsheet?.gridlines,
+    options.appearance?.spreadsheet?.formulaBar,
   ]);
 
   useEffect(() => {
@@ -200,7 +198,6 @@ export function usePreview(options: UsePreviewOptions): UsePreviewResult {
     setStatus("loading");
     setViewer(null);
     setError(null);
-    setNavigationError(null);
     // A media resolver goes through the latest one given (the one this mount
     // started with, should it be removed while a picture is still loading).
     const startMedia = start.mediaResolver;
@@ -223,15 +220,15 @@ export function usePreview(options: UsePreviewOptions): UsePreviewResult {
           return;
         }
         handle = next;
-        // A unit change clears a failed navigation; the handle's `error` event
-        // reports one, whatever made it (`viewer.goTo()`, a move on `viewer.xlsx`).
+        // A unit change clears a failed built-in action. Public calls reject
+        // to the application, not to the hook's state.
         const onIndex = (): void => {
           setShownIndex(next.index);
-          setNavigationError(null);
+          setError(null);
         };
         const onZoom = (): void => setShownZoom(next.zoom);
         const onError = (event: Event): void => {
-          setNavigationError(asAaredError((event as CustomEvent<{ cause: unknown }>).detail.cause));
+          setError(asAaredError((event as CustomEvent<{ cause: unknown }>).detail.cause));
         };
         for (const [eventType, listener] of [["indexchange", onIndex], ["zoomchange", onZoom], ["error", onError]] as const) {
           next.addEventListener(eventType, listener);
@@ -261,8 +258,10 @@ export function usePreview(options: UsePreviewOptions): UsePreviewResult {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, mountKey, nonce]);
 
+  // The option is the whole appearance the host wants, so a knob removed from
+  // it goes back to its default: replace, where `viewer.setAppearance()` merges.
   useEffect(() => {
-    viewer?.setAppearance(latest.current.appearance ?? {});
+    (viewer as ReplacesAppearance | null)?.[REPLACE_APPEARANCE](latest.current.appearance ?? {});
   }, [viewer, appearanceKey]);
 
   const retry = useCallback((): void => {
@@ -272,10 +271,10 @@ export function usePreview(options: UsePreviewOptions): UsePreviewResult {
   return useMemo((): UsePreviewResult => {
     const actions = { ref: hostRef, retry };
     if (status === "ready" && viewer !== null) {
-      return { ...actions, status, viewer, index: shownIndex, zoom: shownZoom ?? viewer.zoom, error: null, navigationError };
+      return { ...actions, status, viewer, index: shownIndex, zoom: shownZoom ?? viewer.zoom, error };
     }
     if (status === "error" && error !== null) {
-      return { ...actions, status, viewer: null, index: null, zoom: null, error, navigationError: null };
+      return { ...actions, status, viewer: null, index: null, zoom: null, error };
     }
     return {
       ...actions,
@@ -284,9 +283,8 @@ export function usePreview(options: UsePreviewOptions): UsePreviewResult {
       index: null,
       zoom: null,
       error: null,
-      navigationError: null,
     };
-  }, [status, viewer, shownIndex, shownZoom, error, navigationError, retry]);
+  }, [status, viewer, shownIndex, shownZoom, error, retry]);
 }
 
 /**

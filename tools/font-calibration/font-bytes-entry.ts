@@ -1,9 +1,9 @@
-import { render as renderPptx } from "../../../packages/aared/src/pptx/index.ts";
-import { render as renderDocx } from "../../../packages/aared/src/docx/index.ts";
-import { render as renderXlsx } from "../../../packages/aared/src/xlsx/index.ts";
-import { collectStrings } from "../../../packages/aared/src/core/collect.ts";
-import { ARABIC_UNICODE_RANGE, createResolver } from "../../../packages/aared-fonts/src/index.ts";
-import { simulateAbsentFonts } from "../../../packages/aared-fonts/test/absent-fonts.browser.ts";
+import { render as renderPptx } from "../../packages/aared/src/pptx/index.ts";
+import { render as renderDocx } from "../../packages/aared/src/docx/index.ts";
+import { render as renderXlsx } from "../../packages/aared/src/xlsx/index.ts";
+import { collectStrings } from "../../packages/aared/src/core/collect.ts";
+import { ARABIC_UNICODE_RANGE, createResolver } from "../../packages/aared-fonts/src/index.ts";
+import { simulateAbsentFonts } from "../../packages/aared-fonts/test/absent-fonts.browser.ts";
 
 // Every delivered face, with the file it would fetch: recorded by a FontFace subclass installed
 // as the global before anything constructs one.

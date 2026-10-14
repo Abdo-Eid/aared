@@ -1,11 +1,10 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { visual, withVisualPage } from "./harness.js";
 import { serveDocx } from "./docx-harness.js";
 import { fourSectionDocument } from "./docx-headers-doc.js";
-
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 
 // The layout-mode DOM shows, on each physical page, the header Word shows there
 // (the table `docx-headers.test.ts` pins), and `PAGE` counts the printed number.
@@ -22,12 +21,11 @@ visual("visual DOM output: first-page, even-page and inherited headers paint on 
       };
     </script>`);
   try {
-    await using view = new Bun.WebView({ width: 1000, height: 1200 });
-    await view.navigate(server.url.href);
+    await withVisualPage({ server, width: 1000, height: 1200 }, async (view) => {
     const headers = (await view.evaluate(`paint(${JSON.stringify(sections)})`)) as string[];
     expect(headers).toEqual(["A-FIRST", "A-EVEN", "A-DEFAULT", "A-EVEN", "A-DEFAULT", "A-EVEN", "A-FIRST", "A-EVEN", "D-DEFAULT", "A-EVEN", "D-DEFAULT"]);
+    });
   } finally {
-    server.stop();
     await rm(dir, { recursive: true, force: true });
   }
 }, 60_000);

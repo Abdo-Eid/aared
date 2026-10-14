@@ -360,7 +360,7 @@ function tableRowHeightsPx(block: DocxTableNode, ctx: EstimateContext): number[]
  * plain paragraph's `keepNext`, which aared already honours the same way
  * (`keepsWithNext`/`keepChainPx`, below) for the block before a table. Among
  * the boundaries that fit, one Word's own saved layout marked
- * (`DocxTableRowNode.pageBreakBefore`, DECISION_LOG §45) wins over the
+ * (`DocxTableRowNode.pageBreakBefore`, Notes §45) wins over the
  * latest-fitting one aared would otherwise guess — real evidence beats a
  * heuristic whenever both agree it is valid. With `force`, the head takes at
  * least one row even when that row alone overflows (an empty page has no
@@ -370,7 +370,7 @@ function tableRowHeightsPx(block: DocxTableNode, ctx: EstimateContext): number[]
  * natural fit, so the tail should start a fresh page outright, not merely be
  * preferred to — this split already used the strongest evidence available;
  * a further "is the page half full" heuristic on top of it would second-
- * guess a decision real evidence already settled (DECISION_LOG §45).
+ * guess a decision real evidence already settled (Notes §45).
  */
 function splitTable(
   block: DocxTableNode,
@@ -730,7 +730,7 @@ export function paginate(sections: DocumentSection[], options?: PaginateOptions)
     }
     const pending: FlowNode[] = [block];
     // Tail fragments `splitTable` itself carved off at a boundary Word's own
-    // saved layout marked (DECISION_LOG §45): tracked by reference so they
+    // saved layout marked (Notes §45): tracked by reference so they
     // start a fresh page outright below, distinct from a table merely
     // *encountered* with a marked first row (soft-gated further down) — this
     // split already used the strongest evidence available, so it is not

@@ -36,7 +36,11 @@ describe("XLSX number formats", () => {
   test("honors positive/negative/zero sections", () => {
     expect(formatNumberValue(0.2436, "0.0%;(0.0%);-")).toBe("24.4%");
     expect(formatNumberValue(-0.3074, "#,##0;(#,##0);-")).toBe("(0)");
-    expect(formatNumberValue(-0.815, String.raw`0.0%;\(0.0%\);\-`)).toBe("(81.5)%");
+    // The percent sign prints where the code writes it, inside the brackets,
+    // as Excel prints it (post-production-tracker.xlsx's budget sheet).
+    expect(formatNumberValue(-0.815, String.raw`0.0%;\(0.0%\);\-`)).toBe("(81.5%)");
+    expect(formatNumberValue(-0.3074, "0.0%;(0.0%);-")).toBe("(30.7%)");
+    expect(formatNumberValue(0.0123, "0.00E+00%")).toBe("1.23E+00%");
     expect(formatNumberValue(0, String.raw`0.0%;\(0.0%\);\-`)).toBe("-");
     expect(formatNumberValue(-5, "#,##0;-#,##0")).toBe("-5");
     expect(formatNumberValue(-5, "#,##0")).toBe("-5");
@@ -79,12 +83,23 @@ describe("XLSX number formats", () => {
   });
 
   test("converts serials deterministically in UTC", () => {
-    expect(serialToDate(45000, false)).toEqual({ year: 2023, month: 3, day: 15, weekday: 3, hours: 0, minutes: 0, seconds: 0 });
+    expect(serialToDate(45000, false)).toEqual({ year: 2023, month: 3, day: 15, weekday: 3, hours: 0, minutes: 0, seconds: 0, milliseconds: 0 });
     expect(formatSerialDate(45000, "dd mmm yyyy", false)).toBe("15 Mar 2023");
     expect(formatSerialDate(45000, "mm-dd-yy", false)).toBe("03-15-23");
     expect(formatSerialDate(0.5, "h:mm", false)).toBe("12:00");
     expect(formatSerialDate(1.5, "[h]:mm", false)).toBe("36:00");
     expect(formatSerialDate(45000.75, "m/d/yy h:mm", false)).toBe("3/15/23 18:00");
+  });
+
+  // Excel 16 showed 45123.756 (18:08:38.4) under built-in id 47 as 08:38.4
+  // (probe xlsx-builtin-numfmt); ECMA-376's table prints that id as "mmss.0".
+  test("shows fractional seconds, and built-in id 47 is mm:ss.0", () => {
+    expect(formatCodeForId(47, new Map())).toBe("mm:ss.0");
+    expect(formatNumberValue(45123.756, formatCodeForId(47, new Map()))).toBe("08:38.4");
+    expect(formatNumberValue(45123.756, "mm:ss.00")).toBe("08:38.40");
+    expect(formatNumberValue(45123.756, "h:mm:ss")).toBe("18:08:38");
+    // Rounded at the shown precision first: 59.96s carries into the next minute.
+    expect(formatNumberValue(59.96 / 86_400, "mm:ss.0")).toBe("01:00.0");
   });
 
   // Every expectation below is what Excel 16 itself displayed for the code and

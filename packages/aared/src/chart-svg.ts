@@ -5,7 +5,7 @@
  * The unit model carries the resolved chart (`ChartSpecModel`, read in the
  * Worker); laying it out is the bigger half of the engine, so it is a separate
  * file (`core/chart/draw.ts`) fetched the first time a chart shows. A file
- * with no charts never downloads it (DECISION_LOG §71). The same holds for the
+ * with no charts never downloads it (Notes §71). The same holds for the
  * fill painter (`fill-paint.ts`): it is fetched only when a chart has a
  * gradient, pattern or picture fill, so a chart of plain colors never pays for
  * it.
@@ -16,6 +16,7 @@
  */
 
 import { cssClass } from "./class-sheet.js";
+import { resourceId } from "./resource-id.js";
 import { ARABIC_PROBE } from "./core/chars.js";
 import { MARK_FALLBACKS } from "./diagnostics.js";
 import type { ChartDrawing, FontProbe } from "./core/chart/draw.js";
@@ -24,6 +25,7 @@ import { chartDescription, chartTitleText } from "./core/chart/text.js";
 import type { ChartSpecModel, Fill } from "./core/chart/spec.js";
 import { cssFontFamily } from "./core/typography.js";
 import type { MediaUrls } from "./media-url.js";
+import { loadFillPainter, loadedFillPainter, type FillPainter } from "./fill-loader.js";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
@@ -41,12 +43,9 @@ interface Layout {
   layoutChart: (spec: ChartSpecModel, frame: { width: number; height: number } | undefined, fontScale?: Record<string, number>) => ChartDrawing;
   chartFontProbes: (spec: ChartSpecModel, arabicText: string) => FontProbe[];
 }
-type FillPainter = typeof import("./fill-paint.js");
 
 let layout: Layout | undefined;
 let loading: Promise<Layout> | undefined;
-let fillPainter: FillPainter | undefined;
-let loadingFills: Promise<FillPainter> | undefined;
 /** Paints still waiting on a file or on a picture, for `chartsSettled()`. */
 const pending = new Set<Promise<unknown>>();
 
@@ -62,24 +61,11 @@ function loadLayout(): Promise<Layout> {
   return loading;
 }
 
-function loadFillPainter(): Promise<FillPainter> {
-  loadingFills ??= import("./fill-paint.js").then(
-    (module) => (fillPainter = module),
-    (error: unknown) => {
-      loadingFills = undefined;
-      throw error;
-    },
-  );
-  return loadingFills;
-}
-
 function track(work: Promise<unknown>): void {
   const settled = work.then(() => undefined, () => undefined);
   pending.add(settled);
   void settled.then(() => pending.delete(settled));
 }
-
-let serial = 0;
 
 /** What the painter needs beyond the primitive: the fill painter once loaded, and the media a picture fill names. */
 export interface ChartPaintContext {
@@ -106,7 +92,7 @@ function paintServerFill(svg: SVGSVGElement, primitive: ServerPath, fills: FillP
   // The view box is the frame in points and the SVG is drawn at the frame's size in
   // CSS pixels, so a point is 96/72 of a pixel. Patterns tile from the chart's origin.
   const unitsPerPx = 72 / 96;
-  return fills.fillPaint(svg, `aared-chart-fill-${++serial}`, primitive.fill, {
+  return fills.fillPaint(svg, resourceId("chart-fill"), primitive.fill, {
     width: box.width,
     height: box.height,
     unitsPerPxX: unitsPerPx,
@@ -281,7 +267,7 @@ export interface PaintChartOptions {
 function describeChart(svg: SVGSVGElement, spec: ChartSpecModel, alt: string | undefined): void {
   svg.setAttribute("role", "img");
   svg.setAttribute("aria-label", alt !== undefined && alt.trim() !== "" ? alt : chartTitleText(spec) ?? "Chart");
-  const id = `aared-chart-desc-${++serial}`;
+  const id = resourceId("chart-desc");
   const desc = document.createElementNS(SVG_NAMESPACE, "desc");
   desc.setAttribute("id", id);
   desc.textContent = chartDescription(spec);
@@ -312,6 +298,7 @@ export function paintChart(svg: SVGSVGElement, spec: ChartSpecModel, options: Pa
   const layOut = (lay: Layout, probes: readonly FontProbe[]): void | Promise<void> => {
     const drawing = lay.layoutChart(spec, options.frame, scalesFor(probes));
     if (!drawing.primitives.some(hasPaintServer)) return paint(drawing, undefined);
+    const fillPainter = loadedFillPainter();
     if (fillPainter !== undefined) return paint(drawing, fillPainter);
     return loadFillPainter().then((fills) => paint(drawing, fills), options.unavailable);
   };
@@ -342,15 +329,16 @@ export function paintChart(svg: SVGSVGElement, spec: ChartSpecModel, options: Pa
 }
 
 /**
- * Fetch the layout code (and the fill painter, for charts with gradient,
- * pattern or picture fills) ahead of painting, for a render that waits before
- * it paints (DOCX): its charts then draw synchronously with everything else.
- * Resolves either way; a chart painted after a failed fetch tries again.
+ * Fetch the layout code ahead of painting, for a render that waits before it
+ * paints (DOCX): its charts then lay out with everything else. The fill
+ * painter stays demand-loaded: a chart with gradient, pattern or picture
+ * fills fetches it when its laid-out primitives need one, and the render's
+ * `chartsSettled()` wait covers that fetch. Resolves either way; a chart
+ * painted after a failed fetch tries again.
  */
 export function chartLayoutReady(): Promise<void> {
-  const ready = (load: () => Promise<unknown>, loaded: boolean): Promise<void> =>
-    loaded ? Promise.resolve() : load().then(() => undefined, () => undefined);
-  return Promise.all([ready(loadLayout, layout !== undefined), ready(loadFillPainter, fillPainter !== undefined)]).then(() => undefined);
+  if (layout !== undefined) return Promise.resolve();
+  return loadLayout().then(() => undefined, () => undefined);
 }
 
 /**

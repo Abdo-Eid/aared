@@ -2,8 +2,10 @@
   "id": "xlsx-coverage",
   "sheets": {
     "rtl-grid": { "hasText": "ميزانية الإنتاج الشهرية" },
-    "summary": { "hasText": "Production budget — summary" },
+    "summary": { "hasText": "Wireless Charger" },
     "deep-log": { "hasText": "Shot Log — Episodes 04–06" },
-    "notes": { "hasText": "How to use this workbook" }
+    "notes": { "hasText": "How to use this workbook" },
+    "cf-rules": { "hasText": "Icon value / قيمة الأيقونة" },
+    "fills": { "hasText": "التعبئة / Fill" }
   }
 }

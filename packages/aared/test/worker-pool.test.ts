@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { configureWorkerPool, drainWorkerPool } from "../src/core/session.js";
 import { detect } from "../src/preview/index.js";
 import { open } from "../src/pptx/index.js";
@@ -121,8 +121,8 @@ test("detection and the open after it share one Worker", async () => {
 });
 
 test("a Worker URL is its own pool; a factory's Workers are never reused", async () => {
-  (await open(new ArrayBuffer(8), { worker: "blob:aared-test" })).close();
-  (await open(new ArrayBuffer(8), { worker: new URL("blob:aared-test") })).close();
+  (await open(new ArrayBuffer(8), { worker: { url: "blob:aared-test" } })).close();
+  (await open(new ArrayBuffer(8), { worker: { url: new URL("blob:aared-test") } })).close();
   (await open(new ArrayBuffer(8))).close();
   expect(PoolWorker.instances.map((worker) => worker.url)).toHaveLength(2);
 
@@ -131,8 +131,8 @@ test("a Worker URL is its own pool; a factory's Workers are never reused", async
     built += 1;
     return new PoolWorker("factory") as unknown as Worker;
   };
-  (await open(new ArrayBuffer(8), { worker: factory })).close();
-  (await open(new ArrayBuffer(8), { worker: factory })).close();
+  (await open(new ArrayBuffer(8), { worker: { create: factory } })).close();
+  (await open(new ArrayBuffer(8), { worker: { create: factory } })).close();
   expect(built).toBe(2);
   expect(PoolWorker.instances.filter((worker) => worker.url === "factory").every((worker) => worker.terminated)).toBe(true);
 });
@@ -164,4 +164,90 @@ test("a parked Worker never serves a different Worker constructor", async () => 
   expect(PoolWorker.instances).toHaveLength(2);
   expect(PoolWorker.instances[0]!.terminated).toBe(true);
   expect(PoolWorker.instances[1]).toBeInstanceOf(OtherWorker);
+});
+
+test("inline source and CDN bootstraps revoke their URLs on ready, and pool by input value", async () => {
+  const blobs: Blob[] = [];
+  const create = spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+    blobs.push(blob as Blob);
+    return `blob:boot-${blobs.length}`;
+  });
+  const revoke = spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  try {
+    for (let i = 0; i < 2; i++) (await open(new ArrayBuffer(8), { worker: { source: "self.postMessage({type:'ready'})" } })).close();
+    expect(blobs).toHaveLength(1);
+    expect(await blobs[0]!.text()).toBe("self.postMessage({type:'ready'})");
+    for (let i = 0; i < 2; i++) (await open(new ArrayBuffer(8), { worker: { url: "https://cdn.example/worker.mjs", crossOrigin: "blob" } })).close();
+    expect(await blobs[1]!.text()).toBe('import "https://cdn.example/worker.mjs";');
+    expect(PoolWorker.instances).toHaveLength(2);
+    expect(revoke.mock.calls).toEqual([["blob:boot-1"], ["blob:boot-2"]]);
+    drainWorkerPool();
+    expect(revoke).toHaveBeenCalledTimes(2);
+  } finally { create.mockRestore(); revoke.mockRestore(); }
+});
+
+test("generated URLs are revoked on constructor failure and cancellation before ready", async () => {
+  const create = spyOn(URL, "createObjectURL").mockReturnValue("blob:boot");
+  const revoke = spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  try {
+    class RefusedWorker { constructor() { throw new Error("CSP blocked Worker"); } }
+    Object.defineProperty(globalThis, "Worker", { configurable: true, value: RefusedWorker });
+    expect(await rejection(open(new ArrayBuffer(8), { worker: { source: "ready" } }))).toMatchObject({ code: "worker-error" });
+    expect(revoke).toHaveBeenCalledTimes(1);
+    class BootingWorker extends PoolWorker {
+      override set onmessage(_handler: ((event: MessageEvent<unknown>) => void) | null) {}
+    }
+    Object.defineProperty(globalThis, "Worker", { configurable: true, value: BootingWorker });
+    const controller = new AbortController();
+    const pending = open(new ArrayBuffer(8), { worker: { source: "ready" }, signal: controller.signal });
+    // Let the asynchronous source normalization reach construction.
+    while (PoolWorker.instances.length === 0) await Bun.sleep(1);
+    controller.abort();
+    expect(await rejection(pending)).toMatchObject({ code: "aborted" });
+    expect(PoolWorker.instances[0]!.terminated).toBe(true);
+    expect(timers).toHaveLength(0);
+    expect(revoke).toHaveBeenCalledTimes(2);
+  } finally { create.mockRestore(); revoke.mockRestore(); }
+});
+
+test("invalid Worker inputs fail before constructing anything", async () => {
+  for (const input of ["worker.mjs", () => new Worker("x"), {}, { url: "" }, { source: "" }, { url: "x", source: "y" },
+    { source: "x", crossOrigin: "blob" }, { url: "x", crossOrigin: "retry" }, { create: false }]) {
+    expect(await rejection(open(new ArrayBuffer(8), { worker: input as never }))).toMatchObject({ code: "invalid-argument" });
+  }
+  expect(PoolWorker.instances).toEqual([]);
+});
+
+test("relative Worker URLs resolve at open time and share an absolute URL's pool", async () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "location");
+  Object.defineProperty(globalThis, "location", { configurable: true, value: { href: "https://app.example/view/index.html" } });
+  try {
+    (await open(new ArrayBuffer(8), { worker: { url: "./worker.mjs" } })).close();
+    (await open(new ArrayBuffer(8), { worker: { url: new URL("https://app.example/view/worker.mjs") } })).close();
+    expect(PoolWorker.instances).toHaveLength(1);
+    expect(PoolWorker.instances[0]!.url).toBe("https://app.example/view/worker.mjs");
+  } finally {
+    if (original === undefined) delete (globalThis as { location?: unknown }).location;
+    else Object.defineProperty(globalThis, "location", original);
+  }
+});
+
+test("an asynchronous boot failure revokes the generated URL and cannot be pooled", async () => {
+  const create = spyOn(URL, "createObjectURL").mockReturnValue("blob:failed-boot");
+  const revoke = spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  try {
+    class FailedWorker extends PoolWorker {
+      override set onmessage(_handler: ((event: MessageEvent<unknown>) => void) | null) {}
+      override set onerror(handler: unknown) {
+        queueMicrotask(() => (handler as (event: { message: string }) => void)({ message: "CORS refused" }));
+      }
+    }
+    Object.defineProperty(globalThis, "Worker", { configurable: true, value: FailedWorker });
+    expect(await rejection(open(new ArrayBuffer(8), {
+      worker: { url: "https://cdn.example/worker.mjs", crossOrigin: "blob" },
+    }))).toMatchObject({ code: "worker-error" });
+    expect(revoke.mock.calls).toEqual([["blob:failed-boot"]]);
+    expect(PoolWorker.instances[0]!.terminated).toBe(true);
+    expect(timers).toHaveLength(0);
+  } finally { create.mockRestore(); revoke.mockRestore(); }
 });

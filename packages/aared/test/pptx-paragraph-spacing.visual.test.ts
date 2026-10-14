@@ -1,9 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 import { indexPptx, parsePptxSlide } from "../src/core/pptx.js";
 import { OpcPackage } from "../src/core/opc.js";
 import { findCoverageSlide } from "./fixture.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 
 interface ParagraphBox { top: number; bottom: number; fontSize: number; marginTop: number; marginBottom: number }
@@ -20,14 +20,10 @@ visual("visual DOM output: PPTX paragraph spacing in lines, text-body edges and 
     findCoverageSlide(slides, "paragraph-spacing"),
     findCoverageSlide(slides, "bullets"),
   ]);
-  const build = await Bun.build({ entrypoints: [`${import.meta.dir}/../src/pptx/index.ts`], target: "browser", format: "esm" });
-  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
-  const module = await build.outputs[0]!.text();
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      if (new URL(request.url).pathname === "/pptx.mjs") return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      return new Response(`<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  await withVisualPage({
+    modules: { "/pptx.mjs": module },
+    page: `<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">
         import { render } from "/pptx.mjs";
         window.rendered = null;
         window.renderFixture = async (model) => {
@@ -43,12 +39,10 @@ visual("visual DOM output: PPTX paragraph spacing in lines, text-body edges and 
             return { top, bottom, fontSize: parseFloat(style.fontSize), marginTop: parseFloat(style.marginTop), marginBottom: parseFloat(style.marginBottom) };
           });
         };
-      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
+      </script>`,
+    width: 1280,
+    height: 720,
+  }, async (view) => {
     await view.evaluate(`renderFixture(${JSON.stringify(spacingSlide)})`);
     const box = await view.evaluate(`paragraphs("نصف سطر قبل هذه الفقرة", '[data-aared-element="shape"]')`) as ParagraphBox[];
     const cell = await view.evaluate(`paragraphs("نصف سطر بعد هذه", '[data-aared-element="table-cell"]')`) as ParagraphBox[];
@@ -80,7 +74,5 @@ visual("visual DOM output: PPTX paragraph spacing in lines, text-body edges and 
     const bullets = await view.evaluate(`paragraphs("نقطة افتراضية", '[data-aared-element="shape"]')`) as ParagraphBox[];
     expect(bullets[0]!.marginTop).toBe(0);
     expect(bullets[1]!.marginTop).toBeCloseTo(10 * 4 / 3, 1);
-  } finally {
-    server.stop();
-  }
+  });
 }, 30_000);

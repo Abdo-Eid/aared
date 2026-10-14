@@ -26,27 +26,20 @@
  * difference from a centered stroke, not a bug.
  */
 
-import { svgElement } from "../fill-paint.js";
+import { svgElement } from "../svg-element.js";
 import { ptToPx } from "../core/units.js";
-
-/** One filter id per (colour, width) pair; every copy of the filter with that id is identical. */
-const filterIds = new Map<string, string>();
+import { resourceId } from "../resource-id.js";
 
 /**
  * Outline `span`'s merged glyph silhouette in `color`, `widthPt` outside the
  * glyph edge. The `<filter>` goes inside the span itself: a `url(#id)` reference
  * resolves in the tree scope of the element it styles, so a filter kept on
  * `document.body` is not found from inside `<aared-viewer>`'s shadow root and the
- * run would paint as solid text. Copies with the same id are identical, so it
- * does not matter which one the browser finds.
+ * run would paint as solid text. Each span owns its definition and name, even
+ * when another render or another aared bundle uses the same outline width.
  */
 export function hollowText(span: HTMLElement, widthPt: number, color: string): void {
-  const key = `${widthPt}|${color}`;
-  let id = filterIds.get(key);
-  if (id === undefined) {
-    id = `aared-hollow-${filterIds.size}`;
-    filterIds.set(key, id);
-  }
+  const id = resourceId("hollow");
   const filter = svgElement("filter", {
     id,
     x: "-20%", y: "-20%", width: "140%", height: "140%",

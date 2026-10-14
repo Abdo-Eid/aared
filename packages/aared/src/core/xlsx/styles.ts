@@ -19,7 +19,7 @@ import { applySpreadsheetTint, readDrawingTheme } from "../theme.js";
 import type { DrawingTheme } from "../theme.js";
 import { damagedDocument, throwIfAborted } from "../errors.js";
 import { formatCodeForId } from "./numberfmt.js";
-import type { XlsxCellStyleModel } from "../model.js";
+import type { ShapeFillModel, XlsxCellStyleModel } from "../model.js";
 
 /** Theme color order for SpreadsheetML `theme="n"` indexes. */
 const THEME_ORDER = ["lt1", "dk1", "lt2", "dk2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink"];
@@ -102,16 +102,89 @@ function resolveFont(font: XmlElement, theme: DrawingTheme, indexedColors: strin
   return out;
 }
 
-function resolveFill(fill: XmlElement, theme: DrawingTheme, indexedColors: string[] | undefined): string | undefined {
+/**
+ * SpreadsheetML's 17 non-solid `ST_PatternType`s, each with its bitmap in
+ * `pattern-presets.ts` under the same name.
+ */
+const CELL_PATTERNS = new Set([
+  "darkGray", "mediumGray", "lightGray", "gray125", "gray0625",
+  "darkHorizontal", "darkVertical", "darkDown", "darkUp", "darkGrid", "darkTrellis",
+  "lightHorizontal", "lightVertical", "lightDown", "lightUp", "lightGrid", "lightTrellis",
+]);
+
+/**
+ * A pattern colour: `indexed` 64 and 65 are Excel's system foreground and
+ * background (black and white), outside the 64-entry palette; an absent
+ * colour is the same system colour.
+ */
+function patternColor(element: XmlElement | undefined, theme: DrawingTheme, indexedColors: string[] | undefined, system: string): string {
+  const indexed = element === undefined ? undefined : numberAttribute(element, "indexed");
+  if (indexed === 64) return "#000000";
+  if (indexed === 65) return "#FFFFFF";
+  return resolveStyleColor(element, theme, indexedColors) ?? system;
+}
+
+/**
+ * A `gradientFill` as the shared fill model. Measured from Excel's own screen
+ * bitmaps (probe xlsx-cell-fills: black-to-white cells copied with
+ * `CopyPicture`): Excel blends a cell gradient straight in sRGB (even steps,
+ * not PowerPoint's linear-light curve). A linear gradient's `degree` is
+ * clockwise in the cell's own proportions: 0 runs left to right, 90 top to
+ * bottom, and 45 exactly corner to corner of a wide cell (a DrawingML
+ * `scaled` angle). `type="path"` is a rectangular gradient from the box
+ * `left`/`right`/`top`/`bottom`, each a position from the cell's left or top
+ * edge (all 0.5: from the centre; all absent: from the top-left corner),
+ * reaching the last stop at the cell's edges.
+ */
+function resolveGradientFill(gradient: XmlElement, theme: DrawingTheme, indexedColors: string[] | undefined): ShapeFillModel | undefined {
+  const stops = childElements(gradient, "stop")
+    .map((stop) => ({ position: numberAttribute(stop, "position") ?? 0, color: resolveStyleColor(firstChild(stop, "color"), theme, indexedColors) }))
+    .filter((stop): stop is { position: number; color: string } => stop.color !== undefined)
+    .sort((a, b) => a.position - b.position);
+  if (stops.length === 0) return undefined;
+  if (stops.length === 1) return { kind: "solid", color: stops[0]!.color };
+  if (attr(gradient, "type") === "path") {
+    const edge = (name: string): number => Math.min(Math.max(numberAttribute(gradient, name) ?? 0, 0), 1);
+    return {
+      kind: "path-gradient",
+      path: "rect",
+      focus: { left: edge("left"), top: edge("top"), right: 1 - edge("right"), bottom: 1 - edge("bottom") },
+      extent: { left: 0, top: 0, right: 0, bottom: 0 },
+      stops,
+      blend: "srgb",
+    };
+  }
+  return { kind: "linear-gradient", angle: numberAttribute(gradient, "degree") ?? 0, scaled: true, rotatesWithShape: true, stops, blend: "srgb" };
+}
+
+/**
+ * A `<fill>` as the shared fill model: solid, a gradient, or one of Excel's
+ * 17 patterns (foreground `fgColor` on background `bgColor`, as Excel's
+ * screen bitmaps show them). A pattern name outside the 17 is `unsupported`,
+ * so the renderer marks it instead of painting nothing.
+ */
+function resolveFill(fill: XmlElement, theme: DrawingTheme, indexedColors: string[] | undefined): ShapeFillModel | undefined {
+  const gradient = firstChild(fill, "gradientFill");
+  if (gradient !== undefined) return resolveGradientFill(gradient, theme, indexedColors);
   const pattern = firstChild(fill, "patternFill");
   if (pattern === undefined) return undefined;
   const type = attr(pattern, "patternType");
+  const solid = (color: string | undefined): ShapeFillModel | undefined => (color === undefined ? undefined : { kind: "solid", color });
   // Differential fills sometimes carry only a `bgColor` with no pattern
   // type; honor it as a solid intent rather than dropping the rule.
-  if (type === undefined) return resolveStyleColor(firstChild(pattern, "bgColor"), theme, indexedColors);
-  if (type !== "solid") return undefined;
-  return resolveStyleColor(firstChild(pattern, "fgColor"), theme, indexedColors)
-    ?? resolveStyleColor(firstChild(pattern, "bgColor"), theme, indexedColors);
+  if (type === undefined) return solid(resolveStyleColor(firstChild(pattern, "bgColor"), theme, indexedColors));
+  if (type === "none") return undefined;
+  if (type === "solid") {
+    return solid(resolveStyleColor(firstChild(pattern, "fgColor"), theme, indexedColors)
+      ?? resolveStyleColor(firstChild(pattern, "bgColor"), theme, indexedColors));
+  }
+  if (!CELL_PATTERNS.has(type)) return { kind: "unsupported", source: "pattern" };
+  return {
+    kind: "pattern",
+    preset: type,
+    foreground: patternColor(firstChild(pattern, "fgColor"), theme, indexedColors, "#000000"),
+    background: patternColor(firstChild(pattern, "bgColor"), theme, indexedColors, "#FFFFFF"),
+  };
 }
 
 interface ResolvedBorder {
@@ -196,6 +269,11 @@ export interface XlsxStyles {
   cellStyle(xfId: number): XlsxCellStyleModel;
   /** Resolved differential style for a dxfs index; unknown indexes yield {}. Read-only, like `cellStyle`'s. */
   differential(dxfId: number): DifferentialStyle;
+  /**
+   * Resolved style for an inline `<dxf>` element: x14 rules carry their own
+   * differential instead of a `dxfId`. Read-only, like `differential`'s.
+   */
+  inlineDxf(dxf: XmlElement): DifferentialStyle;
 }
 
 const NO_DIFFERENTIAL: DifferentialStyle = Object.freeze({});
@@ -215,8 +293,10 @@ function differentialFor(dxf: XmlElement, theme: DrawingTheme, indexedColors: st
   }
   const fill = firstChild(dxf, "fill");
   if (fill !== undefined) {
-    const color = resolveFill(fill, theme, indexedColors);
-    if (color !== undefined) out.fill = color;
+    // A conditional format overlays a colour; Excel's dialog offers patterns
+    // and gradients there too, but a differential keeps the solid colour only.
+    const resolved = resolveFill(fill, theme, indexedColors);
+    if (resolved?.kind === "solid") out.fill = resolved.color;
   }
   return out;
 }
@@ -224,7 +304,7 @@ function differentialFor(dxf: XmlElement, theme: DrawingTheme, indexedColors: st
 function cellStyleFor(
   xf: XmlElement,
   fonts: ResolvedFont[],
-  fills: Array<string | undefined>,
+  fills: Array<ShapeFillModel | undefined>,
   borders: Array<ResolvedBorder | undefined>,
   numberFormats: ReadonlyMap<number, string>,
 ): XlsxCellStyleModel {
@@ -278,7 +358,13 @@ export async function readXlsxStyles(
   const stylesPart = relationships.find((relationship) => relationship.type.endsWith("/styles"))?.target
     ?? (pkg.hasPart("xl/styles.xml") ? "xl/styles.xml" : undefined);
   const root = stylesPart === undefined ? undefined : await pkg.readXmlIfPresent(stylesPart, signal);
-  if (root === undefined) return { cellStyle: () => EMPTY_STYLE, differential: () => NO_DIFFERENTIAL };
+  if (root === undefined) {
+    return {
+      cellStyle: () => EMPTY_STYLE,
+      differential: () => NO_DIFFERENTIAL,
+      inlineDxf: (dxf) => differentialFor(dxf, theme, undefined),
+    };
+  }
   if (root.local !== "styleSheet") throw damagedDocument("xl/styles.xml root must be <styleSheet>");
 
   const numberFormats = new Map<number, string>();
@@ -318,5 +404,6 @@ export async function readXlsxStyles(
   return {
     cellStyle: (xfId) => resolved[xfId] ?? EMPTY_STYLE,
     differential: (dxfId) => differentials[dxfId] ?? NO_DIFFERENTIAL,
+    inlineDxf: (dxf) => differentialFor(dxf, theme, indexedColors),
   };
 }

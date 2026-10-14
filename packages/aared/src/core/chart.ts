@@ -4,7 +4,7 @@
  * theme -> a resolved `ChartSpecModel` for the unit model. Reading only:
  * layout and painting happen on the page (`core/chart/draw.ts`, loaded when a
  * chart first shows), so the Worker carries the readers and nothing else of
- * the engine (DECISION_LOG §71). Never emits markup and never touches the DOM.
+ * the engine (Notes §71). Never emits markup and never touches the DOM.
  */
 
 import { firstChild } from "./xml.js";

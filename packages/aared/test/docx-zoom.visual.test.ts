@@ -1,7 +1,7 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { visual, withVisualPage } from "./harness.js";
 import { serveDocx } from "./docx-harness.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/docx-coverage.docx`;
 
 /**
@@ -60,9 +60,7 @@ async function serveZoomHarness(): ReturnType<typeof serveDocx> {
 
 visual("visual DOM output: DOCX layout pages fit-width to a narrower or wider host", async () => {
   const { server, sections } = await serveZoomHarness();
-  try {
-    await using view = new Bun.WebView({ width: 1600, height: 1200 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1600, height: 1200 }, async (view) => {
     const model = JSON.stringify(sections);
     const options = JSON.stringify({ pagination: { mode: "layout" } });
     const narrow = await view.evaluate(`measure(${model}, "narrow", ${options})`) as {
@@ -82,16 +80,12 @@ visual("visual DOM output: DOCX layout pages fit-width to a narrower or wider ho
     // stuck at its natural size with dead space around it.
     expect(Math.abs(wide.width - wide.containerWidth)).toBeLessThanOrEqual(2);
     expect(wide.width).toBeGreaterThan(wide.pageWidth);
-  } finally {
-    server.stop();
-  }
+  });
 });
 
 visual("visual DOM output: DOCX fit-page also bounds height, and a numeric zoom still pins CSS zoom", async () => {
   const { server, sections } = await serveZoomHarness();
-  try {
-    await using view = new Bun.WebView({ width: 1600, height: 1200 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1600, height: 1200 }, async (view) => {
     const model = JSON.stringify(sections);
     const options = JSON.stringify({ pagination: { mode: "layout" } });
     const short = await view.evaluate(`measure(${model}, "short", ${options}, "fit-page")`) as {
@@ -114,23 +108,17 @@ visual("visual DOM output: DOCX fit-page also bounds height, and a numeric zoom 
     };
     expect(pinned.zoom).toBe(1);
     expect(Math.abs(pinned.width - pinned.pageWidth)).toBeLessThanOrEqual(1);
-  } finally {
-    server.stop();
-  }
+  });
 });
 
 visual("visual DOM output: DOCX flow mode has no fixed page, so fit modes leave it flowing at the container width", async () => {
   const { server, sections } = await serveZoomHarness();
-  try {
-    await using view = new Bun.WebView({ width: 1600, height: 1200 });
-    await view.navigate(server.url.href);
+  await withVisualPage({ server, width: 1600, height: 1200 }, async (view) => {
     const model = JSON.stringify(sections);
     const flow = await view.evaluate(`measure(${model}, "flow", {})`) as {
       pageWidth: number | null; width: number; containerWidth: number;
     };
     expect(flow.pageWidth).toBeNull();
     expect(Math.abs(flow.width - flow.containerWidth)).toBeLessThanOrEqual(2);
-  } finally {
-    server.stop();
-  }
+  });
 });

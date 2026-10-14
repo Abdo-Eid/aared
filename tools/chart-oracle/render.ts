@@ -5,11 +5,12 @@
  *
  *   bun tools/chart-oracle/render.ts
  *
- * Writes into tools/chart-oracle/out/ (git-ignored):
+ * Writes into tools/out/charts/ (git-ignored):
  *   engine.json   one entry per slide: { bounds, viewBox, primitives }, or null
  *   svg/NN.svg    each chart as a standalone SVG, for eyeballing
  */
 import { mkdirSync } from "node:fs";
+import { OUTPUT_ROOT } from "../shared/paths.js";
 import { OpcPackage } from "../../packages/aared/src/core/opc.js";
 import { indexPptx, parsePptxSlide } from "../../packages/aared/src/core/pptx.js";
 import { layoutChart } from "../../packages/aared/src/core/chart/draw.js";
@@ -17,7 +18,7 @@ import type { ChartPrimitive } from "../../packages/aared/src/core/chart/scene.j
 import type { ChartModel } from "../../packages/aared/src/core/model.js";
 
 const HERE = import.meta.dir;
-const OUT = `${HERE}/out`;
+const OUT = `${OUTPUT_ROOT}/charts`;
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 

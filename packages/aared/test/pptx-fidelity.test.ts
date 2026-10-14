@@ -59,7 +59,10 @@ describe("PPTX text fidelity", () => {
       ),
       theme,
     );
+    // The same indents, read from the coverage deck's own RTL bullet paragraphs
+    // in pptx-parser.test.ts, here on a text body with no direction at all.
     expect(body.paragraphs[0]).toMatchObject({ leftIndent: 0.375, firstLineIndent: -0.375 });
+    expect(body.paragraphs[0]?.direction).toBeUndefined();
   });
 });
 
@@ -106,33 +109,6 @@ describe("PPTX table fidelity", () => {
       }
     }
     expect(table.rows[0]?.cells[0]?.columnSpan).toBeUndefined();
-  });
-
-  test("resolves grid and row spans while skipping merge continuations", async () => {
-    const pkg = await OpcPackage.open(await Bun.file(PRODUCTION).arrayBuffer());
-    const theme = await readDrawingTheme(pkg);
-    const frame = parseXml(
-      `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="9" name="Merge"/></p:nvGraphicFramePr>` +
-        `<p:xfrm><a:off x="0" y="0"/><a:ext cx="9144000" cy="1828800"/></p:xfrm>` +
-        `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl>` +
-        `<a:tblPr/><a:tblGrid><a:gridCol w="4572000"/><a:gridCol w="4572000"/></a:tblGrid>` +
-        // PowerPoint writes a merge on the cell itself: `a:tc gridSpan`, `a:tc hMerge`, `a:tc rowSpan`, `a:tc vMerge`.
-        `<a:tr h="914400"><a:tc gridSpan="2"><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr/><a:t>Wide</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc><a:tc hMerge="1"><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr/></a:p></a:txBody><a:tcPr/></a:tc></a:tr>` +
-        `<a:tr h="914400"><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr/><a:t>Left</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>` +
-        `<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr/><a:t>Right</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>` +
-        `<a:tr h="914400"><a:tc rowSpan="2"><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr/><a:t>Tall</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc>` +
-        `<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr/><a:t>Side</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>` +
-        `<a:tr h="914400"><a:tc vMerge="1"><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr/></a:p></a:txBody><a:tcPr/></a:tc>` +
-        `<a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:rPr/><a:t>Below</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>` +
-        `</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`,
-    );
-    const table = parseTable(frame, theme, new Map())!;
-    expect(table.rows[0]?.cells).toHaveLength(1);
-    expect(table.rows[0]?.cells[0]?.columnSpan).toBe(2);
-    expect(table.rows[1]?.cells).toHaveLength(2);
-    expect(table.rows[2]?.cells[0]?.rowSpan).toBe(2);
-    expect(table.rows[3]?.cells).toHaveLength(1);
-    expect(table.rows[3]?.cells[0]?.text.paragraphs[0]?.runs[0]?.text).toBe("Below");
   });
 
   test("cuts a span that runs past the table to the columns and rows that are left", async () => {

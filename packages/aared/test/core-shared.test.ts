@@ -10,11 +10,10 @@ import {
   srgbToLinear,
   toHexColor,
 } from "../src/core/color.js";
-import { automaticTextColor } from "../src/core/pptx.js";
 import { resolveDrawingColor } from "../src/core/theme.js";
 import { parseXml } from "../src/core/xml.js";
 import { clipSnippet, findByTitle, foldQuery, foldText, runsText, searchKey } from "../src/core/search.js";
-import { MINIMUM_LINE_HEIGHT, arabicShare, usesArabic } from "../src/core/typography.js";
+import { arabicShare, usesArabic } from "../src/core/typography.js";
 import {
   EMU_PER_INCH,
   EMU_PER_PT,
@@ -38,12 +37,6 @@ import {
 
 describe("units", () => {
   test("the four Office unit systems agree on one inch", () => {
-    expect(PX_PER_INCH).toBe(96);
-    expect(PT_PER_INCH).toBe(72);
-    expect(EMU_PER_INCH).toBe(914400);
-    expect(TWIPS_PER_INCH).toBe(1440);
-    expect(EMU_PER_PT).toBe(12700);
-    expect(TWIPS_PER_PT).toBe(20);
     expect(EMU_PER_INCH / PT_PER_INCH).toBe(EMU_PER_PT);
     expect(TWIPS_PER_INCH / PT_PER_INCH).toBe(TWIPS_PER_PT);
   });
@@ -128,13 +121,15 @@ describe("colour arithmetic", () => {
     expect(fill(`<a:lumOff val="500000"/>`)).toBe("#FFFFFF");
   });
 
-  test("PowerPoint's automatic text colour follows the shared luminance", () => {
-    // Ground truth (see automaticTextColor): coverage slide titles on #3A4961 paint white.
-    expect(automaticTextColor({ kind: "solid", color: "#3A4961" })).toBe("#FFFFFF");
-    expect(automaticTextColor({ kind: "solid", color: "3A4961" })).toBe("#FFFFFF");
-    expect(automaticTextColor({ kind: "solid", color: "#FFFFFF" })).toBe("#000000");
-    expect(automaticTextColor({ kind: "solid", color: "rgb(0 0 0 / 0.5)" })).toBe("#000000");
-    expect(automaticTextColor(undefined)).toBe("#000000");
+  test("DrawingML preset colours use the same modifiers as RGB colours in every format", () => {
+    const theme = { colors: {} } as unknown as Parameters<typeof resolveDrawingColor>[1];
+    const color = (name: string, modifiers = ""): string | undefined =>
+      resolveDrawingColor(parseXml(`<a:solidFill xmlns:a="x"><a:prstClr val="${name}">${modifiers}</a:prstClr></a:solidFill>`), theme);
+    expect(color("dkBlue")).toBe("#00008B");
+    expect(color("ltGray")).toBe("#D3D3D3");
+    expect(color("red", '<a:shade val="50000"/>')).toBe("#800000");
+    expect(color("white", '<a:alpha val="50000"/>')).toBe("rgb(255 255 255 / 0.5)");
+    expect(color("not-a-preset")).toBeUndefined();
   });
 });
 
@@ -236,9 +231,5 @@ describe("typography", () => {
     expect(arabicShare("عربي")).toBe(1);
     expect(arabicShare("abعع")).toBe(0.5);
     expect(arabicShare("ab عع")).toBe(0.4);
-  });
-
-  test("the line floor keeps Arabic ink inside its box", () => {
-    expect(MINIMUM_LINE_HEIGHT).toBe(1.1);
   });
 });

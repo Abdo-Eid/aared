@@ -1,7 +1,6 @@
-import { expect, test } from "bun:test";
-import { browserModule } from "./harness.js";
+import { expect } from "bun:test";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const PPTX_FIXTURE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 const XLSX_FIXTURE = `${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`;
 const DOCX_FIXTURE = `${import.meta.dir}/../../../fixtures/docx-coverage.docx`;
@@ -14,27 +13,26 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
     Bun.file(XLSX_FIXTURE).arrayBuffer(),
     Bun.file(DOCX_FIXTURE).arrayBuffer(),
   ]);
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      const url = new URL(request.url);
-      if (url.pathname === "/preview.mjs") {
-        return new Response(previewModule, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      }
-      if (url.pathname === "/worker.mjs") {
-        return new Response(workerModule, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      }
-      if (url.pathname === "/arabic.pptx") return new Response(pptx);
-      if (url.pathname === "/arabic.xlsx") return new Response(xlsx);
-      if (url.pathname === "/arabic.docx") return new Response(docx);
-      return new Response(`<!doctype html><body style="margin:0"><main id="host" style="height:600px"></main><script type="module">
+  await withVisualPage({
+    modules: { "/preview.mjs": previewModule, "/worker.mjs": workerModule },
+    files: { "/arabic.pptx": pptx, "/arabic.xlsx": xlsx, "/arabic.docx": docx },
+    page: `<!doctype html><body style="margin:0"><main id="host" style="height:600px"></main><script type="module">
         import { preview } from "/preview.mjs";
         window.events = [];
         window.take = () => window.events.splice(0);
         window.frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         window.openPreview = async (source, options) => {
           const host = document.querySelector("#host");
-          const handle = await preview({ ...options, source, target: host });
+          const requests = [];
+          const handle = await preview({ ...options, source, target: host, worker: { create: () => {
+            const worker = new Worker('/worker.mjs', { type: 'module' });
+            const post = worker.postMessage.bind(worker);
+            worker.postMessage = (message, transfers) => {
+              requests.push(message.type);
+              post(message, transfers);
+            };
+            return worker;
+          } } });
           window.handle = handle;
           window.events = [];
           for (const type of ["indexchange", "slidechange", "zoomchange", "sheetchange"]) {
@@ -42,9 +40,10 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
           }
           handle.addEventListener("error", (event) => window.events.push({
             type: "error",
-            detail: { message: event.detail.message, code: event.detail.cause.code, same: event.detail.message === event.detail.cause.message },
+            detail: { message: event.detail.message, code: event.detail.cause.code },
           }));
-          return { format: handle.format, count: handle.info.count, index: handle.index, titles: handle.info.titles, zoom: handle.zoom };
+          return { format: handle.format, count: handle.info.count, index: handle.index, titles: handle.info.titles, zoom: handle.zoom,
+            opens: requests.filter(type => type === 'open').length, detects: requests.filter(type => type === 'detect').length };
         };
         window.slideScale = () => {
           const host = document.querySelector("#host");
@@ -65,19 +64,18 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
             pages: host.querySelectorAll('section[data-aared-element="page"]').length,
           };
         };
-      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
-
+      </script>`,
+    width: 1280,
+    height: 720,
+  }, async (view) => {
     // PPTX: detected, first slide painted; the starting state is the resolved handle.
     const opened = await view.evaluate(`openPreview("/arabic.pptx")`) as {
-      format: string; count: number; index: number; titles: string[]; zoom: unknown;
+      format: string; count: number; index: number; titles: string[]; zoom: unknown; opens: number; detects: number;
     };
     expect(opened.format).toBe("pptx");
-    expect(opened.count).toBe(18);
+    expect(opened.opens).toBe(1);
+    expect(opened.detects).toBe(0);
+    expect(opened.count).toBe(20);
     expect(opened.index).toBe(0);
     expect(opened.zoom).toBe("fit-page");
     const first = await view.evaluate(`snapshot()`) as { text?: string; canvasCount: number };
@@ -128,18 +126,15 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
     expect(carried.theme).toBe("dark");
     expect(carried.controls).toEqual({ xlsx: null, docx: null });
 
-    // A unit that cannot be shown rejects and also fires `error` once, with the
-    // element's `{ message, cause }` shape; the unit on screen stays.
+    // A public call rejects only; the unit on screen stays and no event duplicates it.
     const failed = await view.evaluate(`(async () => {
       take();
       const rejected = await handle.goTo(99).then(() => null, (error) => error.code);
       return { rejected, index: handle.index, events: take() };
-    })()`) as { rejected: unknown; index: number; events: Array<{ type: string; detail: { message: string; code: string; same: boolean } }> };
+    })()`) as { rejected: unknown; index: number; events: Array<{ type: string; detail: { message: string; code: string } }> };
     expect(failed.rejected).toBe("not-found");
     expect(failed.index).toBe(2);
-    expect(failed.events).toHaveLength(1);
-    expect(failed.events[0]).toMatchObject({ type: "error", detail: { code: "not-found", same: true } });
-    expect(failed.events[0]!.detail.message).toContain("99");
+    expect(failed.events).toEqual([]);
     // Not an index at all: the call is wrong, not the document.
     const notAnIndex = await view.evaluate(`handle.goTo(1.5).then(() => null, (error) => error.code)`);
     expect(notAnIndex).toBe("invalid-argument");
@@ -185,7 +180,7 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
       take();
       await handle.previous();
       const atStart = { index: handle.index, events: take() };
-      await handle.goTo(17);
+      await handle.goTo(handle.info.count - 1);
       take();
       await handle.next();
       const atEnd = { index: handle.index, events: take() };
@@ -226,7 +221,7 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
     expect(toolbar.added).toEqual({ index: 7, events: ["indexchange", "slidechange"] });
     expect(toolbar.stepBack).toBe(6);
     expect(toolbar.atStart).toEqual({ index: 0, events: [] });
-    expect(toolbar.atEnd).toEqual({ index: 17, events: [] });
+    expect(toolbar.atEnd).toEqual({ index: 19, events: [] });
     expect(toolbar.fitted.zoom).toBe("fit-page");
     expect(toolbar.fitted.defaultZoom).toBe("fit-page");
     expect(toolbar.fitted.scale).toBeLessThan(1);
@@ -271,19 +266,30 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
     // XLSX: detected at 100%, sheet tabs shown by default (an embed has no
     // other way to switch sheets), places within the sheet on `xlsx`, tab
     // clicks followed.
-    const workbook = await view.evaluate(`openPreview("/arabic.xlsx")`) as { format: string; count: number; titles: string[]; zoom: unknown };
+    const workbook = await view.evaluate(`openPreview("/arabic.xlsx")`) as { format: string; count: number; titles: string[]; zoom: unknown; opens: number; detects: number };
     expect(workbook.format).toBe("xlsx");
+    expect(workbook.opens).toBe(1);
+    expect(workbook.detects).toBe(0);
     expect(workbook.count).toBe(workbook.titles.length);
     expect(workbook.zoom).toBe(1);
     const sheet = await view.evaluate(`(async () => {
       const tabCount = () => document.querySelectorAll('[data-aared-element="sheet-tab"]').length;
       const tabs = { start: tabCount() };
-      // setAppearance() replaces the appearance; what it leaves out takes the
-      // embed default, so a theme switch keeps the tabs.
+      // setAppearance() changes only what it sets: a theme switch keeps the
+      // tabs shown by default, and keeps them hidden once a host hid them.
       handle.setAppearance({ theme: "dark" });
       await frame();
       tabs.afterTheme = tabCount();
-      handle.setAppearance({});
+      handle.setAppearance({ spreadsheet: { sheetTabs: false } });
+      await frame();
+      tabs.hidden = tabCount();
+      handle.setAppearance({ theme: "light" });
+      await frame();
+      tabs.hiddenAfterTheme = tabCount();
+      tabs.themeAfterTheme = document.querySelector("[data-aared-theme]")?.dataset.aaredTheme;
+      handle.setAppearance({ spreadsheet: { sheetTabs: true } });
+      await frame();
+      tabs.shownAgain = tabCount();
       const controls = handle.xlsx;
       const stable = controls === handle.xlsx;
       await controls.goToCell("B2");
@@ -307,7 +313,7 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
         canvasCount: snapshot().canvasCount,
       };
     })()`) as {
-      tabs: { start: number; afterTheme: number };
+      tabs: { start: number; afterTheme: number; hidden: number; hiddenAfterTheme: number; themeAfterTheme: string; shownAgain: number };
       stable: boolean;
       selection: unknown;
       index: number;
@@ -318,6 +324,10 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
     };
     expect(sheet.tabs.start).toBeGreaterThan(1);
     expect(sheet.tabs.afterTheme).toBe(sheet.tabs.start);
+    expect(sheet.tabs.hidden).toBe(0);
+    expect(sheet.tabs.hiddenAfterTheme).toBe(0);
+    expect(sheet.tabs.themeAfterTheme).toBe("light");
+    expect(sheet.tabs.shownAgain).toBe(sheet.tabs.start);
     expect(sheet.stable).toBe(true);
     expect(sheet.selection).toEqual({ address: "B2", row: 1, col: 1 });
     expect(sheet.index).toBe(0);
@@ -374,8 +384,10 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
     // DOCX: detected; layout pagination paints pages; places on `docx`.
     const document = await view.evaluate(
       `openPreview("/arabic.docx", { pagination: { mode: "layout" } })`,
-    ) as { format: string; count: number; titles: string[] };
+    ) as { format: string; count: number; titles: string[]; opens: number; detects: number };
     expect(document.format).toBe("docx");
+    expect(document.opens).toBe(1);
+    expect(document.detects).toBe(0);
     expect(document.count).toBe(1);
     expect(document.titles).toHaveLength(1);
     const paged = await view.evaluate(`(async () => {
@@ -405,7 +417,7 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
     expect(paged.text).toContain("1. Project Overview");
     expect(paged.canvasCount).toBe(0);
 
-    // Moving inside the unit fails like goTo(): it rejects and fires `error` too.
+    // Moving inside the unit fails like goTo(): it rejects only.
     const inside = await view.evaluate(`(async () => {
       take();
       const codes = [];
@@ -415,12 +427,9 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
       return { codes, events: take().map((event) => ({ type: event.type, code: event.detail.code })) };
     })()`) as { codes: unknown[]; events: unknown[] };
     expect(inside.codes).toEqual(["not-found", "invalid-argument"]);
-    expect(inside.events).toEqual([
-      { type: "error", code: "not-found" },
-      { type: "error", code: "invalid-argument" },
-    ]);
+    expect(inside.events).toEqual([]);
     // search() on a document finds the heading; a failed search only
-    // rejects: it fires no `error`, which reports moves.
+    // rejects: it fires no `error`, just like navigation.
     const docSearch = await view.evaluate(`(async () => {
       take();
       const matches = await handle.search("Project Overview");
@@ -433,7 +442,5 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
     })()`) as { heading: boolean; cancelled: unknown; events: unknown[] };
     expect(docSearch).toEqual({ heading: true, cancelled: "aborted", events: [] });
     await view.evaluate(`destroyPreview()`);
-  } finally {
-    server.stop();
-  }
+  });
 });

@@ -1,9 +1,11 @@
 /** Fixed-format preview: this route has no dependency on sibling renderers. */
-import { open, render } from "./index.js";
+import { render } from "./index.js";
 import type { DocxDocument } from "./index.js";
+import { documentFromSession } from "./session-document.js";
 import { openViewer } from "../embed-viewer.js";
 import type { ViewerRoute } from "../format-route.js";
 import type { PreviewInput, DocxPreview } from "../preview/index.js";
+import { borrowContent, contentCollection, contentMedia } from "../content-view.js";
 
 /** DOCX preview input; the import determines the format. */
 export interface DocxPreviewInput extends Omit<PreviewInput, "type"> {}
@@ -11,7 +13,15 @@ export interface DocxPreviewInput extends Omit<PreviewInput, "type"> {}
 /** Internal adapter reused by the auto-detect layer after choosing this format. */
 export const route: ViewerRoute = {
   format: "docx",
-  open,
+  adopt: documentFromSession,
+  content: (source, assertOpen, signal) => {
+    const document = source as DocxDocument;
+    return borrowContent(document, { info: document.info,
+      sections: contentCollection(document.sections, (section) => section, assertOpen),
+      headings: contentCollection(document.headings, (heading) => heading, assertOpen),
+      media: contentMedia(document.media, assertOpen),
+    }, assertOpen, signal);
+  },
   render: ({ document, index: _index, ...input }) => render({ ...input, document: document as DocxDocument }),
 };
 

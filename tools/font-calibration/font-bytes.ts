@@ -2,13 +2,13 @@
 // with its file, and the ones that left "unloaded" are what the browser downloaded. Four runs per
 // document: this machine's fonts or none of Office's (the absent-fonts simulation), and faces
 // loaded lazily (now) or all up front (before).
-import { OpcPackage } from "../../../packages/aared/src/core/opc.ts";
-import { indexPptx, parsePptxSlide } from "../../../packages/aared/src/core/pptx.ts";
-import { indexDocx, parseDocxSections } from "../../../packages/aared/src/core/docx/document.ts";
-import { readWorkbook } from "../../../packages/aared/src/core/xlsx/workbook.ts";
-import { parseXlsxSheet } from "../../../packages/aared/src/core/xlsx/sheet.ts";
+import { OpcPackage } from "../../packages/aared/src/core/opc.ts";
+import { indexPptx, parsePptxSlide } from "../../packages/aared/src/core/pptx.ts";
+import { indexDocx, parseDocxSections } from "../../packages/aared/src/core/docx/document.ts";
+import { readWorkbook } from "../../packages/aared/src/core/xlsx/workbook.ts";
+import { parseXlsxSheet } from "../../packages/aared/src/core/xlsx/sheet.ts";
 
-const F = `${import.meta.dir}/../../../fixtures`;
+const F = `${import.meta.dir}/../../fixtures`;
 const open = async (name: string) => OpcPackage.open(await Bun.file(`${F}/${name}`).arrayBuffer());
 const deck = await open("pptx-coverage.pptx");
 const deckIndex = await indexPptx(deck);

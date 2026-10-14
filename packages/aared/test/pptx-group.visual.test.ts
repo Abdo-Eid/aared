@@ -1,9 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect } from "bun:test";
+import { browserModule, visual, withVisualPage } from "./harness.js";
 import { indexPptx, parsePptxSlide } from "../src/core/pptx.js";
 import { OpcPackage } from "../src/core/opc.js";
 import { findCoverageSlide } from "./fixture.js";
 
-const visual = process.env.AARED_VISUAL === "1" ? test : test.skip;
 const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 
 // Identity child space from the fixture: off == chOff, ext == chExt, so the
@@ -17,33 +17,20 @@ visual("visual DOM output: PPTX nests grouped shapes in a mapped group wrapper",
   const deck = await indexPptx(pkg);
   const slides = await Promise.all(deck.slideParts.map((_, index) => parsePptxSlide(pkg, deck, index)));
   const { slide: shapesSlide } = await findCoverageSlide(slides, "shapes");
-  const build = await Bun.build({
-    entrypoints: [`${import.meta.dir}/../src/pptx/index.ts`],
-    target: "browser",
-    format: "esm",
-  });
-  if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
-  const module = await build.outputs[0]!.text();
-  const server = Bun.serve({
-    port: 0,
-    fetch(request) {
-      const url = new URL(request.url);
-      if (url.pathname === "/pptx.mjs") {
-        return new Response(module, { headers: { "content-type": "text/javascript; charset=utf-8" } });
-      }
-      return new Response(`<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  await withVisualPage({
+    modules: { "/pptx.mjs": module },
+    page: `<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">
         import { render } from "/pptx.mjs";
         window.renderedFixture = null;
         window.renderFixture = async (model) => {
           window.renderedFixture?.destroy();
           window.renderedFixture = await render({ slide: model, target: document.querySelector("#host") });
         };
-      </script>`, { headers: { "content-type": "text/html; charset=utf-8" } });
-    },
-  });
-  try {
-    await using view = new Bun.WebView({ width: 1280, height: 720 });
-    await view.navigate(server.url.href);
+      </script>`,
+    width: 1280,
+    height: 720,
+  }, async (view) => {
     await view.evaluate(`renderFixture(${JSON.stringify(shapesSlide)})`);
     const output = await view.evaluate(`(() => {
       const readGroup = (id) => {
@@ -94,7 +81,5 @@ visual("visual DOM output: PPTX nests grouped shapes in a mapped group wrapper",
       if (picture.id === "60" || picture.id === "68") expect(picture.inGroup).toBeNull();
       else expect(picture.inGroup).not.toBeNull();
     }
-  } finally {
-    server.stop();
-  }
+  });
 });

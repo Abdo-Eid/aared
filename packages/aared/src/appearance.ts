@@ -10,9 +10,39 @@
  */
 
 import { contrastRatio } from "./core/color.js";
-import type { ViewerTheme } from "./core/index.js";
+import type { Appearance, ViewerTheme } from "./core/index.js";
 
 export type ResolvedTheme = "light" | "dark";
+
+/**
+ * Every appearance knob's default, as `render()` applies it when the caller
+ * leaves the knob out. (The embed viewer turns sheet tabs on instead; see
+ * `embedAppearance`.)
+ */
+export const APPEARANCE_DEFAULTS = {
+  theme: "light",
+  spreadsheet: { headers: true, sheetTabs: false, fill: true, selection: true, gridlines: "source", formulaBar: false },
+} as const satisfies Appearance;
+
+/**
+ * What every `setAppearance()` does with its argument, at every layer (the
+ * viewer and each format's render handle): a knob it sets replaces the
+ * current one, a knob it leaves out keeps its current value, and
+ * `spreadsheet` merges one level down. A knob goes back to its default only
+ * by passing that default. A knob set to `undefined` (possible from plain
+ * JavaScript) counts as left out. Returns a new object; neither input changes.
+ */
+export function mergeAppearance(current: Appearance | undefined, patch: Appearance): Appearance {
+  const theme = patch.theme ?? current?.theme;
+  const spreadsheet: NonNullable<Appearance["spreadsheet"]> = { ...current?.spreadsheet };
+  for (const [key, value] of Object.entries(patch.spreadsheet ?? {})) {
+    if (value !== undefined) (spreadsheet as Record<string, unknown>)[key] = value;
+  }
+  return {
+    ...(theme === undefined ? {} : { theme }),
+    ...(Object.keys(spreadsheet).length === 0 ? {} : { spreadsheet }),
+  };
+}
 
 /** `system` follows the OS colour scheme; any other value is itself. Hosts without `matchMedia` resolve `system` to light. */
 export function resolveTheme(theme: ViewerTheme | undefined): ResolvedTheme {

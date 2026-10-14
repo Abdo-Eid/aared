@@ -13,7 +13,7 @@ import type { ChartSpecModel } from "../src/core/chart/spec.js";
 import type { FillOwner } from "../src/core/fill.js";
 import type { ChartModel, SheetModel } from "../src/core/model.js";
 import { themeForColorMap } from "../src/core/theme.js";
-import { chartLayoutReady, chartsSettled, paintChart } from "../src/chart-svg.js";
+import { chartsSettled, paintChart } from "../src/chart-svg.js";
 import { readChartModel } from "../src/core/chart.js";
 import { open as openDocx } from "../src/docx/index.js";
 import { open as openPptx } from "../src/pptx/index.js";
@@ -169,25 +169,10 @@ async function paintAs(spec: ChartSpecModel, alt?: string) {
   }
 }
 
-describe("a render that waits for the chart code paints charts with fills at once", () => {
-  test("after chartLayoutReady() a chart whose fill needs the fill painter draws synchronously, marked where it cannot paint", async () => {
-    const spec = readChart(parseXml(columns(`<c:spPr><a:grpFill/></c:spPr>`)), theme)!;
-    await chartLayoutReady();
-    const original = (globalThis as { document?: unknown }).document;
-    (globalThis as { document?: unknown }).document = {
-      createElementNS: (_ns: string, tag: string) => ({ tag, attributes: {} as Record<string, string>, textContent: "", setAttribute(name: string, value: string) { this.attributes[name] = value; } }),
-    };
-    try {
-      const svg = fakeSvg();
-      paintChart(svg as unknown as SVGSVGElement, spec, { frame: { width: 4, height: 3 }, unavailable: () => undefined });
-      // No awaiting: DOCX never waits for `chartsSettled()`.
-      expect(Number(svg.dataset.aaredChartPrimitives)).toBeGreaterThan(5);
-      expect(svg.dataset.aaredFillFallback).toBe("group");
-    } finally {
-      (globalThis as { document?: unknown }).document = original;
-    }
-  });
-
+describe("chart fills the reader cannot resolve", () => {
+  // The settled-render case — a chart whose fill needs the lazily fetched fill
+  // painter draws once its fetch settles, marked where it cannot paint — is
+  // read from real DOM in chart-fills.visual.test.ts, not against a stub here.
   test("a malformed number in a fill costs the chart its drawing, marked, not the document around it", () => {
     const xml = columns(`<c:spPr><a:gradFill><a:gsLst><a:gs pos="abc"><a:srgbClr val="FFFFFF"/></a:gs></a:gsLst><a:lin ang="0"/></a:gradFill></c:spPr>`);
     const read = readChartModel(parseXml(xml), theme);

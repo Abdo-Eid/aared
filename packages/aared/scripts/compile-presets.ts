@@ -18,7 +18,7 @@
  * program format and one evaluator. Presets the worker's hand-coded fast
  * path already resolves are left out: the table only carries what would
  * otherwise render as a fallback marker. The table is one static module that
- * only `aared/pptx` imports (DECISION_LOG §26 addendum), so xlsx/docx apps
+ * only `aared/pptx` imports (Notes §26 addendum), so xlsx/docx apps
  * never carry it and nothing downloads lazily.
  */
 import { readFileSync, writeFileSync } from "node:fs";

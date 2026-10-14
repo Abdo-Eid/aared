@@ -16,7 +16,9 @@ cells; only PPTX and DOCX (which embed a workbook) carry `cx:lvl` caches.
 import os, sys
 import win32com.client
 
-OUT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "chartex-oracle.xlsx")
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "..", "out", "charts", "chartex", "chartex-oracle.xlsx"))
+os.makedirs(os.path.dirname(OUT), exist_ok=True)
 
 # (sheet name, xl chart type): xlWaterfall 119, xlFunnel 123, xlHistogram 118,
 # xlPareto 122, xlBoxwhisker 121, xlTreemap 117, xlSunburst 120.

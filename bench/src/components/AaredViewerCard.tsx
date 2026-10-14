@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePreview } from "aared/react";
+import { isAbort, messageFor } from "aared/core";
 import { defaultResolver } from "aared-fonts";
 import type { BenchTheme } from "../adapters";
 import type { DocMeta } from "../lib/doc";
@@ -19,7 +20,7 @@ const FONT_RESOLVER = new URLSearchParams(location.search).get("fonts") === "aar
  * full appearance when its values change.
  */
 function benchAppearance(theme: BenchTheme) {
-  return { theme, spreadsheet: { sheetTabs: false } };
+  return { theme, spreadsheet: { sheetTabs: false, formulaBar: true } };
 }
 
 /**
@@ -39,6 +40,8 @@ export function AaredViewerCard({ doc, theme, onClose }: {
   onClose: () => void;
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  useEffect(() => setActionError(null), [doc]);
   // The bytes the bench already holds: stable per document, so the preview
   // mounts once (aared copies them for the Worker itself).
   const t0 = useMemo(() => performance.now(), [doc.bytes]);
@@ -49,6 +52,7 @@ export function AaredViewerCard({ doc, theme, onClose }: {
     pagination: { mode: "layout" },
     ...(FONT_RESOLVER === undefined ? {} : { fontResolver: FONT_RESOLVER }),
   });
+  useEffect(() => setActionError(null), [hook.viewer, hook.index]);
 
   const status: Status = useMemo(() => {
     if (hook.status === "error") {
@@ -95,15 +99,17 @@ export function AaredViewerCard({ doc, theme, onClose }: {
         outline: docx.headings.map((heading) => ({
           level: heading.level,
           text: heading.title,
-          // A failure fires the viewer's `error` (the notice); the rejection itself needs no handling here.
-          onSelect: () => void docx.goToHeading(heading.index).catch(() => {}),
+          onSelect: () => void docx.goToHeading(heading.index).then(
+            () => setActionError(null),
+            (error: unknown) => { if (!isAbort(error)) setActionError(messageFor(error)); },
+          ),
         })),
         paperWidth: pages.length > 0 ? Math.max(...pages.map((page) => page.width)) : 0,
       },
     };
     // Not `hook` itself: it also changes with the index and zoom, which would
     // re-time the open on every move.
-  },[hook.status, hook.viewer, hook.error, t0]);
+  },[hook.status, hook.viewer, hook.status === "error" ? hook.error : null, t0]);
 
   const firedKey = useRef<string | null>(null);
   useEffect(() => {
@@ -126,12 +132,8 @@ export function AaredViewerCard({ doc, theme, onClose }: {
     }
   }, [status, doc]);
 
-  // A slide or sheet that cannot be shown: the frame logs the rejected
-  // `goTo()` and reports it here, but the handle's `error` event has already
-  // put it in `hook.navigationError` (the notice below), and the unit on screen
-  // stays. So this reports nothing more, and never swaps in the error screen.
-  const navigationError = hook.navigationError;
-  const notice = navigationError === null ? null : `Could not go there: ${navigationError.message}`;
+  // Imperative actions are app-owned; built-in actions land in hook.error.
+  const notice = actionError ?? (hook.status === "ready" ? hook.error?.message ?? null : null);
 
   const controller = useViewerFrame({
     doc,
@@ -141,6 +143,7 @@ export function AaredViewerCard({ doc, theme, onClose }: {
     hostRef: hook.ref,
     viewer: hook.viewer,
     index: hook.index ?? 0,
+    reportError: (message) => setActionError(message || null),
   });
 
   // The pager's zoom buttons drive the product's own zoom for every format

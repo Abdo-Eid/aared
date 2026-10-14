@@ -140,9 +140,11 @@ describe("reading resolves Office defaults", () => {
   test("the model is plain data: it survives JSON as it is", () => {
     const xml = chart(`<c:pieChart><c:varyColors val="1"/>${ser(0, "A", Q, [1, 2, 3, 4])}</c:pieChart>`).replace("</c:plotArea>", '</c:plotArea><c:legend><c:legendPos val="r"/><c:legendEntry><c:idx val="2"/><c:delete val="1"/></c:legendEntry></c:legend>');
     const spec = readChart(parseXml(xml), theme)!;
-    expect(JSON.parse(JSON.stringify(spec))).toEqual(spec);
     expect(spec.legend!.deleted).toEqual([2]);
     expect(Object.keys(spec.groups[0]!.series[0]!.points)).toEqual(["0", "1", "2", "3"]);
+    // The chart core's own home for this invariant (the route's round-trip
+    // through the Worker is in pptx-chart.test.ts).
+    expect(JSON.parse(JSON.stringify(spec))).toEqual(spec);
   });
   test("tx1 text resolves through the colour map Excel always uses", () => {
     const raw = { ...theme, colors: { dk1: "#112233", lt1: "#FFFFFF", accent1: "#4472C4" } };
@@ -266,7 +268,9 @@ describe("drawing", () => {
   });
 
   test("title, legend and axis titles reserve their bands", () => {
-    const xml = chart(`<c:barChart>${ser(0, "A", Q, [1, 2, 3, 4])}${ser(1, "B", Q, [2, 3, 4, 5])}<c:axId val="1"/><c:axId val="2"/></c:barChart>${axes()}`,
+    const axisTitle = (text: string): string => `<c:title><c:tx><c:rich><a:bodyPr/><a:p><a:r><a:t>${text}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>`;
+    const xml = chart(`<c:barChart>${ser(0, "A", Q, [1, 2, 3, 4])}${ser(1, "B", Q, [2, 3, 4, 5])}<c:axId val="1"/><c:axId val="2"/></c:barChart>` +
+      axes(axisTitle("Episode"), "<c:majorGridlines/>" + axisTitle("Hours")),
       '<c:title><c:tx><c:rich><a:bodyPr/><a:p><a:r><a:t>Sales</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>')
       .replace("</c:plotArea>", '</c:plotArea><c:legend><c:legendPos val="b"/></c:legend>');
     const g = draw(xml);
@@ -278,6 +282,14 @@ describe("drawing", () => {
     expect(legendA.y).toBeGreaterThan(q1.y);
     const bars = rectsFilled(g, "#4472C4");
     expect(Math.min(...bars.map((b) => b.y))).toBeGreaterThan(title.y);
+    // Both axis titles reach the drawing: the value axis's is rotated up the
+    // left edge, the category axis's sits under the plot beside the legend.
+    const valueTitle = texts(g).find((t) => t.text === "Hours")!;
+    const categoryTitle = texts(g).find((t) => t.text === "Episode")!;
+    expect(valueTitle.rotate).toBe(-90);
+    expect(Math.min(...bars.map((b) => b.x))).toBeGreaterThan(valueTitle.x);
+    expect(categoryTitle.rotate).toBeUndefined();
+    expect(categoryTitle.y).toBeGreaterThan(q1.y);
   });
 
   test("scatter uses numeric x values on a value axis", () => {
@@ -291,7 +303,7 @@ describe("drawing", () => {
     expect(xLabels.length).toBeLessThanOrEqual(10);
   });
 
-  test("every supported group kind draws, and other kinds explain themselves", () => {
+  test("every supported group kind draws", () => {
     const kinds = ["areaChart", "radarChart", "doughnutChart", "bubbleChart"];
     for (const kind of kinds) {
       const body = kind === "bubbleChart"
@@ -302,15 +314,13 @@ describe("drawing", () => {
       const g = draw(chart(`<c:${kind}>${body}${ax}</c:${kind}>${axesXml}`));
       expect(paths(g).length).toBeGreaterThan(0);
     }
-    const surface = parseXml(chart(`<c:surfaceChart>${ser(0, "A", Q, [1, 2, 3, 4])}</c:surfaceChart>`));
-    expect(readChartModel(surface, theme)).toEqual({ unsupportedReason: "chart type surfaceChart is not previewed" });
+    // The Office-typed kinds above read from the real PowerPoint corpus in
+    // chart-oracle.test.ts; a type the engine cannot draw refuses the whole
+    // chart, even beside one it can (pptx-chart.test.ts reads the same reason
+    // through a real package).
   });
 
-  test("stock and of-pie charts draw (their geometry is pinned in chart-types.test.ts); an unknown type still shows its placeholder, even beside a drawn plot", () => {
-    const stock = draw(chart(`<c:stockChart>${ser(0, "H", Q, [4, 5, 6, 7])}${ser(1, "L", Q, [1, 2, 3, 4])}${ser(2, "C", Q, [2, 3, 5, 6])}<c:hiLowLines/><c:axId val="1"/><c:axId val="2"/></c:stockChart>${axes()}`));
-    expect(paths(stock).length).toBeGreaterThan(1);
-    const ofPie = draw(chart(`<c:ofPieChart><c:ofPieType val="bar"/><c:varyColors val="1"/>${ser(0, "A", Q, [4, 3, 2, 1])}</c:ofPieChart>`));
-    expect(paths(ofPie).length).toBeGreaterThan(1);
+  test("an undrawable plot type refuses the whole chart, even beside a drawn one", () => {
     const combo = parseXml(chart(`<c:barChart>${ser(0, "A", Q, [1, 2, 3, 4])}<c:axId val="1"/><c:axId val="2"/></c:barChart><c:surfaceChart>${ser(1, "B", Q, [1, 2, 3, 4])}</c:surfaceChart>${axes()}`));
     expect(readChartModel(combo, theme)).toEqual({ unsupportedReason: "chart type surfaceChart is not previewed" });
   });
@@ -627,7 +637,6 @@ describe("data labels show what the author typed", () => {
   test("the model keeps the typed text as plain data, and bounds it", () => {
     const spec = readChart(parseXml(labelled(`<c:dLbls><c:dLbl><c:idx val="3"/>${rich(run("Record high") + field("VALUE", "[VALUE]"))}${flags(1)}</c:dLbl>${flags(1)}</c:dLbls>`)), theme)!;
     expect(spec.groups[0]!.series[0]!.points[3]!.labels!.custom).toEqual(["Record high", { field: "VALUE", cached: "[VALUE]" }]);
-    expect(JSON.parse(JSON.stringify(spec))).toEqual(spec);
     const long = Array.from({ length: 200 }, () => run("x")).join("");
     const bounded = readChart(parseXml(labelled(`<c:dLbls><c:dLbl><c:idx val="0"/>${rich(long)}${flags(1)}</c:dLbl>${flags(1)}</c:dLbls>`)), theme)!;
     expect(bounded.groups[0]!.series[0]!.points[0]!.labels!.custom!.length).toBe(64);
@@ -655,7 +664,6 @@ describe("grouped categories draw their outer levels", () => {
     expect(s.categories).toEqual(inner);
     expect(s.categoryGroups).toEqual([[{ start: 0, text: "2023" }, { start: 3, text: "2024" }], [{ start: 0, text: "FY" }]]);
     expect(spec.axes.find((a) => a.id === 1)!.multiLevel).toBe(true);
-    expect(JSON.parse(JSON.stringify(spec))).toEqual(spec);
   });
 
   test("levels past the bound are dropped, not allocated", () => {
@@ -795,7 +803,7 @@ describe("date axes place points by date", () => {
     for (let i = 1; i < xs.length; i++) expect(xs[i]! - xs[i - 1]!).toBeGreaterThanOrEqual(lh / Math.SQRT1_2 - 0.5);
   });
 
-  test("a date axis labels every day it can: turned 45 degrees when flat labels would crowd (PowerPoint, g-date-days)", () => {
+  test("a date axis labels every day it can: flat while they fit, turned 45 degrees when they crowd (PowerPoint, g-date-days)", () => {
     const days = Array.from({ length: 10 }, (_, i) => 45292 + i);
     // Room for every day flat in a wide chart; a narrow one turns them rather than skipping days.
     const wide = texts(draw(dated(days))).filter((x) => /^\d+-\w{3}$/.test(x.text));

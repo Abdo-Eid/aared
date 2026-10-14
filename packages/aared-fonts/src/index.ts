@@ -2,7 +2,7 @@
  * Metric-compatible font substitution + a CDN-backed default resolver.
  * See docs/ARCHITECTURE.md § Fonts.
  *
- * Frozen and unpublished (DECISION_LOG §53): on a real phone the browser's
+ * Frozen and unpublished (Notes §53): on a real phone the browser's
  * own fonts opened documents 2-15x faster and read better, so aared's default
  * is no resolver. Kept for a consumer that needs Office's line breaks exactly.
  *
@@ -64,7 +64,7 @@ export const FONT_SUBSTITUTIONS: Record<string, string> = {
  * differ by only 1-3%: Latin paragraphs are long enough that Aptos Narrow's
  * bold at the regular numbers (1.3% wide) broke 91% of them like Aptos, not
  * 95%. Italics are 2-3% narrower than Aptos's own for Aptos and Aptos Display
- * (one calibration covers both styles of a weight). DECISION_LOG §49.
+ * (one calibration covers both styles of a weight). Notes §49.
  *
  * Arabic has no
  * such clone: every Office Arabic font (Simplified/Traditional Arabic, Sakkal
@@ -76,7 +76,7 @@ export const FONT_SUBSTITUTIONS: Record<string, string> = {
  * the font's real Windows file; line breaks depend on that spread, while the
  * mean is what `size-adjust` removes), among eleven candidates loaded from the
  * same Google Fonts files this resolver delivers (`tools/font-calibration/
- * arabic-survey.ts`, DECISION_LOG §45). A candidate had to beat the incumbent
+ * arabic-survey.ts`, Notes §45). A candidate had to beat the incumbent
  * (Amiri, the original choice) by a quarter to displace it: Lateef does for
  * Simplified Arabic (47% less spread), Markazi Text for Sakkal Majalla (41%).
  * Traditional Arabic and Arabic Typesetting keep Amiri (Lateef: 12% less and
@@ -93,7 +93,7 @@ export const FONT_SUBSTITUTIONS: Record<string, string> = {
  * sets USE_TYPO_METRICS, as Aptos does: 0.939/0.282 of the em, not its
  * 1.010/0.275), read in the browser and unrounded: canvas
  * metrics at a small size come back in whole pixels, and numbers read that way
- * were off by up to 2.5% of the em (DECISION_LOG §46).
+ * were off by up to 2.5% of the em (Notes §46).
  * Widths were measured per weight: bold differs from regular by up to 5.6%, so
  * `bold` carries its own numbers (used by faces of weight 600 and up) wherever
  * the difference exceeds about 1.5% for the Arabic fonts, and always for the
@@ -184,7 +184,7 @@ export const ARABIC_UNICODE_RANGE = "U+0600-06FF, U+0750-077F, U+0870-08FF, U+FB
  * Arimo/Tinos/Caladea/Carlito at their own size; calibrating the Arabic
  * substitute on its own counts its own spaces instead, and left Arial's Arabic
  * about 3% too wide (`tools/font-calibration/arabic-fallback-fit.ts`,
- * DECISION_LOG §46). That is also why Cambria, fitted through Caladea (which
+ * Notes §46). That is also why Cambria, fitted through Caladea (which
  * paints its spaces here), has numbers of its own rather than Times New
  * Roman's.
  */
@@ -314,7 +314,7 @@ export interface ResolverDependencies {
  * first needs it, and a renderer that must paint with the delivered face
  * before measuring or checking it (DOCX layout pagination, the DOCX and PPTX
  * fidelity warnings) loads the faces it paints itself (`awaitDocumentFonts`;
- * DECISION_LOG §45, §50).
+ * Notes §45, §50).
  */
 export function createResolver(dependencies: ResolverDependencies = {}): FontResolver {
   // One CSS fetch per *substitute* family, shared by every requested family
@@ -369,7 +369,7 @@ export function createResolver(dependencies: ResolverDependencies = {}): FontRes
     // (its style, weight and `unicode-range`), so a document downloads only the
     // subsets and styles it paints — English in regular weight is the basic
     // Latin file alone, 10-30 KB, where loading every face cost 175-784 KB per
-    // family (DECISION_LOG §50). A renderer that measures or checks painted text
+    // family (Notes §50). A renderer that measures or checks painted text
     // loads exactly what it paints first (`awaitDocumentFonts`).
     const register = (faces: readonly ParsedFontFace[], calibration: FontCalibration | undefined, arabicOnly: boolean): FontFace | undefined => {
       let primary: FontFace | undefined;

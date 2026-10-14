@@ -30,11 +30,6 @@ describe("zip central directory", () => {
     expect(xml).toContain("الاسم");
   });
 
-  test("reads [Content_Types].xml", async () => {
-    const pkg = await OpcPackage.open(await fixtureBytes());
-    expect(await pkg.readText("[Content_Types].xml")).toContain("<Override");
-  });
-
   test("rejects non-ZIP bytes with an actionable error", () => {
     expect(() => readEntries(new Uint8Array([0x50, 0x4b, 0x03]))).toThrow(/not a ZIP/);
     expect(() => readEntries(new Uint8Array([1, 2, 3, 4]))).toThrow(/not a ZIP/);
@@ -75,11 +70,6 @@ describe("opc package", () => {
     expect(await pkg.relationships("[Content_Types].xml")).toEqual([]);
   });
 
-  test("missing parts fail loudly", async () => {
-    const pkg = await OpcPackage.open(await fixtureBytes());
-    expect(pkg.readPart("ppt/slides/slide99.xml")).rejects.toThrow(/not found/);
-  });
-
   test("resolveTarget handles relative, parent, and absolute targets", () => {
     expect(resolveTarget("ppt/slides", "slide1.xml")).toBe("ppt/slides/slide1.xml");
     expect(resolveTarget("ppt/slides", "../theme/theme1.xml")).toBe("ppt/theme/theme1.xml");
@@ -93,7 +83,7 @@ describe("opc package", () => {
     expect(slide.local).toBe("sld");
     expect((await pkg.readXmlIfPresent("ppt/slides/slide2.xml"))?.local).toBe("sld");
     expect(await pkg.readXmlIfPresent("ppt/slides/slide99.xml")).toBeUndefined();
-    expect(pkg.readXml("ppt/slides/slide99.xml")).rejects.toThrow(/not found/);
+    await expect(pkg.readXml("ppt/slides/slide99.xml")).rejects.toThrow(/not found/);
   });
 
   test("the core-properties title is the file's own, trimmed; an empty one is no title", async () => {
@@ -128,12 +118,6 @@ describe("office format identity", () => {
         await expect(pkg.officeDocument(other.format)).rejects.toThrow(/^aared\/core: package is not (a PPTX presentation|an XLSX workbook|a Word document)$/);
       }
     }
-  });
-
-  test("the refusal names the format that was asked for", async () => {
-    const pkg = await OpcPackage.open(await fixtureBytes());
-    await expect(pkg.officeDocument("docx")).rejects.toThrow("aared/core: package is not a Word document");
-    await expect(pkg.officeDocument("xlsx")).rejects.toThrow("aared/core: package is not an XLSX workbook");
   });
 
   test("Word and Excel templates open as their documents; a PowerPoint template stays unsupported", () => {

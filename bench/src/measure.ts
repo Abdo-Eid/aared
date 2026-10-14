@@ -6,7 +6,7 @@ import { sheetRtlFlags } from "./adapters/xlsx";
 import type { Format } from "./lib/format";
 
 /**
- * The measurement page `tools/bench-measure.ts` drives in a real browser.
+ * The measurement page `tools/benchmarks/measure.ts` drives in a real browser.
  * One stage, one renderer at a time; every renderer goes through the same
  * adapter contract the bench UI uses (bytes in, first paint out, then move
  * between units, then destroy). The page only times things — sampling,

@@ -148,7 +148,7 @@ def main(pdf_path, cases_path, engine_path, measured_path, out_path):
 
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
-    out = os.path.join(here, "out")
+    out = os.path.abspath(os.path.join(here, "..", "out", "charts"))
     defaults = [os.path.join(out, "chart-oracle.pdf"), os.path.join(here, "cases.json"), os.path.join(out, "engine.json"),
                 os.path.join(out, "measured.json"), os.path.join(out, "score.json")]
     main(*(sys.argv[1:6] + defaults[len(sys.argv) - 1:]))
