@@ -1152,10 +1152,14 @@ and dates live in BENCHMARKS/tools catalog; compatible same-machine runs preserv
 competitor observations. CDP Worker reads use tools/shared/cdp.ts, not WebView.cdp
 sessionId (which still reads its page); recalibrate after touching routing.
 There is no push/PR test CI. Checks run locally before pushing; the only GitHub
-workflow validates a published stable release's tagged checkout and deploys the
-docs site. It rejects tags whose version differs from the viewer manifest,
-unannotated tags and commits outside `main`. Pages write/OIDC permissions belong
-only to the deployment job. Bun is pinned to the locally validated version (§134).
+workflow validates the deployment checkout against a published stable release
+and deploys the docs site. It rejects tags whose version differs from the viewer
+manifest, unannotated tags and commits outside `main`. Documentation-only updates
+preserve package material (all of `packages/aared` except tests), root manifest,
+lockfile and shared TypeScript config; release ancestry and npm gitHead establish
+the unchanged package identity. Build, typecheck, headless tests and site build
+run before upload. Pages write/OIDC permissions belong only to deployment.
+Bun is pinned to the locally validated version (§134).
 
 The site is hosted at `https://abdo-eid.github.io/aared/`, with Astro/Vite base
 `/aared/`. Astro UI uses `sitePath`; MDX links use sibling-relative routes.
@@ -1222,8 +1226,8 @@ rationale in Notes for each release, under AGENTS' release rules. Public READMEs
 package metadata and consumer pages describe the published viewer; only the
 separate frozen `aared-fonts` package remains unpublished. npm README/metadata
 changes ship in a new version rather than replacing an immutable published
-artifact. Pages site changes ship with a stable GitHub Release under the same
-annotated-tag policy.
+artifact. Documentation updates keep package material and build inputs unchanged;
+changes to those inputs require a new published stable release.
 
 ## Unscheduled proposals
 

@@ -3,6 +3,7 @@ name: Deploy docs
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    if: ${{ !github.event.release.prerelease }}
+    if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -22,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref }}
           fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
@@ -30,6 +31,7 @@ jobs:
           bun-version: 1.4.3
 
       - name: Verify the release tag and main ancestry
+        if: ${{ github.event_name == 'release' }}
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
@@ -39,6 +41,31 @@ jobs:
           test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
           git fetch origin main:refs/remotes/origin/main
           git merge-base --is-ancestor HEAD refs/remotes/origin/main
+
+      - name: Verify documentation checkout uses the published package
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          test "$DEPLOY_REF" = refs/heads/main
+          version=$(bun -p 'JSON.parse(await Bun.file("packages/aared/package.json").text()).version')
+          release_tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          test "$release_tag" = "v$version"
+          test "$(git cat-file -t "refs/tags/$release_tag")" = tag
+          release_commit=$(git rev-parse "refs/tags/$release_tag^{}")
+          git fetch origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor HEAD refs/remotes/origin/main
+          git merge-base --is-ancestor "$release_commit" HEAD
+          published_commit=$(npm view "@aared/viewer@$version" gitHead --registry=https://registry.npmjs.org/ --prefer-online)
+          test "$published_commit" = "$release_commit"
+          # Tests may evolve with the docs, but package material and build inputs
+          # must stay identical to the published release. No tag is rewritten.
+          if ! git diff --exit-code "$release_commit" HEAD -- packages/aared ':!packages/aared/test' package.json bun.lock tsconfig.base.json; then
+            echo "::error::Documentation deployment requires unchanged published package and build inputs. Publish a new stable release for these changes."
+            exit 1
+          fi
 
       - run: bun install --frozen-lockfile
 

@@ -216,8 +216,10 @@ publish. Published versions are immutable; fix/deprecate rather than unpublish.
 Only the maintainer publishes with 2FA; agents never receive npm tokens.
 `1.0.0` requires frozen API/model decisions and closed release gates.
 There is no standalone push/PR CI: run applicable checks locally before pushing.
-Pages deploys only published stable GitHub Releases from annotated tags on
-`main`, with manifest-version and ancestry checks plus tagged-checkout validation.
+Pages deployments validate source/version/ancestry against published stable
+annotated releases on `main`. Documentation updates keep shipped package and
+build inputs unchanged; changes to those inputs require a new published release.
+Deployment never rewrites published tags.
 
 ## Commits
 

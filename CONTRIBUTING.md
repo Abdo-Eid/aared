@@ -47,10 +47,12 @@ production browser test checks the `/aared/` deployment base. Canonical URLs and
 the sitemap must never double that prefix.
 
 The maintainer can submit `https://abdo-eid.github.io/aared/sitemap-index.xml`
-to [Google Search Console](https://search.google.com/search-console/about) or
-[Bing Webmaster Tools](https://www.bing.com/webmasters/about) after the release deploys, using
+to [Google Search Console](https://search.google.com/search-console/about)
+after the site deploys, using
 an account that can verify the URL-prefix property. Indexing is external and can
-lag publication; llms.txt is an agent reading index, not a crawler registration.
+lag publication; the homepage's Google ownership verification meta tag must stay
+in place after verification. llms.txt is an agent reading index, not a crawler
+registration.
 Do not add `/aared/robots.txt` as if it controlled the host's root crawler policy.
 Assess discovery with fresh, name-only queries and record actual returned sources,
 not an LLM's inferred familiarity. npm metadata changes need a new package version;
@@ -81,9 +83,11 @@ Follow [Documentation discipline](AGENTS.md#documentation-discipline):
 ## Releases
 
 Follow [Published releases](AGENTS.md#published-releases). Only the maintainer
-publishes npm with 2FA. Pages deploys on published stable GitHub Releases from
-annotated version tags on `main`, not ordinary pushes; the deployment validates
-the tagged checkout before publishing the site.
+publishes npm with 2FA. Pages deployment validates the checkout against a published
+stable version and its annotated tag on `main` before publishing the site.
+Documentation updates keep shipped package material and build inputs unchanged;
+changes to those inputs require a new published release. Published tags are never
+rewritten.
 
 ## License
 

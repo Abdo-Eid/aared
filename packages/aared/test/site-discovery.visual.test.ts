@@ -60,3 +60,12 @@ visual("production landing page exposes installation and fidelity evidence witho
   expect(html).toContain("docs/COMPETITORS.md");
   expect(html).toContain("/api/#fidelity-is-part-of-the-contract");
 });
+
+visual("production homepage retains the Google ownership verification tag in its static head", () => {
+  const html = readFileSync(resolve(DIST, "index.html"), "utf8");
+  const head = html.match(/<head>([\s\S]*?)<\/head>/)?.[1];
+  expect(head).toBeDefined();
+  expect(attribute(head!, "meta", "name", "google-site-verification", "content"))
+    .toBe("lhZi4u6HxRna5wrfr_6PcgWldWIQYIKOWA--a7JeKQg");
+  expect((head!.match(/name="google-site-verification"/g) ?? []).length).toBe(1);
+});
