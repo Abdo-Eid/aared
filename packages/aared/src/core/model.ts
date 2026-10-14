@@ -636,7 +636,7 @@ export interface SlideModel {
   /** Set by the Worker when the slide's layout has shared graphics to fetch. */
   layoutId?: string;
   /**
-   * Shared layout/master graphics, attached by `SlideHandle.read()` from
+   * Shared layout/master graphics, attached by the private model reader from
    * `layoutId`. Painted under `elements` unless `hideBackgroundGraphics`.
    */
   layout?: SlideLayoutModel;
@@ -649,16 +649,9 @@ export interface SlideModel {
   notes?: string;
 }
 
-/**
- * XLSX sheet-model family. Worker-resolved from SpreadsheetML, styles, and
- * shared strings; structured-cloneable plain data. Geometry (column widths,
- * row heights, drawing bounds) is inches, matching the slide model's
- * convention. Rows and cells are sparse: only authored rows appear, and each
- * row carries only its authored cells in ascending column order, so a large
- * mostly-empty used range stays proportional to its content, not its extent.
- * A range read (`UnitRequest.range`) slices the Worker's cached parsed sheet
- * into a `SheetRangeModel`; the whole sheet is still parsed once.
- */
+// XLSX rendering models are Worker-resolved, structured-cloneable data.
+// Track geometry is inches; sparse rows/cells stay proportional to content.
+// UnitRequest.range slices a cached sheet; it still parses the full sheet once.
 
 /** Zero-based, inclusive cell range in logical (A1) order, never display order. */
 export interface CellRange {
@@ -858,7 +851,7 @@ export interface SheetModel {
 }
 
 /**
- * The product of `SheetHandle.read(range?)`: full sheet metadata (name,
+ * The private sheet model reader's product: full sheet metadata (name,
  * extent, frozen panes, column widths, merges, drawings) with `rows`
  * windowed to the requested range. `range` echoes the window that was
  * read; absent rows inside `extent` are empty, exactly like sparse
@@ -878,9 +871,8 @@ export interface SheetRangeModel extends SheetModel {
 export type UnitModel = SlideModel | SheetModel | SheetRangeModel | DocumentSection[];
 
 /**
- * DOCX flow blocks. These definitions are canonical: `core/index.ts`
- * re-exports them for the public `UnitModel`, and `core/docx/*` plus
- * `aared/docx` read and write them directly.
+ * Internal DOCX flow blocks: the canonical Worker/renderer representation.
+ * Public section metadata is a separate projection, never these flow nodes.
  *
  * Every block is plain data (structured-cloneable). Geometry is inches,
  * type is points — matching the PPTX model conventions above. `root` order

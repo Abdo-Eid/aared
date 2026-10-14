@@ -7,9 +7,8 @@
 **Preview real PowerPoint, Excel, and Word files in the browser — correctly,
 in Arabic.**
 
-> ⚠️ Pre-release. Nothing is published yet. See
-> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it works, what is
-> still open, and the differences it accepts on purpose.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it works, current
+gaps, and the differences it accepts on purpose.
 
 Some lightweight client-side Office previewers paint to `<canvas>` for speed.
 In the ones we reviewed, that dropped paragraph-level direction for Arabic and
@@ -52,18 +51,17 @@ is in [`docs/Notes.md §1`](docs/Notes.md#note-1).
 npm install @aared/viewer
 ```
 
-*(Not released yet — `@aared/viewer` on npm is a name-holding placeholder
-with no code, and the snippets below still say `aared/...` until the package
-is renamed for its first release at `0.1.0`. Until then, build it from
-source: see [Develop](#develop).)*
+*(Not published yet: `@aared/viewer` on npm is still an empty name-holding
+placeholder. Until the first release, work from this checkout: see
+[Develop](#develop).)*
 
 ## Quick start
 
 Import the element once from your app's bundled code (Vite, webpack,
-Next.js; a plain `<script type="module">` cannot resolve `aared/element`):
+Next.js; bare package subpaths need a bundler or equivalent import map):
 
 ```ts
-import "aared/element";
+import "@aared/viewer/element";
 ```
 
 ```html
@@ -73,7 +71,7 @@ import "aared/element";
 When your app accepts only one format, use that entry's complete viewer:
 
 ```ts
-import { preview } from "aared/pptx";
+import { preview } from "@aared/viewer/pptx";
 
 const viewer = await preview({ source: file, target: container });
 await viewer.next();
@@ -86,15 +84,15 @@ with the format's `render()`/reads: the same open file, without exposing its
 `close()` or session. Search stays on `viewer.search()`. Destroy additional
 renders before the viewer; use `open()` below when you need to own the document.
 
-`aared/xlsx` and `aared/docx` expose the same object-form `preview()` with
+`@aared/viewer/xlsx` and `@aared/viewer/docx` expose the same object-form `preview()` with
 format-specific handles. Their builds omit sibling renderers; the shared Worker
-still contains all parsers. Use `aared/preview` to detect an arbitrary file type.
+still contains all parsers. Use `@aared/viewer/preview` to detect an arbitrary file type.
 
-Or build from the file's models on the low-level entrypoints — one per format,
-same shape. Here the render and document have separate lifetimes:
+Or use the low-level entrypoints to own the document and render lifetimes
+separately. Render from its handles; data reads do not expose painting models:
 
 ```ts
-import { open, render } from "aared/pptx";
+import { open, render } from "@aared/viewer/pptx";
 
 const deck = await open(file);
 const viewer = await render({
@@ -105,7 +103,7 @@ const viewer = await render({
 ```
 
 ```ts
-import { open, render } from "aared/xlsx";
+import { open, render } from "@aared/viewer/xlsx";
 
 const workbook = await open(file);
 const sheet = workbook.sheets.get("Revenue");
@@ -115,7 +113,7 @@ const viewer = await render({ sheet, target: document.querySelector<HTMLElement>
 ```
 
 ```ts
-import { open, render } from "aared/docx";
+import { open, render } from "@aared/viewer/docx";
 
 const doc = await open(file); // not `document`: that would shadow the page's
 const viewer = await render({ document: doc, target: document.querySelector<HTMLElement>("#stage")! });
@@ -126,12 +124,17 @@ Full API: the API reference page in the docs site — `bun run docs:dev`,
 open `/api` (source: `site/src/content/docs/api.mdx`). New to it: `/start`
 covers installing, picking an entry, recipes and troubleshooting.
 
+Format entries export supported data types: XLSX `SheetData`/`RowData`/`CellData`
+and `CellRange`, PPTX `SlideText` (paragraphs and optional notes), DOCX
+`SectionInfo` (page metadata in inches). Rendering models, cell styles and rich
+Word nodes stay internal; detached-model rendering is not a public capability.
+
 ### Search
 
 The shared viewer API works with PPTX, XLSX and DOCX:
 
 ```ts
-import { preview } from "aared/preview";
+import { preview } from "@aared/viewer/preview";
 
 const viewer = await preview({ source: file, target: container });
 const matches = await viewer.search("nile"); // Results and highlights together
@@ -148,7 +151,7 @@ For a compact find bar, `viewer.searchNavigation` exposes the active `index`,
 total `count`, and wrapping `next()` / `previous()` methods. The active match
 has a stronger outlined highlight; `searchchange` updates the counter.
 See the [search recipe](site/src/content/docs/start.mdx#add-a-search-box) for
-an input example and the [API reference](site/src/content/docs/api.mdx#auto-detect-preview-aaredpreview)
+an input example and the [API reference](site/src/content/docs/api.mdx#auto-detect-preview-aaredviewerpreview)
 for result navigation, cancellation and browser support.
 
 ## Fonts
@@ -185,7 +188,7 @@ shaped this way, with native findings and rejected alternatives:
 ## What you can preview today
 
 The entrypoint-backed route opens and renders PPTX slides, XLSX sheets, and DOCX
-documents through `aared/pptx`, `aared/xlsx`, `aared/docx`, or
+documents through `@aared/viewer/pptx`, `@aared/viewer/xlsx`, `@aared/viewer/docx`, or
 `<aared-viewer>`. Each format has real Arabic/RTL fixture coverage, including
 tables. The supported surface, the gaps still open and the differences kept on
 purpose are recorded in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
@@ -198,13 +201,13 @@ from Word's.
 ## Docs
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how it's designed to work, plus the gap/limits inventory, release readiness and proposals
-- Start (`bun run docs:dev`, open `/start`) — installation, entry choice and recipes
-- API reference (`bun run docs:dev`, open `/api`) — the public API
+- [Getting started](https://abdo-eid.github.io/aared/start/) (`bun run docs:dev`, open `/aared/start/`) — installation, integration choice and recipes
+- [API reference](https://abdo-eid.github.io/aared/api/) (`bun run docs:dev`, open `/aared/api/`) — the public API
 - [`docs/Notes.md`](docs/Notes.md) — decisions and engineering experience, by topic
 - [`CHANGELOG.md`](CHANGELOG.md) — changes after the development baseline
 - [Archived development history](docs/archive/CHANGELOG-pre-baseline.md) — what led to the baseline, not published releases
 - [`docs/COMPETITORS.md`](docs/COMPETITORS.md) — the landscape
-- [`docs/USE-CASES.md`](docs/USE-CASES.md) — consumer-friction audit: current journeys, awkward seams and possible improvements
+- [Unscheduled proposals](docs/ARCHITECTURE.md#unscheduled-proposals) — undecided capabilities and consumer tradeoffs, not promised APIs
 - [`AGENTS.md`](AGENTS.md) — working charter for anyone (human or agent)
   contributing code; start here
 

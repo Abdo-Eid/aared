@@ -37,19 +37,22 @@ export async function rejection(promise: Promise<unknown>): Promise<Error> {
  */
 const browserModuleCache = new Map<string, Promise<string>>();
 
-async function buildBrowserModule(entrypoint: string): Promise<string> {
-  const build = await Bun.build({ entrypoints: [entrypoint], target: "browser", format: "esm" });
+async function buildBrowserModule(entrypoint: string, production: boolean): Promise<string> {
+  const build = await Bun.build({ entrypoints: [entrypoint], target: "browser", format: "esm",
+    ...(production ? { minify: true, define: { __AARED_MARK_FALLBACKS__: "false" } } : {}),
+  });
   if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));
   return build.outputs[0]!.text();
 }
 
-export async function browserModule(entrypoint: string): Promise<string> {
+export async function browserModule(entrypoint: string, options: { production?: boolean } = {}): Promise<string> {
   // Callers spell the same entry differently (`join(dir, "../src/x.ts")` vs a
   // template literal), so key on the resolved path or one entry bundles twice.
-  const key = resolve(entrypoint);
+  const path = resolve(entrypoint);
+  const key = options.production === true ? `${path}:production` : path;
   const cached = browserModuleCache.get(key);
   if (cached !== undefined) return cached;
-  const pending = buildBrowserModule(entrypoint);
+  const pending = buildBrowserModule(path, options.production === true);
   browserModuleCache.set(key, pending);
   // A failed build must not poison later tests: drop it so a retry rebuilds.
   pending.catch(() => {

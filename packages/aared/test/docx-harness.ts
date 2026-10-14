@@ -9,7 +9,7 @@ import { indexDocx, parseDocxSections } from "../src/core/docx/document.js";
 import { OpcPackage } from "../src/core/opc.js";
 import { browserModule, serveVisual } from "./harness.js";
 
-const DOCX_ENTRY = `${import.meta.dir}/../src/docx/index.ts`;
+const DOCX_ENTRY = `${import.meta.dir}/../src/docx/renderer.ts`;
 
 /**
  * Parse the fixture, bundle the renderer, and serve them: the renderer at

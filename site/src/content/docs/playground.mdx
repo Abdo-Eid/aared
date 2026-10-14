@@ -21,75 +21,86 @@ export const fixtures = [
   { label: 'Arabic document', url: docxUrl, format: 'docx' },
 ];
 
-aared works three ways: as an HTML element, as a React hook, or from plain
-JavaScript (two flavours). Each tab runs a live demo on the right, with the
-code you would write on the left. Pick a format, or choose a local file of your own; your choice
-follows you between tabs, and nothing is uploaded anywhere. The status line
-above each demo says what was opened: how many slides, sheets, or (for Word)
-one document. New here? Start with **HTML** — it's a single tag.
+Try a PPTX, XLSX or DOCX from the examples, or select your own local file.
+Your choice follows you between tabs; local files stay in your browser and
+are not uploaded. All four integrations use the same renderers.
+
+New here? Start with **HTML element** for built-in controls. The other tabs
+show a minimal mount example beside a live viewer. Their paging and zoom bars
+are app-owned demo UI, not controls automatically created by those snippets;
+[add your own controls](../start/#build-your-own-toolbar) when you need them.
+
+This is a view-only preview: no editing, conversion or formula recalculation.
+[Getting started](../start/) covers installation and host sizing;
+[fidelity and limits](../api/#fidelity-is-part-of-the-contract) describes what to expect.
 
 <div class="playground-tabs" data-tabs>
   <div class="pg-toolbar">
     <div class="demo-pills" role="tablist" aria-label="How you use aared">
-      <button type="button" role="tab" aria-selected="true" data-tab="component">HTML</button>
-      <button type="button" role="tab" aria-selected="false" data-tab="react">React</button>
-      <button type="button" role="tab" aria-selected="false" data-tab="facade">JS · auto-detect</button>
-      <button type="button" role="tab" aria-selected="false" data-tab="headless">JS · low-level</button>
+      <button id="tab-component" type="button" role="tab" aria-controls="panel-component" aria-selected="true" data-tab="component">HTML element</button>
+      <button id="tab-react" type="button" role="tab" aria-controls="panel-react" aria-selected="false" tabIndex={-1} data-tab="react">React</button>
+      <button id="tab-facade" type="button" role="tab" aria-controls="panel-facade" aria-selected="false" tabIndex={-1} data-tab="facade">JavaScript viewer</button>
+      <button id="tab-headless" type="button" role="tab" aria-controls="panel-headless" aria-selected="false" tabIndex={-1} data-tab="headless">Manual rendering</button>
     </div>
     <PlaygroundPicker fixtures={fixtures} />
   </div>
 
-  <div role="tabpanel" data-panel="component">
+  <div id="panel-component" role="tabpanel" aria-labelledby="tab-component" data-panel="component">
     <p class="tab-intro"><strong>The easiest way: one tag.</strong> Import
-    <code>aared/element</code> once in the app code your bundler builds, then add
+    <code>@aared/viewer/element</code> once in the app code your bundler builds, then add
     <code>&lt;aared-viewer src="file.pptx" controls&gt;</code> — it
     detects the format, opens the file, and draws it with built-in paging and zoom.
-    Use it when you just want a viewer without writing render code.</p>
+     Use it when you want a viewer without writing render code. Removing the
+     element cleans up; changing its source replaces the file.</p>
     <div class="pg-split">
       <div class="pg-code"><PlaygroundCode snippets={htmlSnippets} /></div>
       <div class="pg-demo"><ElementDemo fixtures={fixtures} /></div>
     </div>
   </div>
 
-  <div role="tabpanel" data-panel="react" hidden>
+  <div id="panel-react" role="tabpanel" aria-labelledby="tab-react" data-panel="react" hidden>
     <p class="tab-intro"><strong>A hook for React apps.</strong>
     <code>usePreview(&#123; source &#125;)</code> gives you a <code>ref</code> for a
     <code>&lt;div&gt;</code> plus the loading and error state, and cleans up when the
     component unmounts or the file changes. Use it when your app is React and you want a
-    viewer without managing the lifecycle yourself. The bar under the demo is the
-    viewer's own <code>next()</code>, <code>zoomIn()</code> and friends behind buttons,
-    as in <a href="/start/#build-your-own-toolbar">Build your own toolbar</a>.</p>
+     viewer without managing the lifecycle yourself. The hook cleans up on
+     unmount or source replacement. The minimal example includes loading and
+     error UI; the live demo also adds an
+      <a href="../start/#build-your-own-toolbar">app-owned toolbar</a>.</p>
     <div class="pg-split">
       <div class="pg-code"><PlaygroundCode snippets={reactSnippets} /></div>
       <div class="pg-demo"><HooksDemo client:visible="react" fixtures={fixtures} /></div>
     </div>
   </div>
 
-  <div role="tabpanel" data-panel="facade" hidden>
+  <div id="panel-facade" role="tabpanel" aria-labelledby="tab-facade" data-panel="facade" hidden>
     <p class="tab-intro"><strong>Auto-detect preview.</strong>
-    <code>preview(&#123; source, target: container &#125;)</code> from <code>aared/preview</code> detects the
+    <code>preview(&#123; source, target: container &#125;)</code> from <code>@aared/viewer/preview</code> detects the
     format, loads only the code it needs, draws into your container, and returns a handle
     (<code>goTo</code>, <code>setZoom</code>, <code>destroy</code>). Use it when you build
-    your own UI around the viewer but don't want a separate code path for each format.
-    The bar under the demo is that handle's <code>next()</code>, <code>zoomIn()</code> and
-    friends behind buttons, as in
-    <a href="/start/#build-your-own-toolbar">Build your own toolbar</a>.</p>
+     your own UI around the viewer but don't want a separate code path for each format.
+     Call <code>destroy()</code> when the feature unmounts. The snippet mounts the
+     viewer; the live demo adds an
+      <a href="../start/#build-your-own-toolbar">app-owned toolbar</a>.</p>
     <div class="pg-split">
       <div class="pg-code"><PlaygroundCode snippets={facadeSnippets} /></div>
       <div class="pg-demo"><FacadeDemo fixtures={fixtures} /></div>
     </div>
   </div>
 
-  <div role="tabpanel" data-panel="headless" hidden>
-    <p class="tab-intro"><strong>Low-level API: model access and manual rendering.</strong>
+  <div id="panel-headless" role="tabpanel" aria-labelledby="tab-headless" data-panel="headless" hidden>
+    <p class="tab-intro"><strong>Own the document and its renders separately.</strong>
     <code>open()</code> → <code>.get()</code> → <code>render()</code> from
-    <code>aared/pptx</code>, <code>aared/xlsx</code> or <code>aared/docx</code>, with
+    <code>@aared/viewer/pptx</code>, <code>@aared/viewer/xlsx</code> or <code>@aared/viewer/docx</code>, with
     explicit cleanup. The format you pick switches which module runs, and the code on the
-    left follows. Use it to build from the file's contents: thumbnails, exports,
-    pictures, or several slides, sheets or documents at once. Here the bar is yours to
-    write, a few lines per format: a slide is another <code>render()</code>, each click
-    cancelling the one before (<a href="/api/#cancellation">the pattern</a>); a workbook's
-    one handle has <code>goToSheet()</code>; a document only zooms.</p>
+     left follows. Use it for
+      <a href="../start/#read-cell-data-without-a-viewer">semantic data reads</a>,
+     manual paging or a document kept beyond any view. Render handles, not data
+     copies. Destroy each render, then close the document. The live demo adds
+     manual paging and zoom around the minimal example;
+      <a href="../api/#navigation">navigation</a> differs by format.
+     For thumbnails beside an existing viewer, prefer its
+      <a href="../api/#borrowed-content">borrowed content</a> instead of reopening it.</p>
     <div class="pg-split">
       <div class="pg-code"><PlaygroundCode snippets={headlessSnippets} /></div>
       <div class="pg-demo"><HeadlessDemo fixtures={fixtures} /></div>

@@ -1,5 +1,5 @@
 /**
- * How the embed viewer (`embed-viewer.ts`, behind `aared/preview`,
+ * How the embed viewer (`embed-viewer.ts`, behind `@aared/viewer/preview`,
  * `<aared-viewer>` and the hooks) reaches the format entrypoints: the one
  * defaults, route contracts, checks and events it shares. Renderer-side;
  * nothing here paints or imports a format implementation at runtime.

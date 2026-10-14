@@ -26,7 +26,7 @@ test("parses one cell, a bounded range, and the loose corners Excel accepts", ()
 test("rejects whole-column, whole-row, and malformed references", () => {
   for (const reference of ["", "A", "1", "A:A", "1:3", "A1:M200:Z9", "XFE1", "A1048577", "A0", "!!!"]) {
     const error = invalidRange(reference);
-    expect(error.message).toContain("aared/xlsx:");
+    expect(error.message).toContain("@aared/viewer/xlsx:");
   }
 });
 

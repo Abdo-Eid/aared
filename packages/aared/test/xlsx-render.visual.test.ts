@@ -31,7 +31,7 @@ async function sheetModels() {
 
 visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickiness, and formats", async () => {
   const models = await sheetModels();
-  const module = await browserModule(`${import.meta.dir}/../src/xlsx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/xlsx/renderer.ts`);
   const server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -441,7 +441,7 @@ visual("visual DOM output: XLSX grid preserves RTL order, merges, frozen stickin
 
 visual("visual DOM output: XLSX viewport fill: fills the rendered space in bounded and content-sized scrollers without feedback growth", async () => {
   const models = await sheetModels();
-  const module = await browserModule(`${import.meta.dir}/../src/xlsx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/xlsx/renderer.ts`);
   const server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -556,7 +556,7 @@ visual("visual DOM output: XLSX viewport fill: fills the rendered space in bound
 
 visual("visual DOM output: XLSX zoom: a sheet opens at 100%, and fit-width / fit-page really fit its used area", async () => {
   const models = await sheetModels();
-  const module = await browserModule(`${import.meta.dir}/../src/xlsx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/xlsx/renderer.ts`);
   const server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -691,7 +691,7 @@ visual("visual DOM output: XlsxRenderHandle.warnings names fonts that painted wi
       if (entry.cell.style !== undefined) entry.cell.style = { ...entry.cell.style, fontFamily: NONEXISTENT_FAMILY };
     }
   }
-  const module = await browserModule(`${import.meta.dir}/../src/xlsx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/xlsx/renderer.ts`);
   const server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -735,7 +735,7 @@ visual("visual DOM output: XlsxRenderHandle.warnings reports drawings the file g
   const clean = await parseXlsxSheet(whole, await readWorkbook(whole), 0);
   const stripped = await withPart(TRACKER, "xl/drawings/drawing1.xml", (xml) => xml.replace(/(<xdr:cNvPr) id="[^"]*"/g, "$1"));
   const damaged = await parseXlsxSheet(stripped, await readWorkbook(stripped), 0);
-  const module = await browserModule(`${import.meta.dir}/../src/xlsx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/xlsx/renderer.ts`);
   const server = Bun.serve({
     port: 0,
     fetch(request) {

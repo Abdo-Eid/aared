@@ -39,7 +39,7 @@ visual("visual DOM output: PPTX orders Arabic words around ASCII punctuation as 
       geometry: { path: "M 0 0 H 100000 V 100000 H 0 Z", viewBox: { width: 100000, height: 100000 } },
     })),
   };
-  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   await withVisualPage({
     modules: { "/pptx.mjs": module },
     page: `<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">

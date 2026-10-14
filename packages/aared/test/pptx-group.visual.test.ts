@@ -17,7 +17,7 @@ visual("visual DOM output: PPTX nests grouped shapes in a mapped group wrapper",
   const deck = await indexPptx(pkg);
   const slides = await Promise.all(deck.slideParts.map((_, index) => parsePptxSlide(pkg, deck, index)));
   const { slide: shapesSlide } = await findCoverageSlide(slides, "shapes");
-  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   await withVisualPage({
     modules: { "/pptx.mjs": module },
     page: `<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">

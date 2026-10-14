@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { AaredError } from "../src/core/index.js";
 import { open } from "../src/xlsx/index.js";
+import { readSheetModel, type SheetHandle } from "../src/xlsx/renderer.js";
 import { rejection } from "./harness.js";
 import { storedZipFromTuples } from "./zip.js";
 
@@ -34,7 +35,7 @@ test("looks sheets up by title — exact, then ignoring case, never a substring"
   }
 });
 
-test("reads a whole sheet as a full-extent range model", async () => {
+test("reads a whole sheet as full-extent cached data", async () => {
   const workbook = await open(await Bun.file(XLSX_FIXTURE).arrayBuffer());
   try {
     const sheet = workbook.sheets.get("Summary");
@@ -135,7 +136,7 @@ test("searches one sheet's formatted cell text, and only that sheet", async () =
 test("rejects non-XLSX files", async () => {
   const error = await rejection(open(await Bun.file(PPTX_FIXTURE).arrayBuffer()));
   expect((error as AaredError).code).toBe("unsupported-format");
-  expect(error.message).toContain("aared/pptx");
+  expect(error.message).toContain("@aared/viewer/pptx");
 });
 
 /** A one-sheet workbook around `sheet` (worksheet XML); a damaged sheet is something Excel never writes. */
@@ -192,7 +193,8 @@ test("a damaged sheet keeps what it can read and says what it skipped", async ()
     const sheet = await workbook.sheets.get(0).read();
     expect(sheet.rows[0]?.cells.map((entry) => entry.cell.formatted)).toEqual(["kept"]);
     expect(sheet.merges).toHaveLength(1);
-    const damaged = sheet.unsupported.filter((entry) => entry.kind === "damaged").map((entry) => entry.detail);
+    const model = await readSheetModel(workbook.sheets.get(0) as SheetHandle);
+    const damaged = model.unsupported.filter((entry) => entry.kind === "damaged").map((entry) => entry.detail);
     expect(damaged).toEqual([
       "2 cells could not be read and were skipped; the file may be damaged",
       "1 hyperlink could not be read and was skipped; the file may be damaged",

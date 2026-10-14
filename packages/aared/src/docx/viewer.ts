@@ -1,6 +1,6 @@
 /** Fixed-format preview: this route has no dependency on sibling renderers. */
-import { render } from "./index.js";
-import type { DocxDocument } from "./index.js";
+import { render } from "./renderer.js";
+import type { DocxDocument } from "./renderer.js";
 import { documentFromSession } from "./session-document.js";
 import { openViewer } from "../embed-viewer.js";
 import type { ViewerRoute } from "../format-route.js";
@@ -17,7 +17,12 @@ export const route: ViewerRoute = {
   content: (source, assertOpen, signal) => {
     const document = source as DocxDocument;
     return borrowContent(document, { info: document.info,
-      sections: contentCollection(document.sections, (section) => section, assertOpen),
+      // Section metadata is freshly projected, so do not retain each read in
+      // contentCollection's identity cache (which is for stable handles).
+      sections: Object.freeze({
+        list: () => { assertOpen(); return document.sections.list(); },
+        get: (index: number) => { assertOpen(); return document.sections.get(index); },
+      }),
       headings: contentCollection(document.headings, (heading) => heading, assertOpen),
       media: contentMedia(document.media, assertOpen),
     }, assertOpen, signal);
@@ -28,5 +33,5 @@ export const route: ViewerRoute = {
 /** Open, render and navigate a DOCX file; destroy closes the document too. */
 export async function preview(input: DocxPreviewInput): Promise<DocxPreview> {
   const { source, target, ...options } = input;
-  return await openViewer({ scope: "aared/docx", source, target, options, route }) as DocxPreview;
+  return await openViewer({ scope: "@aared/viewer/docx", source, target, options, route }) as DocxPreview;
 }

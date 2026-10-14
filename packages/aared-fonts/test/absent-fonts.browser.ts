@@ -9,7 +9,7 @@
  * under the renamed family's alias. A family with no substitute falls to the
  * generic, as it would there.
  */
-import { fontAlias } from "aared/core";
+import { fontAlias } from "@aared/viewer/core";
 import { createResolver } from "../src/index.js";
 
 const ABSENT = " absent";

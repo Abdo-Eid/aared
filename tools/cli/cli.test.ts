@@ -131,6 +131,16 @@ describe("tools command contracts", () => {
     expect(command).toEqual({ kind: "inspect", file: resolve(tmpdir(), "file.docx"), output: resolve(tmpdir(), "result.json"), bench: false });
   });
 
+  test("packed consumers resolve tarballs against the caller and reject malformed options", () => {
+    expect(parseToolCommand(["check", "consumer-build"])).toEqual({ kind: "check" });
+    expect(parseToolCommand(["check", "consumer-build", "--package", "viewer release.tgz"], tmpdir()))
+      .toEqual({ kind: "check", package: resolve(tmpdir(), "viewer release.tgz") });
+    for (const args of [
+      ["check", "consumer-build", "--package"], ["check", "consumer-build", "--package", "package.json"],
+      ["check", "consumer-build", "--typo"], ["check", "unknown"],
+    ]) expect(() => parseToolCommand(args)).toThrow();
+  });
+
   test("report shell escapes filenames and supports different column counts", () => {
     const page = reviewPage('<file & "name">', '<section class="pair"><figure>one</figure><figure>two</figure></section>');
     expect(page).toContain("&lt;file &amp; &quot;name&quot;&gt;");

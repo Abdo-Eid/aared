@@ -8,7 +8,7 @@ const FIXTURE_PATH = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 visual("visual DOM output: a slide opens whole — fit-page by default, width when the container has no height", async () => {
   const pkg = await OpcPackage.open(await Bun.file(FIXTURE_PATH).arrayBuffer());
   const slide = await parsePptxSlide(pkg, await indexPptx(pkg), 0);
-  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   await withVisualPage({
     modules: { "/pptx.mjs": module },
     page: `<!doctype html><style>html,body{margin:0}</style>

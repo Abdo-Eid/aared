@@ -12,6 +12,11 @@
   color: var(--lt-accent);
 }
 
+.snippet-label {
+  font-size: 0.85rem;
+  color: var(--lt-ink-soft);
+}
+
 /* Playground toolbar: the four ways to use aared, with the shared format /
    file picker on its own row underneath, spanning the width. */
 .pg-toolbar {

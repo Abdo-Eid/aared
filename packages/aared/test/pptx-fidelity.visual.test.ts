@@ -21,7 +21,7 @@ visual("visual DOM output: pictures, autofit, numbered bullets, resolved tables,
   const pictureBytes = await productionPkg.readPart(picture.mediaId);
   const pictureBase64 = Buffer.from(pictureBytes).toString("base64");
 
-  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   await withVisualPage({
     modules: { "/pptx.mjs": module },
     page: `<!doctype html><style>html,body{margin:0;font-family:Arial,sans-serif}#host{width:1280px}</style><main id="host"></main><script type="module">

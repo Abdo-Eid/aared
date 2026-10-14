@@ -720,7 +720,7 @@ export function paginate(sections: DocumentSection[], options?: PaginateOptions)
     if (part.standalone > current!.box.heightPx && !(block.type === "table" && splitTable(block, current!.box.heightPx, estimateCtx, true) !== undefined)) {
       warnings.push({
         code: "oversize-block",
-        message: `aared/core: block taller than an empty page (${Math.round(part.standalone)}px > ${Math.round(current!.box.heightPx)}px); placed with overflow`,
+        message: `@aared/viewer/core: block taller than an empty page (${Math.round(part.standalone)}px > ${Math.round(current!.box.heightPx)}px); placed with overflow`,
       });
       if (current!.page.body.length > 0) openPage(section, "overflow");
       current!.page.body.push(block);
@@ -790,7 +790,7 @@ export function paginate(sections: DocumentSection[], options?: PaginateOptions)
         if (current!.usedPx + footnoteReservePx() > current!.box.heightPx) {
           warnings.push({
             code: "footnote-overflow",
-            message: `aared/core: footnote reservation overflows page ${current!.page.index}; kept with overflow`,
+            message: `@aared/viewer/core: footnote reservation overflows page ${current!.page.index}; kept with overflow`,
           });
         }
         flushPage();

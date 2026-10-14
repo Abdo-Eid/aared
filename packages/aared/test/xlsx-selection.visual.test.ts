@@ -25,7 +25,7 @@ visual("visual DOM output: XLSX selection reaches the empty area past the data",
   const dashboard = await parseXlsxSheet(trackerPkg, await readWorkbook(trackerPkg), 0);
   const coveragePkg = await OpcPackage.open(await Bun.file(COVERAGE_PATH).arrayBuffer());
   const budget = await parseXlsxSheet(coveragePkg, await readWorkbook(coveragePkg), 0);
-  const module = await browserModule(`${import.meta.dir}/../src/xlsx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/xlsx/renderer.ts`);
   await withVisualPage({
     modules: { "/xlsx.mjs": module },
     page: `<!doctype html><style>html,body{margin:0}#wide{width:1280px;height:500px}#tall{width:1280px;height:700px}</style><main id="wide"></main><main id="tall"></main><script type="module">

@@ -1,5 +1,5 @@
 /**
- * `aared/preview`: one-call auto-detect preview for embeds.
+ * `@aared/viewer/preview`: one-call auto-detect preview for embeds.
  *
  * `preview({ source, target })` detects the format in the Worker, lazily
  * `import()`s only the matching format entrypoint, opens, renders the first
@@ -11,7 +11,7 @@
  *
  * Import-time safe: no DOM or `Worker` globals are touched until `preview()`
  * or `detect()` runs (SSR-safe imports). Live in a separate subpath so
- * one-format consumers (`import { open } from "aared/xlsx"`) never include
+ * one-format consumers (`import { open } from "@aared/viewer/xlsx"`) never include
  * this facade — bundlers emit the format chunks the viewer's dynamic
  * `import()`s resolve to, and only the detected one loads at runtime. (The
  * Worker script carries all three parsers regardless.)
@@ -351,7 +351,7 @@ export async function detect(
   source: Source,
   options?: { signal?: AbortSignal; worker?: WorkerInit },
 ): Promise<DocumentFormat> {
-  return WorkerSession.detectFormat("aared/preview", source, options);
+  return WorkerSession.detectFormat("@aared/viewer/preview", source, options);
 }
 
 /**
@@ -364,5 +364,5 @@ export async function preview(
   input: PreviewInput,
 ): Promise<PreviewHandle> {
   const { source, target, ...options } = input;
-  return openAutoViewer({ scope: "aared/preview", source, target, options });
+  return openAutoViewer({ scope: "@aared/viewer/preview", source, target, options });
 }

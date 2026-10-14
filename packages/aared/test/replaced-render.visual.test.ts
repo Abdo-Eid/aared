@@ -20,9 +20,9 @@ const FIXTURES = {
  */
 visual("visual DOM output: a replaced render destroys itself and a cancelled one paints nothing, in every format", async () => {
   const [pptx, xlsx, docx, worker, deck, book, doc] = await Promise.all([
-    browserModule(`${import.meta.dir}/../src/pptx/index.ts`),
-    browserModule(`${import.meta.dir}/../src/xlsx/index.ts`),
-    browserModule(`${import.meta.dir}/../src/docx/index.ts`),
+    browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`),
+    browserModule(`${import.meta.dir}/../src/xlsx/renderer.ts`),
+    browserModule(`${import.meta.dir}/../src/docx/renderer.ts`),
     browserModule(`${import.meta.dir}/../src/core/worker.ts`),
     Bun.file(FIXTURES.pptx).arrayBuffer(),
     Bun.file(FIXTURES.xlsx).arrayBuffer(),

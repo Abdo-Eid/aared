@@ -61,16 +61,16 @@ test("the shipped Worker constructor stays the literal consumer bundlers detect"
   expect(hits).toEqual(["./worker.mjs module:true"]);
 });
 
-test("the documented aared/worker subpath is the single-file artifact", () => {
-  const resolved = Bun.resolveSync("aared/worker", import.meta.dir).replaceAll("\\", "/");
+test("the documented @aared/viewer/worker subpath is the single-file artifact", () => {
+  const resolved = Bun.resolveSync("@aared/viewer/worker", import.meta.dir).replaceAll("\\", "/");
   expect(resolved.endsWith("/dist/core/worker.mjs")).toBe(true);
 });
 
 test("inline Worker source opens PPTX, XLSX, and DOCX on one pooled Worker", async () => {
   // The consumer recipe, as documented: import the script by its package
-  // subpath (`aared/worker?raw` in a bundler), hand its source to aared.
+  // subpath (`@aared/viewer/worker?raw` in a bundler), hand its source to aared.
   await distText("worker.mjs");
-  const source = await Bun.file(Bun.resolveSync("aared/worker", import.meta.dir)).text();
+  const source = await Bun.file(Bun.resolveSync("@aared/viewer/worker", import.meta.dir)).text();
   // Count Workers: one closed document's Worker serves the next open, whatever its format.
   const original = Object.getOwnPropertyDescriptor(globalThis, "Worker");
   const Native = globalThis.Worker;

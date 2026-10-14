@@ -20,7 +20,7 @@ visual("visual DOM output: PPTX paragraph spacing in lines, text-body edges and 
     findCoverageSlide(slides, "paragraph-spacing"),
     findCoverageSlide(slides, "bullets"),
   ]);
-  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   await withVisualPage({
     modules: { "/pptx.mjs": module },
     page: `<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">

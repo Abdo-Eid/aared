@@ -16,6 +16,7 @@ const { snippets } = Astro.props;
 
 {SNIPPET_FORMATS.map((format, index) => (
   <div data-snippet={format} hidden={index !== 0}>
+    <p class="snippet-label">{snippets[format].lang === "html" ? "Viewer with built-in controls" : "Minimal mount example · demo toolbar not included"}</p>
     <CodeBlock title={snippets[format].title} lang={snippets[format].lang} code={snippets[format].code} />
   </div>
 ))}

@@ -794,7 +794,7 @@ describe("DOCX flow parser", () => {
     controller.abort();
     await expect(indexDocx(pkg, controller.signal)).rejects.toMatchObject({
       name: "AbortError",
-      message: "aared/core: request was cancelled",
+      message: "@aared/viewer/core: request was cancelled",
     });
   });
 });

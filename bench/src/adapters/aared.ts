@@ -1,8 +1,8 @@
 import type { DocxOpened, OpenAdapter, PptxOpened, XlsxOpened } from "./types";
 
 /**
- * aared through its per-format entrypoints (`aared/pptx`, `aared/xlsx`,
- * `aared/docx`), shaped like the baseline adapters so the measurement page
+ * aared through its per-format entrypoints (`@aared/viewer/pptx`, `@aared/viewer/xlsx`,
+ * `@aared/viewer/docx`), shaped like the baseline adapters so the measurement page
  * can time every renderer through one contract: bytes in, first paint out,
  * then move between units, then destroy.
  *
@@ -13,7 +13,7 @@ import type { DocxOpened, OpenAdapter, PptxOpened, XlsxOpened } from "./types";
 
 export const openAaredPptx: OpenAdapter = async (bytes, host, signal): Promise<PptxOpened> => {
   const t0 = performance.now();
-  const { preview } = await import("aared/pptx");
+  const { preview } = await import("@aared/viewer/pptx");
   const viewer = await preview({ source: bytes, target: host, signal });
   return {
     format: "pptx",
@@ -26,7 +26,7 @@ export const openAaredPptx: OpenAdapter = async (bytes, host, signal): Promise<P
 
 export const openAaredXlsx: OpenAdapter = async (bytes, host, signal): Promise<XlsxOpened> => {
   const t0 = performance.now();
-  const { preview } = await import("aared/xlsx");
+  const { preview } = await import("@aared/viewer/xlsx");
   const viewer = await preview({
     source: bytes, target: host, signal,
     appearance: { spreadsheet: { sheetTabs: false } },
@@ -43,7 +43,7 @@ export const openAaredXlsx: OpenAdapter = async (bytes, host, signal): Promise<X
 
 export const openAaredDocx: OpenAdapter = async (bytes, host, signal): Promise<DocxOpened> => {
   const t0 = performance.now();
-  const { preview } = await import("aared/docx");
+  const { preview } = await import("@aared/viewer/docx");
   const viewer = await preview({ source: bytes, target: host, signal, pagination: { mode: "layout" } });
   const docx = viewer.docx;
   // aared reports inches; the bench's pager uses CSS pixels.

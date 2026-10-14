@@ -16,12 +16,12 @@ interface Snippet {
 
 // One snippet per (code variant x file format). Real API usage taken from
 // the API reference — nothing invented.
-// A plain module script cannot resolve a bare "aared/element": the import
+// A plain module script cannot resolve a bare "@aared/viewer/element": the import
 // lives in the app code a bundler builds.
 // Slides size themselves; a sheet or a document needs a height (the API page's Sizing).
 const elementSnippet = (file: string, height = false): Snippet => ({
   lang: "html",
-  code: `<!-- once, in your bundled app code: import "aared/element"; -->
+  code: `<!-- once, in your bundled app code: import "@aared/viewer/element"; -->
 <aared-viewer
   src="./${file}"${height ? `\n  style="height: 480px"` : ""}>
 </aared-viewer>`,
@@ -31,7 +31,7 @@ const elementSnippet = (file: string, height = false): Snippet => ({
 // needs a height. A workbook shows its sheet tabs by default in every embed.
 const reactSnippet = (hook: string, component: string, setup: { props?: string; style?: string } = {}): Snippet => ({
   lang: "tsx",
-  code: `import { ${hook} } from "aared/react";
+  code: `import { ${hook} } from "@aared/viewer/react";
 
 function ${component}({ file }: { file: string | File }) {
   const { ref } = ${hook}({ source: file${setup.props ?? ""} });
@@ -53,7 +53,7 @@ const snippets: Record<string, Record<string, Snippet>> = {
   js: {
     pptx: {
       lang: "js",
-      code: `import { preview } from "aared/pptx";
+      code: `import { preview } from "@aared/viewer/pptx";
 
 const viewer = await preview({ source: file, target: el });
 
@@ -62,7 +62,7 @@ viewer.destroy();`,
     },
     xlsx: {
       lang: "js",
-      code: `import { preview } from "aared/xlsx";
+      code: `import { preview } from "@aared/viewer/xlsx";
 
 const viewer = await preview({ source: file, target: el, zoom: 0.7 });
 
@@ -71,7 +71,7 @@ viewer.destroy();`,
     },
     docx: {
       lang: "js",
-      code: `import { preview } from "aared/docx";
+      code: `import { preview } from "@aared/viewer/docx";
 
 const viewer = await preview({ source: file, target: el, zoom: 0.65 });
 

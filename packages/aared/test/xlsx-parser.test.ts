@@ -107,7 +107,7 @@ describe("XLSX workbook index", () => {
     controller.abort();
     await expect(parseXlsxSheet(pkg, workbook, 0, controller.signal)).rejects.toMatchObject({
       name: "AbortError",
-      message: "aared/core: request was cancelled",
+      message: "@aared/viewer/core: request was cancelled",
     });
   });
 });

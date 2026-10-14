@@ -24,7 +24,7 @@ visual("visual DOM output: PPTX bullets keep PowerPoint's hanging indent in both
     findCoverageSlide(slides, "bullets"),
     findCoverageSlide(slides, "rtl-text"),
   ]);
-  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   await withVisualPage({
     modules: { "/pptx.mjs": module },
     page: `<!doctype html><style>html,body{margin:0}#host{width:1280px}</style><main id="host"></main><script type="module">

@@ -169,10 +169,53 @@ interface PassContext {
   edges: Map<HTMLElement, StartEdges>;
   /** Leader glyph advance per font, so a font is probed once, not once per tab. */
   glyphWidths: Map<string, number>;
+  /**
+   * The one range every following-text read reuses. A range stays registered
+   * with its document until it is collected, and each removal of a child (a
+   * collapsing leader) walks all of them: a range per tab made a second pass
+   * over a document with thousands of tabs take a minute.
+   */
+  range: Range;
 }
 
 export function layoutTabStops(root: HTMLElement): void {
-  const paragraphs = root.querySelectorAll<HTMLElement>(`[${PARAGRAPH_ATTRIBUTE}]`);
+  layoutTabParagraphs(root, Array.from(root.querySelectorAll<HTMLElement>(`[${PARAGRAPH_ATTRIBUTE}]`)));
+}
+
+/** A pixel of slack: a tab that landed this close to what it is now asked for is settled. */
+const SETTLED_PX = 1;
+/** Check-and-repair rounds after the batched pass; a document that still moves after these keeps its last layout. */
+const REPAIR_ROUNDS = 3;
+
+/** One paragraph's tabs, with what the pass measured once and the width each tab was given. */
+interface TabJob {
+  line: HTMLElement;
+  stops: readonly DocxTabStop[];
+  tabs: HTMLElement[];
+  rtl: boolean;
+  /** The paragraph's start edge, in unzoomed pixels. */
+  origin: number;
+  applied: number[];
+}
+
+/**
+ * Resolve the tabs of `paragraphs` (under `root`) in rounds, not one paragraph
+ * at a time. Reading a rect after writing a width forces a layout, and per
+ * paragraph that costs one layout for every tabbed paragraph, each of them
+ * walking the whole tree: a long document with a thousand tabs (a table of
+ * contents, a table of authorities) paid minutes. Here every start edge is read,
+ * then every tab collapses, then each round reads the k-th tab of every
+ * paragraph and writes their widths, so a pass costs a few layouts however many
+ * paragraphs there are.
+ *
+ * Within a paragraph the order is the one Word has (a tab measures against the
+ * tabs before it). Across paragraphs it can differ in one case: paragraphs that
+ * share a formatting context with floats, where a line that grows above moves
+ * what a paragraph below runs beside. A final read-only check finds any tab
+ * that landed off what it is now asked for and resolves those paragraphs one at
+ * a time, top down, as before, so the result is the same either way.
+ */
+export function layoutTabParagraphs(root: HTMLElement, paragraphs: readonly HTMLElement[]): void {
   if (paragraphs.length === 0) return;
   const rootWidth = root.offsetWidth;
   const rootRect = root.getBoundingClientRect();
@@ -180,8 +223,32 @@ export function layoutTabStops(root: HTMLElement): void {
     zoom: rootWidth > 0 && rootRect.width > 0 ? rootRect.width / rootWidth : 1,
     edges: new Map(),
     glyphWidths: new Map(),
+    range: document.createRange(),
   };
-  for (const line of paragraphs) layoutParagraph(line, stopsByParagraph.get(line) ?? [], pass);
+  // Reads first, before any tab moves.
+  const jobs: TabJob[] = [];
+  for (const line of paragraphs) {
+    const parent = line.parentElement;
+    if (parent === null) continue;
+    const tabs = [...line.querySelectorAll<HTMLElement>(`[${TAB_ATTRIBUTE}]`)];
+    if (tabs.length === 0) continue;
+    const rtl = line.getAttribute("data-aared-direction") === "rtl";
+    const edges = startEdges(parent, pass);
+    jobs.push({ line, stops: stopsByParagraph.get(line) ?? [], tabs, rtl, origin: rtl ? edges.rtl : edges.ltr, applied: [] });
+  }
+  // Collapse first so each tab measures against the widths of those before it.
+  for (const job of jobs) collapseTabs(job);
+  for (let round = 0; ; round++) {
+    const live = jobs.filter((job) => job.tabs.length > round);
+    if (live.length === 0) break;
+    const plans = live.map((job) => planTab(job, round, pass));
+    live.forEach((job, index) => applyTab(job, round, plans[index]!, pass));
+  }
+  for (let attempt = 0; attempt < REPAIR_ROUNDS; attempt++) {
+    const moved = jobs.filter((job) => job.tabs.some((_, index) => Math.abs(planTab(job, index, pass).width - job.applied[index]!) > SETTLED_PX));
+    if (moved.length === 0) return;
+    for (const job of moved) resolveInOrder(job, pass);
+  }
 }
 
 function startEdges(parent: HTMLElement, pass: PassContext): StartEdges {
@@ -202,38 +269,56 @@ function nextCustomStop(stops: readonly DocxTabStop[], x: number): DocxTabStop |
   return stops.find((stop) => stop.pos * PX_PER_INCH > x + STOP_EPSILON_PX);
 }
 
-function layoutParagraph(line: HTMLElement, stops: readonly DocxTabStop[], pass: PassContext): void {
-  const parent = line.parentElement;
-  if (parent === null) return;
-  const tabs = [...line.querySelectorAll<HTMLElement>(`[${TAB_ATTRIBUTE}]`)];
-  if (tabs.length === 0) return;
-  const rtl = line.getAttribute("data-aared-direction") === "rtl";
-  const edges = startEdges(parent, pass);
-  const origin = rtl ? edges.rtl : edges.ltr;
-  const distanceFromStart = (rect: DOMRect): number => (rtl ? origin - rect.right / pass.zoom : rect.left / pass.zoom - origin);
-
-  // Collapse first so each tab measures against the widths of those before it.
-  for (const tab of tabs) {
+function collapseTabs(job: TabJob): void {
+  for (const tab of job.tabs) {
     tab.style.width = "0px";
-    tab.textContent = "";
-  }
-  for (const [index, tab] of tabs.entries()) {
-    const x = distanceFromStart(tab.getBoundingClientRect());
-    const custom = nextCustomStop(stops, x);
-    const stopPx = custom !== undefined
-      ? custom.pos * PX_PER_INCH
-      : (Math.floor(x / DEFAULT_TAB_PX + 1e-6) + 1) * DEFAULT_TAB_PX;
-    const align = custom?.align ?? "left";
-    const follow = align === "left" ? 0 : followingTextWidth(line, tab, tabs[index + 1], pass.zoom);
-    const width = Math.max(0, stopPx - x - (align === "center" ? follow / 2 : follow));
-    tab.style.width = `${width}px`;
-    if (custom?.leader !== undefined && width > MIN_LEADER_PX) fillLeader(tab, LEADER_GLYPHS[custom.leader], width, pass);
+    if (tab.firstChild !== null) tab.textContent = "";
   }
 }
 
+/** What a tab is asked for: its width, and a leader glyph with the font to sample it in when one fits. */
+interface TabPlan {
+  width: number;
+  leader: string | undefined;
+  font: string | undefined;
+}
+
+/**
+ * The width tab `index` of a paragraph is asked for where it sits now; reads
+ * only, the leader's computed font included, because a style read after the
+ * previous tab's writes recalculates every style in the document.
+ */
+function planTab(job: TabJob, index: number, pass: PassContext): TabPlan {
+  const { zoom } = pass;
+  const tab = job.tabs[index]!;
+  const rect = tab.getBoundingClientRect();
+  const x = job.rtl ? job.origin - rect.right / zoom : rect.left / zoom - job.origin;
+  const custom = nextCustomStop(job.stops, x);
+  const stopPx = custom !== undefined
+    ? custom.pos * PX_PER_INCH
+    : (Math.floor(x / DEFAULT_TAB_PX + 1e-6) + 1) * DEFAULT_TAB_PX;
+  const align = custom?.align ?? "left";
+  const follow = align === "left" ? 0 : followingTextWidth(pass.range, job.line, tab, job.tabs[index + 1], zoom);
+  const width = Math.max(0, stopPx - x - (align === "center" ? follow / 2 : follow));
+  const leader = custom?.leader !== undefined && width > MIN_LEADER_PX ? LEADER_GLYPHS[custom.leader] : undefined;
+  return { width, leader, font: leader === undefined ? undefined : getComputedStyle(tab).font };
+}
+
+function applyTab(job: TabJob, index: number, plan: TabPlan, pass: PassContext): void {
+  const tab = job.tabs[index]!;
+  job.applied[index] = plan.width;
+  tab.style.width = `${plan.width}px`;
+  if (plan.leader !== undefined) fillLeader(tab, plan.leader, plan.font!, plan.width, pass);
+}
+
+/** One paragraph on its own, each tab measured after those before it were written: Word's order, at a layout per tab. */
+function resolveInOrder(job: TabJob, pass: PassContext): void {
+  collapseTabs(job);
+  for (let index = 0; index < job.tabs.length; index++) applyTab(job, index, planTab(job, index, pass), pass);
+}
+
 /** Width of the text between a tab and the next one (or the line's end). */
-function followingTextWidth(line: HTMLElement, tab: HTMLElement, next: HTMLElement | undefined, zoom: number): number {
-  const range = document.createRange();
+function followingTextWidth(range: Range, line: HTMLElement, tab: HTMLElement, next: HTMLElement | undefined, zoom: number): number {
   range.setStartAfter(tab);
   if (next !== undefined) range.setEndBefore(next);
   else range.setEndAfter(line.lastChild ?? tab);
@@ -241,11 +326,11 @@ function followingTextWidth(line: HTMLElement, tab: HTMLElement, next: HTMLEleme
 }
 
 /** Fill a spacer with as many leader glyphs as fit, hugging the text that follows. */
-function fillLeader(tab: HTMLElement, glyph: string, width: number, pass: PassContext): void {
+function fillLeader(tab: HTMLElement, glyph: string, font: string, width: number, pass: PassContext): void {
   tab.style.whiteSpace = "pre";
   tab.style.userSelect = "none";
   tab.setAttribute("aria-hidden", "true");
-  const key = `${getComputedStyle(tab).font}|${glyph}`;
+  const key = `${font}|${glyph}`;
   let glyphPx = pass.glyphWidths.get(key);
   if (glyphPx === undefined) {
     // Sample the advance with the box shrink-wrapped to its content.

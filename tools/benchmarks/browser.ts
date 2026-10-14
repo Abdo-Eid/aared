@@ -328,13 +328,15 @@ export async function runBrowserPass(
     for (const [index, pending] of wanted.entries()) {
       const started = performance.now();
       const cell = await measureCell(browser, server, pending.fixture, pending.renderer);
+      // Keep the attempted cell even when its timeout wedges Chrome. Dropping
+      // it makes a failed comparison disappear from both artifacts and reports.
+      cells.push(cell);
       if (cell.status === "error" && isWedged(cell.error)) {
         // Stop here: measuring on would only record the same failure for every cell after it.
         options.log(`[${index + 1}/${wanted.length}] ${cell.fixture} × ${cell.renderer}: ${cell.error} — the browser stopped answering; stopping the pass`);
         remaining = wanted.slice(index).map((c) => `${c.fixture}:${c.renderer}`);
         break;
       }
-      cells.push(cell);
       const seconds = ((performance.now() - started) / 1000).toFixed(0);
       const open = cell.open_warm_ms === null ? "—" : `${cell.open_warm_ms.median.toFixed(0)} ms`;
       const heap = cell.heap_open_kb === null ? "—" : `${cell.heap_open_kb.median.toFixed(0)} KB`;

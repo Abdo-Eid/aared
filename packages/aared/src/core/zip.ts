@@ -21,7 +21,7 @@ import type { AaredErrorCode } from "./errors.js";
  * `unsupported-feature`; an encrypted entry is `encrypted-document`.
  */
 function zipError(code: AaredErrorCode, message: string): AaredError {
-  return new AaredError(code, `aared/core: ${message}`);
+  return new AaredError(code, `@aared/viewer/core: ${message}`);
 }
 
 export interface ZipEntry {

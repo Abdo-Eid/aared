@@ -5,6 +5,8 @@ import { themeForColorMap } from "../src/core/theme.js";
 import { parseXml } from "../src/core/xml.js";
 import { readDrawingTheme } from "../src/core/theme.js";
 import type { TableModel } from "../src/core/model.js";
+import { readFileSync } from "node:fs";
+import { withPart } from "./mutate.js";
 
 const COVERAGE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 const PRODUCTION = `${import.meta.dir}/../../../fixtures/post-production-review.pptx`;
@@ -194,6 +196,32 @@ describe("PPTX table fidelity", () => {
     expect(unknown.cellFills[0]?.[0]).toBeUndefined();
   });
 
+  // Ground truth: probe table-style-guids. One table per Medium Style 2 id was inserted
+  // through PowerPoint's COM object model, so PowerPoint wrote its own definition of all
+  // seven into `ppt/tableStyles.xml`, kept unchanged as pptx-table-styles-oracle.xml.
+  test("builds each Medium Style 2 id exactly as PowerPoint stores it", async () => {
+    const stored = readFileSync(new URL("./pptx-table-styles-oracle.xml", import.meta.url), "utf8");
+    const pkg = await withPart("pptx-coverage.pptx", "ppt/tableStyles.xml", () => stored);
+    const { theme, tableStyles } = await indexPptx(pkg);
+    expect(tableStyles.size).toBe(7);
+    const frame = (styleId: string) => parseXml(
+      `<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="9" name="Styled"/></p:nvGraphicFramePr>` +
+        `<p:xfrm><a:off x="0" y="0"/><a:ext cx="9144000" cy="2743200"/></p:xfrm>` +
+        `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"><a:tbl>` +
+        `<a:tblPr firstRow="1" bandRow="1"><a:tableStyleId>${styleId}</a:tableStyleId></a:tblPr><a:tblGrid><a:gridCol w="9144000"/></a:tblGrid>` +
+        ["Head", "Odd", "Even"].map((text) =>
+          `<a:tr h="914400"><a:tc><a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>${text}</a:t></a:r></a:p></a:txBody><a:tcPr/></a:tc></a:tr>`).join("") +
+        `</a:tbl></a:graphicData></a:graphic></p:graphicFrame>`,
+    );
+    for (const id of tableStyles.keys()) {
+      // The deck's stored definition against the one aared builds when a deck stores none.
+      const fromPowerPoint = parseTable(frame(id), theme, new Map(tableStyles));
+      const built = parseTable(frame(id), theme, new Map());
+      expect(fromPowerPoint?.cellFills[0]?.[0], id).toMatchObject({ kind: "solid" });
+      expect(built, id).toEqual(fromPowerPoint);
+    }
+  });
+
   // Ground truth: probe en-us-arabic-run (PowerPoint's own PDF).
   test("keeps Arabic words in written order around ASCII punctuation in a left-to-right en-US run only", async () => {
     const pkg = await OpcPackage.open(await Bun.file(COVERAGE).arrayBuffer());
@@ -205,6 +233,13 @@ describe("PPTX table fidelity", () => {
       ).paragraphs[0]!.runs.map((run) => ({ text: run.text, ...(run.ltrRun === true ? { ltrRun: true } : {}) }));
 
     expect(runs("واحد + اثنان", "en-US")).toEqual([{ text: "واحد " }, { text: "+", ltrRun: true }, { text: " اثنان" }]);
+    // PowerPoint's PDF of "واحد <mark> اثنان" in an en-US run (LanguageID 1033) in a
+    // left-to-right paragraph, one text box per ASCII punctuation mark: every one of
+    // these 31 kept the first word left of the second, in written order.
+    const escape = (text: string): string => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    for (const mark of ["-", ":", "/", ".", ",", "!", "?", '"', "'", "*", "&", "%", "#", "@", "|", ";", "=", "<", ">", "[", "]", "{", "}", "_", "~", "$", "^", "\\", "+", "(", ")"]) {
+      expect(runs(escape(`واحد ${mark} اثنان`), "en-US"), mark).toEqual([{ text: "واحد " }, { text: mark, ltrRun: true }, { text: " اثنان" }]);
+    }
     expect(runs("واحد (اثنان) ثالثة", "en-US")).toEqual([
       { text: "واحد " }, { text: "(", ltrRun: true }, { text: "اثنان" }, { text: ")", ltrRun: true }, { text: " ثالثة" },
     ]);

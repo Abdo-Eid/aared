@@ -63,7 +63,7 @@ describe("checking a unit index", () => {
     for (const index of [1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(codeOf(() => assertUnitIndex("aared/test", index, 3))).toBe("invalid-argument");
     }
-    expect(() => assertUnitIndex("aared/element", 0.5, 3)).toThrow("aared/element: a unit index must be a whole number");
+    expect(() => assertUnitIndex("@aared/viewer/element", 0.5, 3)).toThrow("@aared/viewer/element: a unit index must be a whole number");
   });
 });
 

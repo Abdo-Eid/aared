@@ -46,10 +46,16 @@ const BUILTIN_FORMATS: Record<number, string> = {
 // Ids the file may name without defining a code. Excel resolves every one of
 // them from the reader's regional settings, so there is no single right
 // answer (probe `xlsx-builtin-numfmt`, Excel 16: on an AED, dd/mm/yyyy machine
-// 5-8 and 42/44 read "AED", 14, 22 and the dates below read dd/mm/yyyy, and
-// 32-35 read h:mm:ss). aared shows the ECMA-376 (en-US) code for the currency
+// 5-8 and 42/44 read "AED", 14, 22 and the dates below read dd/mm/yyyy, 15 and
+// 16 pad the day (`dd-mmm-yy`, `dd-mmm`), 37-40 show negatives with a minus
+// sign instead of parentheses, and 32-35 read h:mm:ss; the full table Excel
+// resolved is test/xlsx-numfmt-builtin-oracle.json). aared shows the ECMA-376 (en-US) code for the currency
 // and accounting ids and the short date or time for the East Asian era-date
 // and time ids, which is what Excel itself falls back to outside those locales.
+// 15, 16 and 37-40 stay in the table above with their ECMA-376 codes
+// (`d-mmm-yy`, `d-mmm`, parenthesised negatives), although the probe's machine
+// padded the day and signed the negatives; the oracle test skips them as
+// regional.
 const REGIONAL_FORMATS: Record<number, string> = {
   5: '"$"#,##0_);("$"#,##0)',
   6: '"$"#,##0_);[Red]("$"#,##0)',

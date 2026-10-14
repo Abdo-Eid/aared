@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import { OpcPackage } from "../src/core/opc.js";
 import { indexPptx, parsePptxLayout, parsePptxSlide } from "../src/core/pptx.js";
-import { open } from "../src/pptx/index.js";
+import { open, readSlideModel } from "../src/pptx/renderer.js";
 
 const COVERAGE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
 const PRODUCTION = `${import.meta.dir}/../../../fixtures/post-production-review.pptx`;
@@ -113,10 +113,10 @@ const SECOND_MASTER = { a1: 14, a2: 15, b: 16, hidden: 17 };
 
 const namesOf = (graphics: Array<{ name: string }>): string[] => graphics.map((graphic) => graphic.name);
 
-test("slides on one layout carry the same `layout` object from SlideHandle.read()", async () => {
+test("private slide model reads share one layout object", async () => {
   const deck = await open(await Bun.file(COVERAGE).arrayBuffer());
   try {
-    const [first, second, other] = await Promise.all([SECOND_MASTER.a1, SECOND_MASTER.a2, SECOND_MASTER.b].map((index) => deck.slides.get(index).read()));
+    const [first, second, other] = await Promise.all([SECOND_MASTER.a1, SECOND_MASTER.a2, SECOND_MASTER.b].map((index) => readSlideModel(deck.slides.get(index))));
     expect(first!.layout).toBeDefined();
     expect(second!.layout).toBe(first!.layout);
     expect(other!.layout).not.toBe(first!.layout);

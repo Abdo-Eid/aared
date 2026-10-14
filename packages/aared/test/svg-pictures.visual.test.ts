@@ -38,8 +38,8 @@ visual("visual DOM output: SVG pictures paint the vector part, falling back to t
   const drawingPng = base64(await xlsxPkg.readPart(drawing.fallbackMediaId!));
 
   const [pptxModule, xlsxModule] = await Promise.all([
-    browserModule(`${import.meta.dir}/../src/pptx/index.ts`),
-    browserModule(`${import.meta.dir}/../src/xlsx/index.ts`),
+    browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`),
+    browserModule(`${import.meta.dir}/../src/xlsx/renderer.ts`),
   ]);
   await withVisualPage({
     modules: { "/pptx.mjs": pptxModule, "/xlsx.mjs": xlsxModule },

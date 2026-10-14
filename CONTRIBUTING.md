@@ -15,15 +15,28 @@ live in one place each, so they don't drift.
   agents alike: the rules, commands, package map, testing rule, commit
   conventions and the ground-truth probe for OOXML questions.
 - Some things are out of scope by design (editing, canvas text, PDF); see
-  the first rules in `AGENTS.md` and
-  [`docs/Notes.md`](docs/Notes.md).
+  the first rules in `AGENTS.md` and the
+  [architecture boundaries](docs/ARCHITECTURE.md#purpose-and-boundaries).
 
 ## Set up and check your work
 
 Setup and commands are in the README's [Develop](README.md#develop) section
-(Bun required). Before opening a pull request, run `bun run typecheck`,
-`bun test` and `bun run build`. Docs-only changes are exempt; see
+(Bun required). Build first with `bun run build`, then run `bun run typecheck`
+and `bun test`. Browser regressions also need production site/bench builds and
+the applicable visual checks; prerequisites live in [Tools](tools/README.md).
+There is no separate push/PR CI, so run the applicable checks locally before
+pushing or opening a pull request. Docs-only changes are exempt; see
 [`AGENTS.md § Testing rule`](AGENTS.md#testing-rule).
+
+## Docs and the agent-facing copies
+
+The docs site also emits plain Markdown (`llms.txt`, `start.md`, `api.md`,
+`llms-full.txt`) and the npm package ships a README. These are generated or
+mirrored from `site/src/content/docs/` — edit the MDX, then rebuild the site;
+never hand-edit a generated file. The package README is the first thing an
+agent reads after `package.json`, so keep its recipes and boundaries honest;
+`packages/aared/test/package-metadata.test.ts` checks its imports against the
+real export map.
 
 ## Fixtures
 
@@ -35,9 +48,24 @@ Fixtures are authored in real Office, never generated. Follow the rules in
 Follow [`AGENTS.md § Commits`](AGENTS.md#commits). In the description, say
 what was missing, what a consumer can do now, which formats it touches, and
 how you proved it ([`AGENTS.md § Capability delivery`](AGENTS.md#capability-delivery)).
-Update the doc that owns each fact you changed (the Docs map in `AGENTS.md`).
-Record post-baseline changes in [`CHANGELOG.md`](CHANGELOG.md); rationale and
-native findings belong in [`docs/Notes.md`](docs/Notes.md).
+Update the doc that owns each fact you changed (the "Where to read" table in
+`AGENTS.md`).
+Follow [Documentation discipline](AGENTS.md#documentation-discipline):
+
+- [`CHANGELOG.md`](CHANGELOG.md) has no entries through the first release.
+  Start using Unreleased for user-visible changes after that release; do not
+  backfill development history.
+- [`docs/Notes.md`](docs/Notes.md) preserves experience that is expensive to
+  rediscover, not a journal of contributions. Add evidence-backed Office
+  findings, subtle failures or non-obvious rejected approaches when useful;
+  routine changes, status reports and validation logs do not need an entry.
+
+## Releases
+
+Follow [Published releases](AGENTS.md#published-releases). Only the maintainer
+publishes npm with 2FA. Pages deploys on published stable GitHub Releases from
+annotated version tags on `main`, not ordinary pushes; the deployment validates
+the tagged checkout before publishing the site.
 
 ## License
 

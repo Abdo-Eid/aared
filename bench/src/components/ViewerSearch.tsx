@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { SearchNavigationState } from "aared/preview";
-import type { UsePreviewReady } from "aared/react";
+import type { SearchNavigationState } from "@aared/viewer/preview";
+import type { UsePreviewReady } from "@aared/viewer/react";
 import { ChevronDown, ChevronUp, Search } from "lucide-react";
 import { IconButton } from "./chrome";
 

@@ -18,7 +18,7 @@ visual("visual DOM output: master and layout graphics paint under the slide, and
     const slide = await parsePptxSlide(pkg, deck, index);
     return { ...slide, layout: slide.layoutId === undefined ? undefined : await parsePptxLayout(pkg, deck, slide.layoutId) };
   }));
-  const renderer = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const renderer = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   const page = `<!doctype html><style>html,body{margin:0}#host{width:1000px;height:600px}</style><main id="host"></main><script type="module">
         import { render } from "/pptx.mjs";
         window.paint = async (model) => {

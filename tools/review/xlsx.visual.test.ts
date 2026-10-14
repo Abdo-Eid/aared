@@ -1,6 +1,6 @@
 import { expect } from "bun:test";
 import { join } from "node:path";
-import { open } from "../../packages/aared/src/xlsx/index.js";
+import { open, readSheetModel } from "../../packages/aared/src/xlsx/renderer.js";
 import type { SheetModel } from "../../packages/aared/src/core/model.js";
 import { buildXlsxRenderer, hostPage } from "../../packages/aared/test/xlsx-review.js";
 import { visual, within, withVisualPage } from "../../packages/aared/test/harness.js";
@@ -13,7 +13,7 @@ visual("visual XLSX review bands keep RTL and deep LTR cells inside the capture 
   ] as const;
   const models: SheetModel[] = [];
   try {
-    for (const plan of plans) models.push(await workbook.sheets.get(plan.sheet).read());
+    for (const plan of plans) models.push(await readSheetModel(workbook.sheets.get(plan.sheet)));
   } finally { workbook.close(); }
   const module = await buildXlsxRenderer();
   await withVisualPage({

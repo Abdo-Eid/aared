@@ -3,7 +3,7 @@
  * programs, and presets outside the worker's hand-coded fast path.
  *
  * The session `import()`s this module only when a slide actually carries
- * deferred geometry. The preset table is not imported here: `aared/pptx`
+ * deferred geometry. The preset table is not imported here: `@aared/viewer/pptx`
  * imports it statically and hands it to its session at open, so the table
  * ships only in the pptx entry and the flat worker never contains it.
  */

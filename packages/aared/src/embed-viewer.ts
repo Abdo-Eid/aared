@@ -6,7 +6,7 @@
  * entry, so nothing here is public API; the handle's public types live in
  * `preview/index.ts`.
  *
- * It is a thin delegator over `aared/pptx`, `aared/xlsx` and `aared/docx`:
+ * It is a thin delegator over `@aared/viewer/pptx`, `@aared/viewer/xlsx` and `@aared/viewer/docx`:
  * every format still parses in the Worker and paints real DOM/SVG on the main
  * thread; nothing here re-implements a renderer.
  */
@@ -50,7 +50,7 @@ const MAX_ZOOM = 3;
 
 /** What `openViewer()` takes. */
 export interface OpenViewerInput {
-  /** The public entry the caller used (`aared/preview`, `aared/element`): every message starts with it. */
+  /** The public entry the caller used (`@aared/viewer/preview`, `@aared/viewer/element`): every message starts with it. */
   scope: string;
   source: Source;
   target: HTMLElement;

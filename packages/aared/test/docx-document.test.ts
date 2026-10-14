@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { AaredError } from "../src/core/index.js";
 import { open } from "../src/docx/index.js";
+import { sectionsOf, type DocxDocument } from "../src/docx/renderer.js";
 import { rejection } from "./harness.js";
 
 const DOCX_FIXTURE = `${import.meta.dir}/../../../fixtures/docx-coverage.docx`;
@@ -12,10 +13,10 @@ test("opens a document with sections and headings resolved together", async () =
     expect(document.info.format).toBe("docx");
     const sections = document.sections.list();
     expect(sections.length).toBeGreaterThan(0);
-    expect(document.sections.get(0)).toBe(sections[0]!);
+    expect(document.sections.get(0)).toEqual(sections[0]!);
     for (const section of sections) {
-      expect(Array.isArray(section.root)).toBe(true);
-      expect(section.properties.page.orientation).toMatch(/portrait|landscape/);
+      expect("root" in section).toBe(false);
+      expect(section.page.orientation).toMatch(/portrait|landscape/);
     }
     const headings = document.headings.list();
     expect(headings.length).toBeGreaterThan(0);
@@ -34,8 +35,8 @@ test("per-section page setup stays on the sections; info names the one unit", as
   try {
     const [body, appendix] = document.sections.list();
     // Portrait A4 body, landscape appendix.
-    expect(body!.properties.page.orientation).toBe("portrait");
-    expect(appendix!.properties.page.orientation).toBe("landscape");
+    expect(body!.page.orientation).toBe("portrait");
+    expect(appendix!.page.orientation).toBe("landscape");
     // A section is not a unit, and a document has no single size.
     expect(document.info.count).toBe(1);
     expect(document.info.titles).toHaveLength(1);
@@ -98,7 +99,7 @@ test("serves image media through the media collection", async () => {
         else visit(child);
       }
     };
-    for (const section of document.sections.list()) visit(section.root);
+    for (const section of sectionsOf(document as DocxDocument)) visit(section.root);
     expect(mediaIds.length).toBeGreaterThan(0);
     const bytes = await document.media.get(mediaIds[0]!);
     expect(bytes.byteLength).toBeGreaterThan(0);
@@ -112,7 +113,7 @@ test("serves image media through the media collection", async () => {
 test("rejects non-DOCX files and closes cleanly", async () => {
   const error = await rejection(open(await Bun.file(PPTX_FIXTURE).arrayBuffer()));
   expect((error as AaredError).code).toBe("unsupported-format");
-  expect(error.message).toContain("aared/pptx");
+  expect(error.message).toContain("@aared/viewer/pptx");
 
   const document = await open(await Bun.file(DOCX_FIXTURE).arrayBuffer());
   try {

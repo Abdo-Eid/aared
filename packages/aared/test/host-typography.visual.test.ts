@@ -86,7 +86,7 @@ visual("visual DOM output: PPTX host typography does not leak into inherited tex
   const deck = await indexPptx(pkg);
   const slides = await Promise.all(deck.slideParts.map((_, index) => parsePptxSlide(pkg, deck, index)));
   const { slide } = await findCoverageSlide(slides, "rtl-table");
-  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   const preflight = await preflightCss();
   for (const usePreflight of [false, true]) {
     const page = `<!doctype html><style>
@@ -129,7 +129,7 @@ visual("visual DOM output: XLSX host typography does not leak into inherited tex
   const workbook = await readWorkbook(pkg);
   const sheets = await Promise.all(workbook.sheets.map((_, index) => parseXlsxSheet(pkg, workbook, index)));
   const target = (await findCoverageSheet(sheets, "rtl-grid")).sheet;
-  const module = await browserModule(`${import.meta.dir}/../src/xlsx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/xlsx/renderer.ts`);
   const preflight = await preflightCss();
   for (const usePreflight of [false, true]) {
     const page = `<!doctype html><style>
@@ -170,7 +170,7 @@ ${SNAPSHOT_SCRIPT}
 visual("visual DOM output: DOCX host typography does not leak into flow or layout text", async () => {
   const pkg = await OpcPackage.open(await Bun.file(DOCX_PATH).arrayBuffer());
   const sections = await parseDocxSections(pkg, await indexDocx(pkg));
-  const module = await browserModule(`${import.meta.dir}/../src/docx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/docx/renderer.ts`);
   const preflight = await preflightCss();
   const payload = JSON.stringify(sections);
   for (const usePreflight of [false, true]) {

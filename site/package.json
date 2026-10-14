@@ -5,20 +5,27 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "astro build && bun run llms",
+    "llms": "bun scripts/generate-llms-txt.ts",
     "preview": "astro preview",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@astrojs/mdx": "^8.0.1",
     "@astrojs/react": "^6.0.6",
-    "aared": "workspace:*",
+    "@aared/viewer": "workspace:*",
     "astro": "^7.3.3",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@types/mdast": "^4",
     "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.4"
+    "@types/react-dom": "^19.2.4",
+    "remark-mdx": "^3",
+    "remark-parse": "^11",
+    "remark-stringify": "^11",
+    "unified": "^11",
+    "unist-util-visit": "^5"
   }
 }

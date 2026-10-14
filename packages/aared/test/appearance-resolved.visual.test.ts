@@ -35,7 +35,7 @@ visual("visual DOM output: group paint and effects use native DOM/SVG composite 
     if (slide.elements.some(e => e.name === "Group fill inheritance")) { model = slide; break; }
   }
   expect(model).toBeDefined();
-  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   await withVisualPage({
     modules: { '/pptx.mjs': module },
     page: `<!doctype html><style>html,body{margin:0;overflow:hidden}#host{width:960px}</style><main id="host"></main>

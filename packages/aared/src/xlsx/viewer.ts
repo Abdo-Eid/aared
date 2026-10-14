@@ -1,5 +1,5 @@
 /** Fixed-format preview: this route has no dependency on sibling renderers. */
-import { render, XlsxDocument } from "./index.js";
+import { render, XlsxDocument } from "./renderer.js";
 import { openViewer } from "../embed-viewer.js";
 import type { ViewerRoute } from "../format-route.js";
 import type { PreviewInput, XlsxPreview } from "../preview/index.js";
@@ -29,5 +29,5 @@ export const route: ViewerRoute = {
 /** Open, render and navigate a XLSX file; destroy closes the document too. */
 export async function preview(input: XlsxPreviewInput): Promise<XlsxPreview> {
   const { source, target, ...options } = input;
-  return await openViewer({ scope: "aared/xlsx", source, target, options, route }) as XlsxPreview;
+  return await openViewer({ scope: "@aared/viewer/xlsx", source, target, options, route }) as XlsxPreview;
 }

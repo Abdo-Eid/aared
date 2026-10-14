@@ -174,10 +174,10 @@ const api = {
     const t0 = performance.now();
     const doc =
       format === "pptx"
-        ? await (await import("aared/pptx")).open(bytes)
+        ? await (await import("@aared/viewer/pptx")).open(bytes)
         : format === "xlsx"
-          ? await (await import("aared/xlsx")).open(bytes)
-          : await (await import("aared/docx")).open(bytes);
+          ? await (await import("@aared/viewer/xlsx")).open(bytes)
+          : await (await import("@aared/viewer/docx")).open(bytes);
     const openMs = performance.now() - t0;
     try {
       // A workbook is searched one sheet at a time; the whole file is what is timed here, so every sheet is.

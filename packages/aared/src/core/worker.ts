@@ -1,6 +1,6 @@
 import { OpcPackage, officeFormatOf } from "./opc.js";
 import type { OfficeFormat } from "./opc.js";
-import { indexPptx, parsePptxLayout, parsePptxSlide, readPptxSlideText } from "./pptx.js";
+import { indexPptx, parsePptxLayout, parsePptxSlide, parseSlideNotes, readPptxSlideText } from "./pptx.js";
 import type { PptxDeck } from "./pptx.js";
 import { indexXlsx, readWorkbook } from "./xlsx/workbook.js";
 import type { XlsxWorkbook, XlsxWorkbookIndex } from "./xlsx/workbook.js";
@@ -76,7 +76,7 @@ function serializeError(error: unknown): SerializedError {
   // `cause` (name, message, stack) for the bug report.
   const original = error instanceof Error ? error : new Error(String(error));
   return {
-    message: `aared/core: the viewer failed while reading this file (${original.name}: ${original.message})`,
+    message: `@aared/viewer/core: the viewer failed while reading this file (${original.name}: ${original.message})`,
     code: "internal",
     cause: { name: original.name, message: original.message, ...(original.stack === undefined ? {} : { stack: original.stack }) },
   };
@@ -88,7 +88,7 @@ function serializeError(error: unknown): SerializedError {
  * `isAbort()` swallow it silently.
  */
 function sessionClosed(): AaredError {
-  return new AaredError("closed", "aared/core: document session is closed");
+  return new AaredError("closed", "@aared/viewer/core: document session is closed");
 }
 
 function formatOf(pkg: OpcPackage, signal?: AbortSignal): OfficeFormat | undefined {
@@ -232,7 +232,7 @@ function checkRange(range: UnitRange): void {
   ) {
     throw new AaredError(
       "invalid-range",
-      `aared/core: invalid sheet window (${start.row}:${start.col} to ${end.row}:${end.col}); rows and columns are zero-based with start at or before end`,
+      `@aared/viewer/core: invalid sheet window (${start.row}:${start.col} to ${end.row}:${end.col}); rows and columns are zero-based with start at or before end`,
     );
   }
 }
@@ -246,7 +246,7 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
       throwIfAborted(signal);
       const format = formatOf(pkg, signal);
       if (format === undefined) {
-        throw new AaredError("unsupported-format", "aared/core: unsupported Office document format");
+        throw new AaredError("unsupported-format", "@aared/viewer/core: unsupported Office document format");
       }
       throwIfAborted(signal);
       postResponse(request.sessionId, request.requestId, format);
@@ -256,7 +256,7 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
       const pkg = await OpcPackage.open(request.bytes, signal);
       throwIfAborted(signal);
       const format = formatOf(pkg, signal);
-      if (format === undefined) throw new AaredError("unsupported-format", "aared/core: unsupported Office document format");
+      if (format === undefined) throw new AaredError("unsupported-format", "@aared/viewer/core: unsupported Office document format");
       const base = { pkg, mediaParts: seedMediaParts(pkg) };
       let session: FormatSession;
       let info: DocumentInfo;
@@ -290,7 +290,7 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
         if (request.range !== undefined) {
           throw new AaredError(
             "unsupported-feature",
-            "aared/core: range reads are an XLSX-only feature; a slide always resolves whole",
+            "@aared/viewer/core: range reads are an XLSX-only feature; a slide always resolves whole",
           );
         }
         unit = await pptxSlideOf(session, request.index, signal);
@@ -307,16 +307,16 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
         if (request.range !== undefined) {
           throw new AaredError(
             "unsupported-feature",
-            "aared/core: range reads are an XLSX-only feature; a DOCX document always resolves whole",
+            "@aared/viewer/core: range reads are an XLSX-only feature; a DOCX document always resolves whole",
           );
         }
         if (request.index !== 0) {
           throw new AaredError(
             "not-found",
-            `aared/core: unit index ${request.index} is outside this single-document file`,
+            `@aared/viewer/core: unit index ${request.index} is outside this single-document file`,
           );
         }
-        // Not cached: `aared/docx` reads unit 0 once at open and the page keeps
+        // Not cached: `@aared/viewer/docx` reads unit 0 once at open and the page keeps
         // the sections, so the Worker keeps nothing the page already holds.
         unit = await parseDocxSections(session.pkg, session.index, signal);
       }
@@ -333,13 +333,19 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
     if (request.type === "text") {
       // Only the words cross to the page: a slide's are read without building
       // its model; a sheet's are taken from the parsed sheet the Worker keeps.
-      let text: string[] | SheetText;
+      let text: string[] | SheetText | { paragraphs: string[]; notes?: string };
       if (session.format === "pptx") {
         text = await readPptxSlideText(session.pkg, session.deck, request.index, signal);
+        // Public data reads opt into the notes body. Search must neither
+        // inflate notes parts nor turn a text request into a slide model read.
+        if (request.includeNotes === true) {
+          const notes = await parseSlideNotes(session.pkg, session.deck.slideParts[request.index]!, signal);
+          text = { paragraphs: text, ...(notes === undefined ? {} : { notes }) };
+        }
       } else if (session.format === "xlsx") {
         text = sheetText(await xlsxSheetOf(session, request.index, false, signal));
       } else {
-        throw new AaredError("unsupported-feature", "aared/core: a DOCX document has no text read; its page holds the whole document");
+        throw new AaredError("unsupported-feature", "@aared/viewer/core: a DOCX document has no text read; its page holds the whole document");
       }
       throwIfAborted(signal);
       postResponse(request.sessionId, request.requestId, text);
@@ -348,10 +354,10 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
 
     if (request.type === "layout") {
       if (session.format !== "pptx") {
-        throw new AaredError("unsupported-feature", "aared/core: layouts are a PPTX-only feature");
+        throw new AaredError("unsupported-feature", "@aared/viewer/core: layouts are a PPTX-only feature");
       }
       if (!session.pkg.hasPart(request.layoutId) || !session.pkg.contentTypeOf(request.layoutId)?.endsWith("slideLayout+xml")) {
-        throw new AaredError("not-found", `aared/core: "${request.layoutId}" is not a slide layout in this presentation`);
+        throw new AaredError("not-found", `@aared/viewer/core: "${request.layoutId}" is not a slide layout in this presentation`);
       }
       const layout = await parsePptxLayout(session.pkg, session.deck, request.layoutId, signal);
       throwIfAborted(signal);
@@ -366,7 +372,7 @@ async function handle(request: Exclude<WorkerRequest, { type: "cancel" | "close"
     if (!session.mediaParts.has(request.mediaId) || !session.pkg.hasPart(request.mediaId)) {
       throw new AaredError(
         "media-error",
-        `aared/core: media "${request.mediaId}" is not available in this ${session.format.toUpperCase()} document`,
+        `@aared/viewer/core: media "${request.mediaId}" is not available in this ${session.format.toUpperCase()} document`,
       );
     }
     // `readPart` returns a buffer this worker owns outright: transfer it as is.

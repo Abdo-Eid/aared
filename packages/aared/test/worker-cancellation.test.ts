@@ -122,7 +122,7 @@ test("worker cancellation stops after a controlled inflate checkpoint without an
     Object.defineProperty(globalThis, "DecompressionStream", { configurable: true, value: originalDecompressionStream });
     if (bug.ok) throw new Error("expected the broken decompressor to fail the read");
     expect(bug.error.code).toBe("internal");
-    expect(bug.error.message).toBe("aared/core: the viewer failed while reading this file (RangeError: decompressor exploded)");
+    expect(bug.error.message).toBe("@aared/viewer/core: the viewer failed while reading this file (RangeError: decompressor exploded)");
     expect(bug.error.message).not.toContain("re-saving");
     expect(bug.error.cause).toMatchObject({ name: "RangeError", message: "decompressor exploded" });
     expect(bug.error.cause?.stack).toContain("decompressor exploded");

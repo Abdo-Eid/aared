@@ -2,7 +2,8 @@
  * Render a DOCX through aared's layout mode in a headless WebView and write one
  * 96 dpi PNG per physical page — the same pixel size the native driver gives Word's
  * pages, so the two pair directly. Reads the source model and serves the
- * normal package build; run `bun run build` first.
+ * production-configured internal painter through the shared browser harness.
+ * Run `bun run build` first for the optional frozen absent-font resolver.
  *
  *   bun tools/review/docx/capture.ts fixtures/docx-coverage.docx tools/out/docx/bidi
  *   bun tools/review/docx/capture.ts fixtures/docx-coverage.docx tools/out/docx/bidi --absent-fonts
@@ -17,7 +18,7 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { absentFontsBrowserModule, serveDocxFromDist } from "./browser-server.js";
+import { absentFontsBrowserModule, serveDocxReview } from "./browser-server.js";
 import { outputDirectory } from "../../shared/office.js";
 import { reviewOutputRoot } from "../../shared/paths.js";
 import { within } from "../../../packages/aared/test/harness.js";
@@ -33,7 +34,7 @@ const outputDir = outputArg === undefined ? outputDirectory(fixtureArg, reviewOu
 await mkdir(outputDir, { recursive: true });
 
 const extraModules = absent ? { "/absent-fonts.mjs": await absentFontsBrowserModule() } : {};
-const { server, sections } = await serveDocxFromDist(resolve(fixtureArg), `<!doctype html><style>html,body{margin:0;background:#fff;overflow:hidden}#host{position:absolute;left:0;top:0}</style><main id="host"></main><script type="module">
+const { server, sections } = await serveDocxReview(resolve(fixtureArg), `<!doctype html><style>html,body{margin:0;background:#fff;overflow:hidden}#host{position:absolute;left:0;top:0}</style><main id="host"></main><script type="module">
       import { render } from "/docx.mjs";
       ${absent ? 'import "/absent-fonts.mjs";' : ""}
       window.paint = async (model) => {

@@ -86,6 +86,8 @@ export interface Benchmarks {
   machine: Record<string, string | number> | null;
   /** Which renderers were measured when, when that differs (aared re-measured, competitors once); empty otherwise. */
   measured?: string;
+  /** The same for the size results, which are merged apart from the run results and can differ in date and browser. */
+  sizeMeasured?: string;
   method: { runs: number; warmupDiscarded: number; coldRuns: number; memoryRuns: number; navigationRuns: number };
   size: SizeSummary | null;
   run: RunCell[];

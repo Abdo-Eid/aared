@@ -44,9 +44,16 @@ on a Windows terminal runs the same native automation commands in place
 scoped command approval where a sandbox blocks them; changing shells or
 disabling the whole sandbox is unnecessary.
 
-The build command emits the renderer and shared chunks that the browser capture
-serves directly. This avoids `Bun.build()`'s inferred-root lookup, which fails
-with `EBADF` on this Windows checkout. The Word export writes
+The build command emits shared/font assets used by capture. Preflight checks
+`dist/core/index.mjs` and the served chunks' relative imports
+before native export replaces the output folder. Missing or incomplete package
+builds report an instruction to run `bun run build` without replacing captures.
+The browser capture bundles the private renderer through the shared harness with
+production flags,
+because the public entry no longer accepts review models. The older public-entry
+bundle had an inferred-root `EBADF` trap on this checkout; bundling the relocated
+internal renderer succeeds (Notes §135). This is not a dist-to-source fallback.
+The Word export writes
 `word-page-N.png`, `word-spans.json`, `word-words.json` and `word-export.json`
 into the gitignored `out/` directory. The aared capture writes
 `aared-page-N.png` and `aared-words.json` beside them; review each image pair

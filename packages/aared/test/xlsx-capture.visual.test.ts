@@ -3,7 +3,7 @@ import { pngSize, serveVisual, visual, within } from "./harness.js";
 import { createHash } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { open } from "../src/xlsx/index.js";
+import { open, readSheetModel } from "../src/xlsx/renderer.js";
 import type { SheetModel } from "../src/core/model.js";
 import { ABSENT_FONTS, absentFontsModule } from "./absent-fonts.js";
 import { buildXlsxRenderer, hostPage, writeReview, type AaredPart, type AaredSheet } from "./xlsx-review.js";
@@ -83,7 +83,7 @@ visual("visual review: XLSX pairs Excel print with aared full sheets and parts",
         let media: Record<string, string>;
         try {
           for (const handle of workbook.sheets.list()) {
-            models.push(await handle.read());
+            models.push(await readSheetModel(handle));
           }
           names.push(...workbook.info.titles);
           expect(workbook.info.format).toBe("xlsx");

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { usePreview } from "aared/react";
-import { isAbort, messageFor } from "aared/core";
+import { usePreview } from "@aared/viewer/react";
+import { isAbort, messageFor } from "@aared/viewer/core";
 import { defaultResolver } from "aared-fonts";
 import type { BenchTheme } from "../adapters";
 import type { DocMeta } from "../lib/doc";
@@ -30,7 +30,7 @@ function benchAppearance(theme: BenchTheme) {
  * open-speed `ms`, an explicit theme (never `"system"`, so the preview
  * follows the bench chrome instead of the OS preference), and DOCX layout
  * mode. Layout pages, the heading outline, and DOCX zoom fit all come
- * straight from `viewer.docx` (`aared/preview`'s real API) — not scraped
+ * straight from `viewer.docx` (`@aared/viewer/preview`'s real API) — not scraped
  * from the painted DOM, which only ever reflected render output, never
  * the parsed document itself.
  */

@@ -1,8 +1,8 @@
 /**
  * Shared core: the types, errors, and appearance contracts every format
- * entrypoint (`aared/pptx`, `aared/xlsx`, `aared/docx`) is built from.
+ * entrypoint (`@aared/viewer/pptx`, `@aared/viewer/xlsx`, `@aared/viewer/docx`) is built from.
  *
- * `aared/core` opens nothing itself — each format exposes its own typed
+ * `@aared/viewer/core` opens nothing itself — each format exposes its own typed
  * `open()` (see the per-format modules). What lives here is the shared
  * API grammar: sources, options, collections, appearance, media, and the
  * single typed error model. Worker machinery is internal (`./session.js`,
@@ -19,47 +19,7 @@ export type DocumentFormat = "pptx" | "xlsx" | "docx";
  */
 export { fontAlias } from "./typography.js";
 
-export type { ChartSpecModel } from "./chart/spec.js";
-
-export type {
-  BoundsModel,
-  ChartModel,
-  GroupModel,
-  DrawingEffectsModel,
-  LinearGradientFillModel,
-  LinearGradientStopModel,
-  LocalViewBoxModel,
-  PatternFillModel,
-  PictureFillModel,
-  PictureModel,
-  PictureTileModel,
-  PathGradientFillModel,
-  RelativeRectModel,
-  RenderWarning,
-  ShapeGeometryModel,
-  ShapeFillModel,
-  ShapeModel,
-  SizeModel,
-  SolidFillModel,
-  SlideElementModel,
-  SlideLayoutModel,
-  SlideModel,
-  StrokeModel,
-  TableCellModel,
-  TableModel,
-  TableRowModel,
-  TextBodyModel,
-  InsetsModel,
-  TextBodyVerticalAlign,
-  TextAlign,
-  TextDirection,
-  TextAutofitMode,
-  TextParagraphModel,
-  TextRunModel,
-  TextWrappingMode,
-  TransformModel,
-  UnsupportedShapeFillModel,
-} from "./model.js";
+export type { RenderWarning } from "./model.js";
 
 /**
  * What `open()` knows before anything renders. Every per-unit array is
@@ -76,7 +36,7 @@ export interface DocumentInfo {
   count: number;
   /**
    * One label per unit. PPTX: `"Slide N"` (`open()` reads no slide part, so
-   * real titles come from `slide.read()`); XLSX: sheet names; DOCX: the
+   * semantic reads return text without title identity); XLSX: sheet names; DOCX: the
    * document title from its properties, else `"Document"`. The DOCX heading
    * outline lives on `document.headings`.
    */
@@ -111,51 +71,6 @@ export interface CellRef {
   row: number;
   col: number;
 }
-
-/** Canonical spreadsheet/document models live in `./model.js`; this module re-exports them. */
-export type {
-  CellRange,
-  CellModel,
-  RowModel,
-  SheetModel,
-  SheetRangeModel,
-  XlsxCellType,
-  XlsxCellStyleModel,
-  SheetDrawingModel,
-  SheetPictureModel,
-  SheetChartModel,
-  SheetUnsupportedModel,
-  DocxPageBreakNode,
-  DocxParagraphNode,
-  DocxHeadingNode,
-  DocxTableNode,
-  DocxTableCellNode,
-  DocxTableRowNode,
-  DocxImageNode,
-  DocxChartNode,
-  DocxDrawingNode,
-  DocxTextBoxNode,
-  DocxImageAnchor,
-  DocxAnchorPosition,
-  DocxListNode,
-  DocxListItemNode,
-  DocxFootnoteNode,
-  DocxUnsupportedNode,
-  DocxParagraphLayout,
-  DocxParagraphBorder,
-  DocxParagraphBorders,
-  DocxTabStop,
-  DocxInlineImage,
-  DocxTableEdge,
-  DocxTableBorders,
-  DocumentSection,
-  FlowNode,
-  SectionBreakType,
-  SectionPageGeometry,
-  SectionPageMargins,
-  HeaderFooterParts,
-  SectionProperties,
-} from "./model.js";
 
 export type { AaredErrorCode } from "./errors.js";
 export { AaredError, isAaredError, isAbort, messageFor } from "./errors.js";

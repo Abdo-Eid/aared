@@ -22,7 +22,7 @@ export async function runTools(argv: string[]): Promise<number> {
     }
     case "bench": return runScript("benchmarks/measure.ts", command.args);
     case "inspect": return runScript("inspect/core.ts", [command.file, ...(command.output === undefined ? [] : [command.output]), ...(command.bench ? ["bench"] : [])]);
-    case "check": return runScript("checks/consumer-build.ts", []);
+    case "check": return runScript("checks/consumer-build.ts", command.package === undefined ? [] : ["--package", command.package]);
     case "doctor": {
       const { doctor } = await import("./cli/doctor.js");
       await doctor();

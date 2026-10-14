@@ -2,13 +2,13 @@ import { expect, test } from "bun:test";
 
 const API_PATH = `${import.meta.dir}/../../../site/src/content/docs/api.mdx`;
 const MODULES = {
-  "aared/core": `${import.meta.dir}/../src/core/index.ts`,
-  "aared/pptx": `${import.meta.dir}/../src/pptx/index.ts`,
-  "aared/xlsx": `${import.meta.dir}/../src/xlsx/index.ts`,
-  "aared/docx": `${import.meta.dir}/../src/docx/index.ts`,
-  "aared/preview": `${import.meta.dir}/../src/preview/index.ts`,
-  "aared/react": `${import.meta.dir}/../src/react/index.ts`,
-  "aared/element": `${import.meta.dir}/../src/element/index.ts`,
+  "@aared/viewer/core": `${import.meta.dir}/../src/core/index.ts`,
+  "@aared/viewer/pptx": `${import.meta.dir}/../src/pptx/index.ts`,
+  "@aared/viewer/xlsx": `${import.meta.dir}/../src/xlsx/index.ts`,
+  "@aared/viewer/docx": `${import.meta.dir}/../src/docx/index.ts`,
+  "@aared/viewer/preview": `${import.meta.dir}/../src/preview/index.ts`,
+  "@aared/viewer/react": `${import.meta.dir}/../src/react/index.ts`,
+  "@aared/viewer/element": `${import.meta.dir}/../src/element/index.ts`,
 } as const;
 
 function exportedNames(source: string): string[] {
@@ -47,13 +47,13 @@ test("API reference names every public package export", async () => {
 test("API reference callable examples resolve to public implementations", async () => {
   const [api, core, pptx, xlsx, docx, preview, react, element] = await Promise.all([
     Bun.file(API_PATH).text(),
-    Bun.file(MODULES["aared/core"]).text(),
-    Bun.file(MODULES["aared/pptx"]).text(),
-    Bun.file(MODULES["aared/xlsx"]).text(),
-    Bun.file(MODULES["aared/docx"]).text(),
-    Bun.file(MODULES["aared/preview"]).text(),
-    Bun.file(MODULES["aared/react"]).text(),
-    Bun.file(MODULES["aared/element"]).text(),
+    Bun.file(MODULES["@aared/viewer/core"]).text(),
+    Bun.file(MODULES["@aared/viewer/pptx"]).text(),
+    Bun.file(MODULES["@aared/viewer/xlsx"]).text(),
+    Bun.file(MODULES["@aared/viewer/docx"]).text(),
+    Bun.file(MODULES["@aared/viewer/preview"]).text(),
+    Bun.file(MODULES["@aared/viewer/react"]).text(),
+    Bun.file(MODULES["@aared/viewer/element"]).text(),
   ]);
   for (const callable of [
     "open",
@@ -102,7 +102,6 @@ test("API reference callable examples resolve to public implementations", async 
     "viewer.xlsx.focus",
     "viewer.destroy",
     "element.open",
-    "paintSlide",
   ]) {
     expect(api, `documented callable ${callable}`).toContain(callable);
   }
@@ -112,18 +111,21 @@ test("API reference callable examples resolve to public implementations", async 
   expect(core).not.toContain("export async function open");
   expect(pptx).toContain("export async function open");
   expect(pptx).toContain("export async function render");
-  expect(pptx).toContain("read(options?: ReadOptions): Promise<SlideModel>");
+  expect(pptx).toContain("read(options?: ReadOptions): Promise<SlideText>");
   expect(pptx).toContain("close(): void");
   expect(xlsx).toContain("export async function open");
   expect(xlsx).toContain("export async function render");
-  expect(xlsx).toContain("read(options?: SheetReadOptions): Promise<SheetRangeModel>");
-  expect(xlsx).toContain("goToCell(cell: string): Promise<void>");
+  expect(xlsx).toContain("read(options?: SheetReadOptions): Promise<SheetData>");
+  const xlsxRenderer = await Bun.file(`${import.meta.dir}/../src/xlsx/renderer.ts`).text();
+  const docxRenderer = await Bun.file(`${import.meta.dir}/../src/docx/renderer.ts`).text();
+  const pptxRenderer = await Bun.file(`${import.meta.dir}/../src/pptx/renderer.ts`).text();
+  expect(xlsxRenderer).toContain("goToCell(cell: string): Promise<void>");
   expect(docx).toContain("export async function open");
   expect(docx).toContain("export async function render");
   expect(docx).toContain("search(query: string, options?: ReadOptions): Promise<DocxSearchMatch[]>");
-  expect(docx).toContain("goToHeading(target: string | number): Promise<void>");
-  expect(docx).toContain("goToPage(index: number): Promise<void>");
-  expect(pptx).toContain("export function paintSlide(input: PaintSlideInput)");
+  expect(docxRenderer).toContain("goToHeading(target: string | number): Promise<void>");
+  expect(docxRenderer).toContain("goToPage(index: number): Promise<void>");
+  expect(pptx).not.toContain("export function paintSlide");
   expect(preview).toContain("export async function preview(");
   expect(preview).toContain("export async function detect(");
   expect(preview).toContain("goTo(index: number): Promise<void>");
@@ -137,9 +139,9 @@ test("API reference callable examples resolve to public implementations", async 
   expect(preview).toContain("search(query: string, options?: PreviewSearchOptions): Promise<XlsxSearchMatch[]>");
   expect(preview).toContain("search(query: string, options?: PreviewSearchOptions): Promise<DocxSearchMatch[]>");
   expect(preview).toContain("setAppearance(appearance: Appearance): void");
-  expect(pptx).toContain("setAppearance(");
-  expect(xlsx).toContain("setAppearance(");
-  expect(docx).toContain("setAppearance(");
+  expect(pptxRenderer).toContain("setAppearance(");
+  expect(xlsxRenderer).toContain("setAppearance(");
+  expect(docxRenderer).toContain("setAppearance(");
   // The hook's result changes nothing itself: changes go through `viewer`.
   expect(react).toContain("retry: () => void;");
   expect(react).not.toContain("goTo: (index: number) => Promise<void>;");
@@ -165,9 +167,11 @@ test("removed APIs stay out of every consumer page", async () => {
     Bun.file(API_PATH).text(),
     Bun.file(`${import.meta.dir}/../../../site/src/content/docs/start.mdx`).text(),
     Bun.file(`${import.meta.dir}/../../../site/src/partials/choosing-a-layer.mdx`).text(),
+    Bun.file(`${import.meta.dir}/../../../site/src/content/docs/playground.mdx`).text(),
+    Bun.file(`${import.meta.dir}/../../../site/src/pages/index.astro`).text(),
   ]);
   for (const [index, page] of pages.entries()) {
-    const where = ["api", "start", "choosing-a-layer"][index]!;
+    const where = ["api", "start", "choosing-a-layer", "playground", "home"][index]!;
     // §122: viewers lend restricted content, never the document's lifecycle.
     expect(page, where).not.toContain("viewer.document");
     expect(page, where).not.toMatch(/viewer\.document\b/);
@@ -177,5 +181,9 @@ test("removed APIs stay out of every consumer page", async () => {
     expect(page, where).not.toMatch(/docx\.goToSearchMatch/);
     // §121: the Worker takes exactly one object-form input.
     expect(page, where).not.toMatch(/worker:\s*(?:create|async|\(\))/);
+    expect(page, where).not.toMatch(/\b(?:paintSlide|SlideModel|SheetRangeModel|CellModel|DocumentSection|FlowNode|ChartSpecModel)\b/);
+    expect(page, where).not.toMatch(/model access|model reads|already-read model|bare\s+model/);
+    expect(page, where).not.toMatch(/;\s*model\s*}/);
+    expect(page, where).not.toMatch(/picture\s+gallery/);
   }
 });

@@ -6,7 +6,7 @@ import { PX_PER_INCH } from "../core/units.js";
  * its placed bounds: translate the child origin out, then scale. Missing or
  * degenerate bounds/child space map to `""` (identity) rather than a guessed
  * scale. Pure so the scale math is unit-testable without a DOM. Internal —
- * not part of the `aared/pptx` public surface.
+ * not part of the `@aared/viewer/pptx` public surface.
  */
 export function groupChildMapping(bounds: BoundsModel | undefined, childSpace: BoundsModel | undefined): string {
   if (bounds === undefined || childSpace === undefined) return "";

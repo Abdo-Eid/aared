@@ -1,37 +1,55 @@
 name: Deploy docs
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+  release:
+    types: [published]
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
+    if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pages: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.4.3
+
+      - name: Verify the release tag and main ancestry
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          version=$(bun -p 'JSON.parse(await Bun.file("packages/aared/package.json").text()).version')
+          test "$RELEASE_TAG" = "v$version"
+          test "$(git cat-file -t "refs/tags/$RELEASE_TAG")" = tag
+          git fetch origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor HEAD refs/remotes/origin/main
 
       - run: bun install --frozen-lockfile
 
-      # The workspace package the site imports (aared) ships only a `dist/`
+      # The workspace package the site imports (@aared/viewer) ships only a `dist/`
       # `exports` map — no source fallback — so the library packages must
       # build before the site does.
       - run: bun run build
-
+      - run: bun run typecheck
+      - run: bun test
       - run: bun run docs:build
+      - run: bun run --cwd bench build
 
       - uses: actions/configure-pages@v5
 
@@ -42,6 +60,10 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

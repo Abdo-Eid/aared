@@ -57,7 +57,7 @@ function sourceTypeError(type: string | null): AaredError | undefined {
   if (type === null || isFormat(type)) return undefined;
   return new AaredError(
     "unsupported-format",
-    `aared/element: unsupported type "${type}"; use "pptx", "xlsx", "docx", or omit type for detection`,
+    `@aared/viewer/element: unsupported type "${type}"; use "pptx", "xlsx", "docx", or omit type for detection`,
   );
 }
 
@@ -117,7 +117,7 @@ export interface AaredViewer {
 
 declare global {
   interface HTMLElementTagNameMap {
-    /** Typed by `aared/element`: `document.createElement("aared-viewer")` and `querySelector("aared-viewer")` give an `AaredViewer`. */
+    /** Typed by `@aared/viewer/element`: `document.createElement("aared-viewer")` and `querySelector("aared-viewer")` give an `AaredViewer`. */
     "aared-viewer": AaredViewer;
   }
 }
@@ -312,9 +312,9 @@ export class AaredViewer extends ElementBase {
       const typeError = sourceTypeError(type);
       if (typeError !== undefined) throw typeError;
       const source = this.#source();
-      if (source === null) throw new AaredError("invalid-state", "aared/element: provide a src URL or file before calling open()");
+      if (source === null) throw new AaredError("invalid-state", "@aared/viewer/element: provide a src URL or file before calling open()");
       const viewer = await openAutoViewer({
-        scope: "aared/element",
+        scope: "@aared/viewer/element",
         source,
         target: this.#page,
         options: {
@@ -396,7 +396,7 @@ export class AaredViewer extends ElementBase {
         if (type === null || type === viewer.format) return;
         const error = sourceTypeError(type) ?? new AaredError(
           "unsupported-format",
-          `aared/element: type "${type}" does not match the open document's format "${viewer.format}"`,
+          `@aared/viewer/element: type "${type}" does not match the open document's format "${viewer.format}"`,
         );
         this.#close();
         this.#report(error);
@@ -520,7 +520,7 @@ export class AaredViewer extends ElementBase {
 
   /** Report only a built-in action; public calls throw/reject to their caller. */
   #report(cause: unknown): void {
-    reportBackgroundError(this, "aared/element", cause);
+    reportBackgroundError(this, "@aared/viewer/element", cause);
   }
 
   /** The OS scheme flipped: the chrome (`data-aared-theme`, the stage) follows a `system` theme. The viewer follows it by itself. */

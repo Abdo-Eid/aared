@@ -1,7 +1,7 @@
 /**
  * Internal worker session machinery shared by the format entrypoints.
  *
- * This module is deliberately NOT re-exported from `aared/core`: it is
+ * This module is deliberately NOT re-exported from `@aared/viewer/core`: it is
  * plumbing, not public API (the docs-parity test only scans entrypoint
  * files, and these names must stay out of the API reference page). Each format's
  * `open()` builds a `WorkerSession` and wraps it in format-native
@@ -13,6 +13,7 @@
 
 import type { DocumentFormat, DocumentInfo, FontResolver, MediaCollection, MediaOptions, Source, WorkerInit } from "./index.js";
 import type { SlideLayoutModel } from "./model.js";
+import type { SlideText } from "../pptx/data.js";
 import type { SerializedError, SheetText, UnitRange, WorkerCall, WorkerRequest, WorkerResponse, WorkerResult } from "./rpc.js";
 import { AaredError, abortError, isAbort, throwIfAborted } from "./errors.js";
 import { collectDeferredGeometry, collectStrings } from "./collect.js";
@@ -29,6 +30,8 @@ export interface UnitRequestOptions {
   signal?: AbortSignal;
   /** XLSX-only: numeric window previously validated from an A1 reference. */
   range?: UnitRange;
+  /** Data-only reads do not request fonts or evaluate page-side geometry. */
+  resolveResources?: boolean;
 }
 
 interface PendingRequest {
@@ -45,13 +48,13 @@ function closedError(scope: string): AaredError {
 }
 
 /**
- * The Worker only knows it is `aared/core`; the caller opened through
- * `aared/pptx` (or `xlsx`, `docx`, `preview`, `element`). Its failures read in
+ * The Worker only knows it is `@aared/viewer/core`; the caller opened through
+ * `@aared/viewer/pptx` (or `xlsx`, `docx`, `preview`, `element`). Its failures read in
  * the caller's entrypoint, like every main-thread error. Cancellation keeps
  * its one wording on both sides of the Worker.
  */
 function rescope(message: string, scope: string): string {
-  return message.startsWith("aared/core:") ? `${scope}:${message.slice("aared/core:".length)}` : message;
+  return message.startsWith("@aared/viewer/core:") ? `${scope}:${message.slice("@aared/viewer/core:".length)}` : message;
 }
 
 /** A Worker failure as the caller sees it: always an `AaredError` (the Worker typed it), in the caller's scope. */
@@ -403,7 +406,7 @@ let nextSessionId = 1;
 
 /**
  * Internal byte normalization shared by `WorkerSession.open`,
- * `WorkerSession.detectFormat`, `aared/preview` and `<aared-viewer>` (the
+ * `WorkerSession.detectFormat`, `@aared/viewer/preview` and `<aared-viewer>` (the
  * facades normalize once so URL sources are fetched exactly once across
  * detect + open, and fail with the same `network-error` everywhere).
  * `onProgress` reports bytes as they arrive — streamed for a URL, once before
@@ -604,7 +607,7 @@ export class WorkerSession {
     source: Source,
     options?: OpenSessionOptions,
   ): Promise<WorkerSession> {
-    const scope = `aared/${format}`;
+    const scope = `@aared/viewer/${format}`;
     const session = await WorkerSession.open(scope, source, options);
     try {
       session.assertFormat(format);
@@ -621,7 +624,7 @@ export class WorkerSession {
       const detected = this.info.format;
       throw new AaredError(
         "unsupported-format",
-        `aared/${format}: expected ${FORMAT_NOUN[format]}; detected "${detected}". Open it with aared/${detected} instead`,
+        `@aared/viewer/${format}: expected ${FORMAT_NOUN[format]}; detected "${detected}". Open it with @aared/viewer/${detected} instead`,
       );
     }
   }
@@ -653,17 +656,21 @@ export class WorkerSession {
       this.bridge.request<T>(this.sessionId, call, options?.signal),
       options?.signal,
     );
-    await Promise.all([this.resolveFonts(model, options?.signal), this.resolveGeometry(model, options?.signal)]);
+    if (options?.resolveResources !== false) {
+      await Promise.all([this.resolveFonts(model, options?.signal), this.resolveGeometry(model, options?.signal)]);
+    }
     if (this.closed) throw closedError(this.scope);
     if (options?.signal?.aborted) throw abortError();
     return model;
   }
 
   /** Search's read of one unit: its words only (`TextRequest`), so no fonts, geometry or model to resolve. */
-  text<T extends string[] | SheetText>(index: number, options?: { signal?: AbortSignal }): Promise<T> {
+  text<T extends string[] | SheetText | SlideText>(index: number, options?: { signal?: AbortSignal; includeNotes?: boolean }): Promise<T> {
     if (this.closed) return Promise.reject(closedError(this.scope));
     if (options?.signal?.aborted === true) return Promise.reject(abortError());
-    return this.whileOpen(this.bridge.request<T>(this.sessionId, { type: "text", index }, options?.signal), options?.signal);
+    return this.whileOpen(this.bridge.request<T>(this.sessionId, {
+      type: "text", index, ...(options?.includeNotes === true ? { includeNotes: true } : {}),
+    }, options?.signal), options?.signal);
   }
 
   media(mediaId: string, options?: MediaOptions): Promise<ArrayBuffer> {
@@ -789,7 +796,7 @@ export class WorkerSession {
 
   /**
    * Evaluate the geometry the worker deferred (custGeom, and presets beyond
-   * its hand-coded fast path) against the preset table `aared/pptx` supplied
+   * its hand-coded fast path) against the preset table `@aared/viewer/pptx` supplied
    * at open. The evaluator is imported only when a model actually needs it —
    * never from the flat worker bundle. An evaluator that fails to load leaves
    * the worker's visible fallback in place rather than failing the slide.

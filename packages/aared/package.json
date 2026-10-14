@@ -1,10 +1,18 @@
 {
-  "name": "aared",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@aared/viewer",
+  "version": "0.1.0",
   "description": "Client-side previewer for PPTX, XLSX and DOCX — Arabic/RTL-correct, view-only.",
   "license": "Apache-2.0",
   "author": "Abdulhamed Eid <https://github.com/Abdo-Eid>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Abdo-Eid/aared.git",
+    "directory": "packages/aared"
+  },
+  "homepage": "https://abdo-eid.github.io/aared/",
+  "bugs": {
+    "url": "https://github.com/Abdo-Eid/aared/issues"
+  },
   "type": "module",
   "sideEffects": [
     "./dist/element/index.mjs",
@@ -44,6 +52,9 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "peerDependencies": {
     "react": ">=18"
   },

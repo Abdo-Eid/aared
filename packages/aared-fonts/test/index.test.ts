@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fontAlias } from "aared/core";
+import { fontAlias } from "@aared/viewer/core";
 import {
   ARABIC_SCRIPT_FALLBACKS,
   ARABIC_UNICODE_RANGE,

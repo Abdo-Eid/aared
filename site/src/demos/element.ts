@@ -1,4 +1,4 @@
-import "aared/element";
+import "@aared/viewer/element";
 import type { DemoOutcome } from "../lib/demo-frame.js";
 
 /**
@@ -7,7 +7,7 @@ import type { DemoOutcome } from "../lib/demo-frame.js";
  */
 export function runElementDemo(host: HTMLElement, source: string | File): Promise<DemoOutcome> {
   host.replaceChildren();
-  // Typed by `aared/element`: an `AaredViewer`, with each event's `detail` typed.
+  // Typed by `@aared/viewer/element`: an `AaredViewer`, with each event's `detail` typed.
   const viewer = document.createElement("aared-viewer");
   viewer.controls = true;
   const done = new Promise<DemoOutcome>((resolve, reject) => {

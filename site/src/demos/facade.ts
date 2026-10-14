@@ -1,4 +1,4 @@
-import { preview } from "aared/preview";
+import { preview } from "@aared/viewer/preview";
 import { viewerToolbar } from "../lib/demo-controls.js";
 import type { DemoOutcome } from "../lib/demo-frame.js";
 
@@ -8,8 +8,9 @@ import type { DemoOutcome } from "../lib/demo-frame.js";
  * workbook shows its sheet tabs by default. The bar is the handle's own
  * `next()`, `zoomIn()`, … behind buttons.
  */
-export async function runFacadeDemo(stage: HTMLElement, source: string | File): Promise<DemoOutcome> {
-  const viewer = await preview({ source, target: stage });
+export async function runFacadeDemo(stage: HTMLElement, source: string | File, signal: AbortSignal): Promise<DemoOutcome> {
+  // `signal` is page plumbing: a newer run in this stage cancels this one.
+  const viewer = await preview({ source, target: stage, signal });
   const unmountToolbar = viewerToolbar(stage, viewer);
   return {
     summary: { format: viewer.format, units: viewer.info.count },

@@ -257,11 +257,11 @@ visual("visual preview output: auto-detect renders PPTX, XLSX, and DOCX into one
     expect(cleared.children).toBe(0);
     // A destroyed viewer says so instead of resolving as if it moved.
     const afterDestroy = await view.evaluate(`handle.goTo(1).then(() => "resolved", (error) => ({ code: error.code, message: error.message }))`);
-    expect(afterDestroy).toEqual({ code: "closed", message: "aared/preview: goTo() was called after destroy()" });
+    expect(afterDestroy).toEqual({ code: "closed", message: "@aared/viewer/preview: goTo() was called after destroy()" });
     const nextAfterDestroy = await view.evaluate(`handle.next().then(() => "resolved", (error) => ({ code: error.code, message: error.message }))`);
-    expect(nextAfterDestroy).toEqual({ code: "closed", message: "aared/preview: next() was called after destroy()" });
+    expect(nextAfterDestroy).toEqual({ code: "closed", message: "@aared/viewer/preview: next() was called after destroy()" });
     const searchAfterDestroy = await view.evaluate(`handle.search("x").then(() => "resolved", (error) => ({ code: error.code, message: error.message }))`);
-    expect(searchAfterDestroy).toEqual({ code: "closed", message: "aared/preview: search() was called after destroy()" });
+    expect(searchAfterDestroy).toEqual({ code: "closed", message: "@aared/viewer/preview: search() was called after destroy()" });
 
     // XLSX: detected at 100%, sheet tabs shown by default (an embed has no
     // other way to switch sheets), places within the sheet on `xlsx`, tab

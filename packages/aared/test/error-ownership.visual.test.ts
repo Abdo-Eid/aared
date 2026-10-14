@@ -5,7 +5,7 @@ visual("public operations reject only; built-in tabs and element controls report
   const [preview, element, xlsx, worker] = await Promise.all([
     browserModule(`${import.meta.dir}/../src/preview/index.ts`),
     browserModule(`${import.meta.dir}/../src/element/index.ts`),
-    browserModule(`${import.meta.dir}/../src/xlsx/index.ts`),
+    browserModule(`${import.meta.dir}/../src/xlsx/renderer.ts`),
     browserModule(`${import.meta.dir}/../src/core/worker.ts`),
   ]);
   const formats = ["pptx", "xlsx", "docx"] as const;

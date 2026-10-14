@@ -43,6 +43,7 @@ wrappers: use the dispatcher or the grouped paths below.
 | Inspect parsed data | `bun run tools inspect <file> --out <json>` | Headless Bun; resolved units/layouts/media hashes, no Office |
 | Diagnose parser cost | `bun run tools inspect <file> --bench` | Headless parser timing/heap/RSS; not browser performance |
 | Check production packaging | `bun run tools check consumer-build` | Package build, installed bench dependencies, WebView; Vite/webpack production probes |
+| Check an npm tarball installation | `bun run tools check consumer-build --package <file.tgz>` | npm + the same build tools/WebView; clean install, all eight exports, declarations, format previews and React/element embeds |
 
 Each command accepts `--help`. Unknown flags, invalid selectors and
 format-inappropriate options fail before launching a backend. Measurements
@@ -69,8 +70,9 @@ files outside `fixtures/` use the same routes. The source file is not modified.
   PNG pairs by default; `--pair-full` adds full-sheet PNG pairs. Names are
   sanitized identically on both sides; collisions are rejected.
 - **DOCX:** native pages + exact span/word geometry, aared layout pages, token
-  comparison and review page. Requires `bun run build` first: this route serves
-  `dist/` because source bundling has a known Windows root-lookup problem.
+  comparison and review page. Build first for shared/font assets. Capture bundles
+  the private painter with production flags through the shared browser harness;
+  public format entries accept handles, not the review's transformed models.
   Page-count differences stay visible in the report, not hidden by an error.
   Token distances are diagnostic evidence, not a pass/fail fidelity threshold.
 - **All formats:** `--absent-fonts` adds a third column using the frozen
@@ -88,6 +90,10 @@ pixel equality. Format-specific details:
 **Outputs live in `tools/out/<format>/<file-stem>/`. Each export replaces that
 file's folder.** Same-stem files share a folder, as before; keep derived work
 elsewhere. There is no bulk cleanup command, and no automatic probe deletion.
+
+Build the production site with `bun run docs:build` before the visual suite:
+the project-Pages regression serves `site/dist` beneath `/aared/` and re-reads
+navigation and every format/integration's painted output.
 
 `bun run test:visual` selects visual **files**, not titles, so borrowed-content,
 search, lifecycle and theme tests run even without "visual" in their names.
@@ -122,6 +128,11 @@ renderer into a new run. Explicit fixture/renderer selectors are validated;
 missing explicitly selected fixtures fail rather than silently measuring none.
 Optional ungenerated large files are reported as skips in a normal open pass.
 
+A browser timeout retains that cell as an error and stops the pass before it
+can contaminate later comparisons. Follow the printed targeted continuation
+in a fresh process. A repeated timeout stays a disclosed failed comparison;
+continue the other pairs separately rather than dropping it from the report.
+
 Benchmarks are manual, on an idle machine on mains power. They are not routine
 verification or CI. The method and interpretation live in
 [docs/BENCHMARKS.md](../docs/BENCHMARKS.md).
@@ -146,6 +157,11 @@ Font PDFs/JSON/TSV are pinned research evidence, not ordinary benchmark runs.
 `probe/_common/office.py` and `strip_label.py` are live shared utilities.
 
 ## Verification and ownership
+
+The site keeps a parallel plain-Markdown surface for agents: `bun run --cwd site
+llms` (also run by `bun run docs:build`) regenerates `site/dist/llms.txt`,
+`start.md`, `api.md` and `llms-full.txt` from the site's own MDX. Never hand-edit
+those outputs; edit the MDX they come from.
 
 `bun run typecheck` includes `tools/tsconfig.json`; `bun run typecheck:tools`
 checks tools alone. It covers tracked TypeScript backends/research, excludes

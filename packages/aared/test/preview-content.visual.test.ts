@@ -78,7 +78,7 @@ visual("a viewer lends restricted content: reads, media and secondary renders wi
           result.mainMoved = viewer.index === 2;
           savedInput = content.slides.get(0);
           const model = await savedInput.read();
-          result.read = model.elements.length > 0;
+           result.read = model.paragraphs.length > 0 && !('elements' in model);
           result.stable = savedInput === content.slides.list()[0];
           facadeObjects.push(content.slides, ...content.slides.list());
           const pictureTarget = strip.appendChild(window.document.createElement('div'));
@@ -87,6 +87,14 @@ visual("a viewer lends restricted content: reads, media and secondary renders wi
         } else if (format === 'xlsx') {
           const data = await content.sheets.get(1).read({ range: 'A1:D8' });
           result.rows = data.rows.length;
+          let activation;
+          viewer.addEventListener('cellactivate', event => {activation = event.detail});
+          const activated = main.querySelector('td[data-aared-element="cell"]');
+          activated.dispatchEvent(new MouseEvent('dblclick', {bubbles:true}));
+          result.activation = structuredClone(activation);
+          activation.cell.formatted = 'changed-activation';
+          activated.dispatchEvent(new MouseEvent('dblclick', {bubbles:true}));
+          result.activationIsolated = activation.cell.formatted !== 'changed-activation';
           const target = strip.appendChild(window.document.createElement('div'));
           target.style.cssText = 'width:400px;height:200px';
           views.push(await render({ sheet: content.sheets.get(0), target, appearance: {spreadsheet: {sheetTabs: true, fill:false}} }));
@@ -181,6 +189,11 @@ visual("a viewer lends restricted content: reads, media and secondary renders wi
         expect(result.stable).toBe(true);
       } else if (format === "xlsx") {
         expect(result.rows).toBeGreaterThan(0);
+        expect(result.activation).toHaveProperty("cell.formatted");
+        expect(result.activation).not.toHaveProperty("model");
+        expect(result.activation).not.toHaveProperty("cell.style");
+        expect(result.activation).not.toHaveProperty("cell.conditional");
+        expect(result.activationIsolated).toBe(true);
         expect(result.secondView).toBe(true);
         expect(result.secondaryNavigation).toBe(true);
         expect(result.stable).toBe(true);

@@ -1,6 +1,6 @@
 /**
- * Shared typed errors: one error model across `aared/pptx`, `aared/xlsx`
- * and `aared/docx`, so the same code means the same thing in every
+ * Shared typed errors: one error model across `@aared/viewer/pptx`, `@aared/viewer/xlsx`
+ * and `@aared/viewer/docx`, so the same code means the same thing in every
  * format entrypoint. Headless-safe (no DOM, no Worker globals).
  */
 
@@ -23,7 +23,7 @@ export type AaredErrorCode =
 /**
  * The single error class thrown by every public `aared` API. `code` is
  * stable and documented; `message` stays human-readable and always
- * carries an `aared/<entrypoint>:` prefix naming the layer that failed.
+ * carries an `@aared/viewer/<entrypoint>:` prefix naming the layer that failed.
  *
  * Cancellation surfaces as an `AaredError` with `code: "aborted"` and
  * `name: "AbortError"`, so existing `AbortSignal` handling (`instanceof
@@ -50,13 +50,13 @@ export class AaredError extends Error {
 export function damagedDocument(detail: string): AaredError {
   return new AaredError(
     "invalid-document",
-    `aared/core: ${detail}. The file may be damaged: opening and re-saving it in Office usually repairs it`,
+    `@aared/viewer/core: ${detail}. The file may be damaged: opening and re-saving it in Office usually repairs it`,
   );
 }
 
 /** Internal cancellation error shared by the worker and the main-thread session. */
 export function abortError(): AaredError {
-  return new AaredError("aborted", "aared/core: request was cancelled");
+  return new AaredError("aborted", "@aared/viewer/core: request was cancelled");
 }
 
 /** Stop between synchronous parsing/decompression stages. */
@@ -68,7 +68,7 @@ export function throwIfAborted(signal?: AbortSignal): void {
  * `list[index]` for a collection's `get()`: an integer inside the list. A
  * whole number outside it is `not-found`, in the caller's own wording (each
  * unit names itself); anything that is not a whole number is the call itself
- * being wrong, `invalid-argument`, in `scope` (`aared/<entrypoint>`).
+ * being wrong, `invalid-argument`, in `scope` (`@aared/viewer/<entrypoint>`).
  */
 export function itemAt<T>(scope: string, list: readonly T[], index: number, outside: () => string): T {
   if (!Number.isInteger(index)) {
@@ -87,7 +87,7 @@ export function isAaredError(error: unknown): error is AaredError {
 /**
  * Canonical abort check: returns `true` for any error representing
  * cancellation — `DOMException` `AbortError`, typed `AaredError("aborted")`,
- * or a plain `Error` named `"AbortError"` (the form `aared/core` emits).
+ * or a plain `Error` named `"AbortError"` (the form `@aared/viewer/core` emits).
  *
  * Use this instead of `error instanceof DOMException && error.name === "AbortError"`,
  * which misses typed `AaredError` aborts on the main thread.
@@ -115,7 +115,7 @@ const MESSAGES: Record<AaredErrorCode, string> = {
 
 /**
  * A short, generic English line per code, for a UI that wants one sentence
- * without the `aared/...` scope prefix; a fallback for anything else. It
+ * without the `@aared/viewer/...` scope prefix; a fallback for anything else. It
  * deliberately drops the detail (`error.message` has it: which index, which
  * part, which HTTP status) and is not localized: a host that shows errors in
  * another language maps `error.code` to its own strings.

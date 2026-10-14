@@ -11,6 +11,7 @@ import type { Benchmarks } from "../lib/benchmarks.ts";
 import SiteHeader from "../components/SiteHeader.astro";
 import ThemeInit from "../components/ThemeInit.astro";
 import CopyButtons from "../components/CopyButtons.astro";
+import { sitePath } from "../lib/site-path.ts";
 import "../styles/tokens.css";
 import { codeThemes } from "../lib/code-themes.ts";
 import pptxUrl from "../../../fixtures/post-production-review.pptx?url";
@@ -31,15 +32,10 @@ const benchmarks = Object.values(
   import.meta.glob<Benchmarks>("../data/benchmarks.json", { eager: true, import: "default" }),
 )[0];
 
-// The install card under the live preview: the preview already shows the
-// code that uses aared, so this adds only how to get it. Nothing is on npm
-// yet, so it is the from-source route (Notes §56 measured the packed
-// tarball in webpack and Next.js apps).
+// The install card under the live preview: the preview already shows package
+// use, so this adds only the standard npm install command.
 const installCode = [
-  "git clone https://github.com/Abdo-Eid/aared && cd aared",
-  "bun install && bun run --cwd packages/aared build",
-  "cd packages/aared && npm pack      # writes aared-0.0.0.tgz",
-  "npm install <path>/aared-0.0.0.tgz # in your app",
+  "npm install @aared/viewer",
 ].join("\n");
 ---
 
@@ -52,7 +48,7 @@ const installCode = [
       name="description"
       content="Preview real PowerPoint, Excel, and Word files in the browser — built with Arabic in mind. Real DOM/SVG, never canvas."
     />
-    <link rel="icon" href="/aared-mark.svg" type="image/svg+xml" />
+    <link rel="icon" href={sitePath("/aared-mark.svg")} type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <ThemeInit />
@@ -72,8 +68,8 @@ const installCode = [
 
       <figure class="launch-video">
         <video
-          src="/media/aared-launch.webm"
-          poster="/media/aared-launch-poster.jpg"
+          src={sitePath("/media/aared-launch.webm")}
+          poster={sitePath("/media/aared-launch-poster.jpg")}
           controls
           muted
           playsinline
@@ -88,15 +84,18 @@ const installCode = [
         <LightTable fixtures={fixtures} />
       </div>
 
+      <p class="product-boundaries">
+        PPTX, XLSX and DOCX, processed in your browser. Local files are not uploaded.
+        View-only: no editing, conversion or formula recalculation.{' '}
+        <a href={sitePath("/api/#fidelity-is-part-of-the-contract")}>Fidelity and limits</a>.
+      </p>
+
       <section class="install" aria-labelledby="install-title" data-copyable>
         <h2 id="install-title">Install</h2>
         <Code code={installCode} lang="bash" themes={codeThemes} defaultColor={false} />
         <p class="install-note">
-          Not on npm yet. Until the first release (<code>0.1.0</code>,
-          published as <code>@aared/viewer</code>), build it from source and
-          install the packed file into your app; imports read{" "}
-          <code>aared/...</code> until then.{" "}
-          <a href="/start/">Start here</a>.
+          <a href={sitePath("/start/")}>Get started</a>, or read
+          <a href={sitePath("/llms.txt")}>plain Markdown</a> for agents.
         </p>
       </section>
 
@@ -121,7 +120,7 @@ const installCode = [
           </div>
         </figure>
         <p>
-          <span>Other previewers paint to <code>&lt;canvas&gt;</code>, so text becomes pixels and Arabic direction is lost.</span>
+          <span>Canvas-based previewers turn text into pixels, making text selection and Arabic fidelity harder to preserve.</span>
           <span><strong>aared</strong> renders real DOM/SVG, so the browser's own text engine gets shaping, bidi and RTL right.</span>
         </p>
       </section>
@@ -129,17 +128,17 @@ const installCode = [
       {benchmarks !== undefined && <NumbersSection data={benchmarks} />}
 
       <section class="next-steps">
-        <a class="next-card" href="/start/">
+        <a class="next-card" href={sitePath("/start/")}>
           <span class="next-card-kicker">set it up</span>
-          <span class="next-card-title">Start</span>
+          <span class="next-card-title">Getting started</span>
           <span class="next-card-body">Install, pick an entry, copy a recipe, fix the usual first problems.</span>
         </a>
-        <a class="next-card" href="/playground/">
+        <a class="next-card" href={sitePath("/playground/")}>
           <span class="next-card-kicker">try it</span>
           <span class="next-card-title">Playground</span>
           <span class="next-card-body">Try your own file in every way to use aared.</span>
         </a>
-        <a class="next-card" href="/api/">
+        <a class="next-card" href={sitePath("/api/")}>
           <span class="next-card-kicker">read it</span>
           <span class="next-card-title">API reference</span>
           <span class="next-card-body">Every function, option and event, in one page.</span>

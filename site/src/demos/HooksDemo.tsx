@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { usePreview } from "aared/react";
+import { usePreview } from "@aared/viewer/react";
+import { messageFor } from "@aared/viewer/core";
 import { viewerToolbar } from "../lib/demo-controls.js";
 import { describeUnits } from "../lib/demo-frame.js";
 
@@ -18,7 +19,7 @@ export function HooksDemo({ fixtures }: { fixtures: HooksFixture[] }) {
   const [choice, setChoice] = useState(0);
   const [file, setFile] = useState<File | null>(null);
   const source: string | File = file ?? fixtures[choice]?.url ?? "";
-  const { ref, status, viewer, error } = usePreview({ source });
+  const { ref, status, viewer, error, retry } = usePreview({ source });
   // A paging and zoom bar: the viewer's own `next()`, `zoomIn()`, … behind buttons.
   useEffect(() => {
     if (viewer === null || ref.current === null) return;
@@ -59,9 +60,9 @@ export function HooksDemo({ fixtures }: { fixtures: HooksFixture[] }) {
           </button>
         )}
       </div>
-      <p data-hooks-status>
+      <p data-hooks-status role={status === "error" ? "alert" : "status"}>
         {status === "loading" && "Loading…"}
-        {status === "error" && error.message}
+        {status === "error" && <>{messageFor(error)} <button type="button" onClick={retry}>Retry</button></>}
         {status === "ready" && `${viewer.format} · ${describeUnits(viewer.format, viewer.info.count)}`}
       </p>
       <div ref={ref} data-stage data-state={status} className="demo-stage" />

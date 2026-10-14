@@ -56,7 +56,7 @@ export const RENDERERS_BY_FORMAT: Readonly<Record<BenchFormat, readonly string[]
  * names each.
  */
 export const RENDERER_PACKAGES: Readonly<Record<string, string | Readonly<Record<BenchFormat, string>>>> = {
-  aared: "aared",
+  aared: "@aared/viewer",
   pptxviewjs: "pptxviewjs",
   silurus: "@silurus/ooxml",
   aiden0z: "@aiden0z/pptx-renderer",
@@ -586,6 +586,8 @@ async function main(): Promise<void> {
         measured: run === null ? "" : describeMeasured(run.file.cells, { date: run.file.timestamp, browser: String(run.file.machine.browser) }),
         method: { runs: METHOD.runs, warmupDiscarded: METHOD.warmupDiscarded, coldRuns: METHOD.coldRuns, memoryRuns: METHOD.memoryRuns, navigationRuns: METHOD.navigationRuns },
         size: size?.file.summary ?? null,
+        // The size file is merged separately from the run file (aared's rows re-measured over competitors'), so it names its own split.
+        sizeMeasured: size === null ? "" : describeMeasured(size.file.rows, { date: size.file.timestamp, browser: String(size.file.machine.browser) }),
         run: (run?.file.cells ?? []).filter((cell) => cell.status === "measured"),
         search: (search?.file.cells ?? []).filter((cell) => cell.status === "measured"),
       };

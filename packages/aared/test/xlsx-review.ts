@@ -34,7 +34,7 @@ export interface AaredSheet {
 
 /** The bundled XLSX renderer, served to the host page as `/xlsx.mjs`. */
 export async function buildXlsxRenderer(): Promise<string> {
-  return browserModule(join(import.meta.dir, "../src/xlsx/index.ts"));
+  return browserModule(join(import.meta.dir, "../src/xlsx/renderer.ts"));
 }
 
 /**

@@ -1,11 +1,11 @@
 /**
- * `aared/react`: React hooks over `aared/preview`.
+ * `@aared/viewer/react`: React hooks over `@aared/viewer/preview`.
  *
  * `usePreview()` mounts `preview({ source, target })` inside an effect and owns
  * the parts every embed otherwise rewrites: the `AbortController`, the
  * loading/ready/error state, `index`/`zoom` mirroring from handle events,
  * and full teardown (`destroy()`) on unmount or source change. It is the
- * same open → render → navigate → destroy boundary as `aared/preview`:
+ * same open → render → navigate → destroy boundary as `@aared/viewer/preview`:
  * `viewer.search()` finds places in the open document, and range reads and
  * media are available from the same opened viewer.content, without lifecycle access.
  *
@@ -19,7 +19,8 @@
  * `viewer.setZoom()`, and read their current values back from the result.
  * `appearance` updates in place when its values change, without reopening.
  * An imperative `setAppearance()` lasts until the option's values change.
- * Only `source`, `type`, `pagination` and `retry()` re-open the document.
+ * Only `source`, `type`, `pagination`, a `mediaResolver` appearing or going
+ * away, and `retry()` re-open the document.
  *
  * `usePptx()`, `useXlsx()`, and `useDocx()` are the same hook with `type`
  * asserted, so detection is skipped and only that format chunk is fetched
@@ -51,7 +52,9 @@ import type { DocxPreview, PptxPreview, PreviewHandle, PreviewOptions, XlsxPrevi
  * re-open the document when their value changes. The function options
  * (`fontResolver`, `mediaResolver`, `worker`) never re-open it on their own,
  * so inline functions are fine: a media resolver is called through the latest
- * one given, and `fontResolver` and `worker` are read at the next mount.
+ * one given, and `fontResolver` and `worker` are read at the next mount. The
+ * one exception is a `mediaResolver` that appears or goes away, which re-opens
+ * the document.
  */
 export interface UsePreviewOptions extends Omit<PreviewOptions, "signal"> {
   /** Previewed document. Must be referentially stable: a new identity
@@ -80,7 +83,10 @@ export type UsePreviewViewer<V extends PreviewHandle = PreviewHandle> = V extend
  */
 interface UsePreviewActions {
   /** Attach to the host element: `<div ref={ref} />`. The hook owns what
-   * is painted inside while mounted and clears it on teardown. */
+   * is painted inside while mounted and clears it on teardown. Render the
+   * host on the first commit: the mount runs once per `source`, option change
+   * or `retry()`, and does not notice a host attached later, so a host behind
+   * a condition that is false at first stays `"idle"` until one of those. */
   ref: RefObject<HTMLDivElement | null>;
   /** Re-run the current mount with the latest options (start values included). */
   retry: () => void;
@@ -148,7 +154,7 @@ function isCancellation(error: unknown, signal: AbortSignal): boolean {
 function asAaredError(failure: unknown): AaredError {
   if (failure instanceof AaredError) return failure;
   const detail = failure instanceof Error ? failure.message : String(failure);
-  return new AaredError("internal", `aared/react: ${detail}`, { cause: failure });
+  return new AaredError("internal", `@aared/viewer/react: ${detail}`, { cause: failure });
 }
 
 export function usePreview(options: UsePreviewOptions): UsePreviewResult {

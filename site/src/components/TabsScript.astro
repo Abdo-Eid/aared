@@ -5,20 +5,36 @@
      (TabsScript.astro?id=0 parses as a dangling `*/`). -->
 <script>
   for (const root of document.querySelectorAll("[data-tabs]")) {
-    const tabs = [...root.querySelectorAll("[data-tab]")];
+    const tabs = [...root.querySelectorAll<HTMLButtonElement>("[data-tab]")];
     const panels = [...root.querySelectorAll("[data-panel]")];
     const select = (name: string): void => {
       for (const tab of tabs) {
-        tab.setAttribute("aria-selected", String(tab.getAttribute("data-tab") === name));
+        const selected = tab.getAttribute("data-tab") === name;
+        tab.setAttribute("aria-selected", String(selected));
+        tab.tabIndex = selected ? 0 : -1;
       }
       for (const panel of panels) {
         panel.toggleAttribute("hidden", panel.getAttribute("data-panel") !== name);
       }
+      root.dispatchEvent(new Event("demo-tabchange"));
     };
     root.addEventListener("click", (event) => {
       const target = event.target as HTMLElement | null;
       const tab = target?.closest?.("[data-tab]");
       if (tab instanceof HTMLElement) select(tab.getAttribute("data-tab") ?? "");
+    });
+    root.addEventListener("keydown", (event) => {
+      if (!(event instanceof KeyboardEvent)) return;
+      const index = tabs.indexOf(event.target as HTMLButtonElement);
+      if (index < 0) return;
+      const to = event.key === "ArrowRight" ? (index + 1) % tabs.length
+        : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length
+        : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : -1;
+      if (to < 0) return;
+      event.preventDefault();
+      const tab = tabs[to]!;
+      select(tab.dataset.tab ?? "");
+      tab.focus();
     });
   }
 </script>

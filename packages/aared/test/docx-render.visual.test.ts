@@ -558,6 +558,118 @@ visual("visual DOM output: DOCX layout pages paint lazily and lay out tabs when 
 }, 30000);
 
 /**
+ * The tab pass resolves every paragraph's tabs in rounds (a few layouts for a
+ * whole document), not one paragraph at a time (a layout per tabbed paragraph,
+ * which took ten seconds on a 700-page file). Where paragraphs share a
+ * formatting context with the document's floats, the two orders could in
+ * principle land a tab differently, so the batched result is compared with the
+ * one-paragraph-at-a-time order from the same starting state, in flow and in
+ * a layout page. The comparison is made on this machine's fonts in one run, so
+ * it holds wherever it runs.
+ */
+const TAB_PAGE = `<!doctype html><style>html,body{margin:0}#host{width:1200px}</style><main id="host"></main><script type="module">
+  import { render, layoutTabParagraphs } from "/tabs.mjs";
+  const TABS = "[data-aared-tab]";
+  const PARAGRAPHS = "[data-aared-tab-stops]";
+  const widths = (root) => [...root.querySelectorAll(TABS)].map((tab) => ({ width: Number.parseFloat(tab.style.width), leader: tab.textContent.length }));
+  const reset = (root) => { for (const tab of root.querySelectorAll(TABS)) { tab.style.width = "48px"; tab.textContent = ""; } };
+  window.show = async (model, mode) => {
+    window.handle?.destroy();
+    window.handle = await render({ document: model, target: document.querySelector("#host"), pagination: { mode } });
+  };
+  const compare = (root) => {
+    const paragraphs = [...root.querySelectorAll(PARAGRAPHS)];
+    reset(root);
+    layoutTabParagraphs(root, paragraphs);
+    const batched = widths(root);
+    reset(root);
+    for (const paragraph of paragraphs) layoutTabParagraphs(root, [paragraph]);
+    return { paragraphs: paragraphs.length, batched, ordered: widths(root) };
+  };
+  window.compareFlow = () => compare(document.querySelector('[data-aared-element="document"]'));
+  window.compareShownPage = () => {
+    const page = [...document.querySelectorAll('[data-aared-element="page"]')]
+      .find((sheet) => sheet.querySelector(TABS) !== null && sheet.querySelector('[data-aared-element="page-body"]').checkVisibility({ contentVisibilityAuto: true }));
+    return page === undefined ? undefined : compare(page);
+  };
+  window.relayout = () => {
+    const article = document.querySelector('[data-aared-element="document"]');
+    reset(article);
+    layoutTabParagraphs(article, [...article.querySelectorAll(PARAGRAPHS)]);
+  };
+  window.stopEnds = () => {
+    const body = document.querySelector('[data-aared-element="doc-body"]').getBoundingClientRect();
+    return [...document.querySelectorAll(TABS)].map((tab) => {
+      const range = document.createRange();
+      range.setStartAfter(tab);
+      range.setEndAfter(tab.parentElement.lastChild);
+      return range.getBoundingClientRect().right - body.left;
+    });
+  };
+</script>`;
+
+type TabWidths = { paragraphs: number; batched: Array<{ width: number; leader: number }>; ordered: Array<{ width: number; leader: number }> };
+
+function expectSameTabs(result: TabWidths): void {
+  expect(result.batched.length).toBe(result.ordered.length);
+  result.batched.forEach((tab, index) => expect(Math.abs(tab.width - result.ordered[index]!.width)).toBeLessThanOrEqual(1));
+  // A dot leader fills the gap with glyphs: the same tabs carry one.
+  expect(result.batched.map((tab) => tab.leader > 0)).toEqual(result.ordered.map((tab) => tab.leader > 0));
+}
+
+visual("visual DOM output: batched DOCX tab stops land where the one-paragraph-at-a-time pass puts them", async () => {
+  const pkg = await OpcPackage.open(await Bun.file(FIXTURE_PATH).arrayBuffer());
+  const sections = JSON.stringify(await parseDocxSections(pkg, await indexDocx(pkg)));
+  const tabs = await browserModule(`${import.meta.dir}/docx-tabs-entry.ts`);
+  await withVisualPage({ modules: { "/tabs.mjs": tabs }, page: TAB_PAGE, width: 1300, height: 900 }, async (view) => {
+    await view.evaluate(`show(${sections}, "flow")`);
+    const flow = await view.evaluate("compareFlow()") as TabWidths;
+    // The fixture's table of contents and tabbed paragraphs, with their leaders, are in the comparison.
+    expect(flow.paragraphs).toBeGreaterThanOrEqual(9);
+    expect(flow.batched.some((tab) => tab.leader > 0)).toBe(true);
+    expectSameTabs(flow);
+
+    await view.evaluate(`show(${sections}, "layout")`);
+    await view.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    const page = await view.evaluate("compareShownPage()") as TabWidths | undefined;
+    expect(page).toBeDefined();
+    expect(page!.batched.length).toBeGreaterThan(0);
+    expectSameTabs(page!);
+  });
+}, 60000);
+
+/**
+ * A pass over 1,500 tabbed paragraphs costs a few forced layouts, not about
+ * two per paragraph (3,000). The count comes from the browser's own layout
+ * counter, so it fails on a per-paragraph pass whatever the machine's speed.
+ */
+visual("visual DOM output: the DOCX tab pass forces a few layouts however many paragraphs hold tabs", async () => {
+  const page = { widthTwips: 12240, heightTwips: 15840, orientation: "portrait", margins: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 720, footer: 720, gutter: 0 } };
+  const root = Array.from({ length: 1500 }, (_, index) => ({
+    type: "paragraph", runs: [{ text: `Item ${index + 1}\t${index + 1}` }], tabStops: [{ pos: 6, align: "right", leader: "dot" }], direction: "ltr",
+  }));
+  const model = JSON.stringify([{ properties: { breakType: "nextPage", page }, root }]);
+  const tabs = await browserModule(`${import.meta.dir}/docx-tabs-entry.ts`);
+  await withVisualPage({ modules: { "/tabs.mjs": tabs }, page: TAB_PAGE, width: 1300, height: 900 }, async (view) => {
+    await view.evaluate(`show(${model}, "flow")`);
+    await view.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    await view.cdp("Performance.enable");
+    const layouts = async (): Promise<number> => {
+      const { metrics } = await view.cdp("Performance.getMetrics") as { metrics: Array<{ name: string; value: number }> };
+      return metrics.find((metric) => metric.name === "LayoutCount")!.value;
+    };
+    const before = await layouts();
+    await view.evaluate("relayout()");
+    const forced = (await layouts()) - before;
+    expect(forced).toBeLessThanOrEqual(20);
+    // Fast is not the point unless the tabs still land: every right tab ends its text on the 6in stop.
+    const ends = await view.evaluate("stopEnds()") as number[];
+    expect(ends).toHaveLength(1500);
+    for (const end of ends) expect(Math.abs(end - 6 * 96)).toBeLessThanOrEqual(1);
+  });
+}, 60000);
+
+/**
  * The gate fixture has a Heading 1 styled paragraph in the appendix header
  * and a Heading 2 styled total row in the delivery-tracker table, around the
  * body headings (all Word-authored). Only
@@ -912,7 +1024,7 @@ visual("visual DOM output: an Arabic-limited fallback face paints only Arabic an
   };
   const latinOnly = JSON.stringify(document([latin]));
   const both = JSON.stringify(document([latin, arabic]));
-  const renderer = await browserModule(`${import.meta.dir}/../src/docx/index.ts`);
+  const renderer = await browserModule(`${import.meta.dir}/../src/docx/renderer.ts`);
   const arabicBytes = await Bun.file("C:/Windows/Fonts/simpo.ttf").arrayBuffer();
   let arabicFetches = 0;
   const page = `<!doctype html><style>html,body{margin:0}#host{width:1200px}</style><main id="host"></main><script type="module">
@@ -1266,7 +1378,7 @@ visual("visual DOM output: layout pagination waits for a font to finish loading 
   const ALIAS = fontAlias(NONEXISTENT_FAMILY);
   const pkg = await OpcPackage.open(await Bun.file(FIXTURE_PATH).arrayBuffer());
   const sections = await parseDocxSections(pkg, await indexDocx(pkg));
-  const renderer = await browserModule(`${import.meta.dir}/../src/docx/index.ts`);
+  const renderer = await browserModule(`${import.meta.dir}/../src/docx/renderer.ts`);
   const fontBytes = await Bun.file("C:/Windows/Fonts/Cour.ttf").arrayBuffer();
   const page = `<!doctype html><style>html,body{margin:0}#host{width:1200px}</style><main id="host"></main><script type="module">
         import { render } from "/docx.mjs";
@@ -1335,7 +1447,7 @@ visual("visual DOM output: DocxRenderHandle.warnings names fonts that painted wi
   const ALIAS = fontAlias(NONEXISTENT_FAMILY);
   const pkg = await OpcPackage.open(await Bun.file(FIXTURE_PATH).arrayBuffer());
   const sections = await parseDocxSections(pkg, await indexDocx(pkg));
-  const renderer = await browserModule(`${import.meta.dir}/../src/docx/index.ts`);
+  const renderer = await browserModule(`${import.meta.dir}/../src/docx/renderer.ts`);
   const fontBytes = await Bun.file("C:/Windows/Fonts/Cour.ttf").arrayBuffer();
   const page = `<!doctype html><style>html,body{margin:0}#host{width:1200px}</style><main id="host"></main><script type="module">
         import { render } from "/docx.mjs";
@@ -1392,7 +1504,7 @@ visual("visual DOM output: DocxRenderHandle.warnings reports drawings the file g
     xml.replace(/(<wp:docPr) id="[^"]*"/g, (_, tag: string) => { removedIds++; return tag; }));
   expect(removedIds).toBeGreaterThan(0);
   const damaged = await parseDocxSections(stripped, await indexDocx(stripped));
-  const renderer = await browserModule(`${import.meta.dir}/../src/docx/index.ts`);
+  const renderer = await browserModule(`${import.meta.dir}/../src/docx/renderer.ts`);
   const page = `<!doctype html><style>html,body{margin:0}#host{width:1200px}</style><main id="host"></main><script type="module">
         import { render } from "/docx.mjs";
         window.renderFlowFixture = async (model) => {

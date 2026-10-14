@@ -20,7 +20,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "peerDependencies": {
-    "aared": "workspace:*"
+    "@aared/viewer": "workspace:*"
   },
   "devDependencies": {
     "tsdown": "^0.22.14"

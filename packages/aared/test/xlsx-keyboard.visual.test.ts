@@ -17,13 +17,15 @@ visual("visual DOM output: XLSX arrow-key navigation keeps focus and moves selec
   const workbook = await readWorkbook(pkg);
   const sheet = await parseXlsxSheet(pkg, workbook, 0);
 
-  const module = await browserModule(`${import.meta.dir}/../src/xlsx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/xlsx/renderer.ts`);
   await withVisualPage({
     modules: { "/xlsx.mjs": module },
     page: `<!doctype html><style>html,body{margin:0}#host{width:1280px;height:400px}</style><main id="host"></main><script type="module">
         import { render } from "/xlsx.mjs";
         window.viewer = await render({ sheet: ${JSON.stringify(sheet)}, target: document.querySelector("#host") });
         window.selections = [];
+        window.activations = [];
+        window.viewer.addEventListener("cellactivate", event => window.activations.push(event.detail));
         window.viewer.addEventListener("selectionchange", (event) => window.selections.push(event.detail.selection.address));
         window.clickCell = (row, col) => {
           const td = document.querySelector('td[data-aared-row="' + row + '"][data-aared-col="' + col + '"]');
@@ -55,5 +57,12 @@ visual("visual DOM output: XLSX arrow-key navigation keeps focus and moves selec
     }
 
     expect(await view.evaluate<string[]>(`window.selections`)).toEqual(["B3", "B4", "B5", "B6", "C6", "D6"]);
+    await view.evaluate(`pressKey("Enter")`);
+    const activation = await view.evaluate<Record<string, unknown>>(`window.activations[0]`);
+    expect(activation.address).toBe("D6");
+    expect(activation).not.toHaveProperty("model");
+    expect(activation.cell).toMatchObject({ formatted: expect.any(String), type: expect.any(String) });
+    expect(activation.cell).not.toHaveProperty("style");
+    expect(activation.cell).not.toHaveProperty("conditional");
   });
 });

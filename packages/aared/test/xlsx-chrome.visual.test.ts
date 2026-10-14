@@ -38,7 +38,7 @@ visual("visual DOM output: XLSX formula bar with cached range aggregates", async
   const budgetReferenceSheet = await parseXlsxSheet(coveragePackage, coverageWorkbook, 0);
   const referenceSheet = await parseXlsxSheet(coveragePackage, coverageWorkbook, 1);
 
-  const module = await browserModule(`${import.meta.dir}/../src/xlsx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/xlsx/renderer.ts`);
   await withVisualPage({
     modules: { "/xlsx.mjs": module },
     page: `<!doctype html><style>html,body{margin:0}#host{width:1280px;height:500px}#plain{width:1280px;height:500px}#refs{width:1280px;height:500px}#budget{width:1280px;height:500px}</style><main id="host"></main><main id="plain"></main><main id="refs"></main><main id="budget"></main><script type="module">

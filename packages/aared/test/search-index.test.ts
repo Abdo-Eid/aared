@@ -1,5 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { open as openDocx } from "../src/docx/index.js";
+import { sectionsOf, type DocxDocument } from "../src/docx/renderer.js";
 import { open as openPptx } from "../src/pptx/index.js";
 import { open as openXlsx } from "../src/xlsx/index.js";
 import { WorkerSession } from "../src/core/session.js";
@@ -208,7 +209,7 @@ test("DOCX search returns each distinct header story once, even when inherited b
 test("DOCX search indexes distinct first/even stories and nested header/footer content", async () => {
   const document = await openDocx(await Bun.file(DOCX_FIXTURE).arrayBuffer());
   try {
-    const base = document.sections.get(0);
+    const base = sectionsOf(document as DocxDocument)[0]!;
     const paragraph = (text: string): FlowNode => ({ type: "paragraph", runs: [{ text }], direction: "ltr" });
     const sharedDefault: FlowNode[] = [paragraph("shared-default-marker")];
     const first: FlowNode[] = [paragraph("first-variant-marker")];

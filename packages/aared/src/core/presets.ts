@@ -3,7 +3,7 @@
 /**
  * Every ECMA-376 preset outside the worker's hand-coded fast path, as an
  * engine program or a proven symmetry alias (`= <symmetry> <base>`), keyed
- * by preset name. Only `aared/pptx` imports this, passing it to its session
+ * by preset name. Only `@aared/viewer/pptx` imports this, passing it to its session
  * at open; the flat worker and the xlsx/docx entries never contain it.
  */
 export const presetPrograms: Readonly<Record<string, string>> = {

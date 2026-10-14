@@ -120,11 +120,7 @@ const formatLabels: Record<string, string> = { pptx: "PPTX", xlsx: "XLSX", docx:
       apply(activePanel());
     });
 
-    root.addEventListener("click", (event) => {
-      const tab = (event.target as HTMLElement | null)?.closest?.("[data-tab]");
-      if (!tab) return;
-      // Let the tab script reveal the new panel first.
-      setTimeout(() => apply(activePanel()), 0);
-    });
+    // Both pointer and keyboard tab changes carry the selected file/format.
+    root.addEventListener("demo-tabchange", () => apply(activePanel()));
   }
 </script>

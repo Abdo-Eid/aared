@@ -1,6 +1,7 @@
 import type { DocumentInfo } from "./index.js";
 import type { SlideLayoutModel, UnitModel } from "./model.js";
 import type { AaredErrorCode } from "./errors.js";
+import type { SlideText } from "../pptx/data.js";
 
 /** Narrow numeric window (zero-based, inclusive) for an XLSX `unit` request; other formats reject it. */
 export interface UnitRange {
@@ -47,6 +48,8 @@ export interface TextRequest {
   sessionId: number;
   requestId: number;
   index: number;
+  /** PPTX application reads only; search never inflates the notes part. */
+  includeNotes?: boolean;
 }
 
 /**
@@ -130,4 +133,4 @@ export interface FailureResponse {
 
 export type WorkerResponse = ReadyResponse | SuccessResponse<WorkerResult> | FailureResponse;
 
-export type WorkerResult = DocumentInfo | UnitModel | SlideLayoutModel | ArrayBuffer | DocumentInfo["format"] | string[] | SheetText;
+export type WorkerResult = DocumentInfo | UnitModel | SlideLayoutModel | ArrayBuffer | DocumentInfo["format"] | string[] | SheetText | SlideText;

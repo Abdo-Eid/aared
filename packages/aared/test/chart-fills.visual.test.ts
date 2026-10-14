@@ -31,7 +31,7 @@ visual("visual DOM output: chart fills paint through the shared fill painter, an
   spec.look = { ...spec.look, fill: { kind: "picture", mediaId: "ppt/media/chart-fill.png", contentType: "image/png" } };
   spec.plot = { ...spec.plot, look: { fill: { kind: "unsupported", source: "group" } } };
 
-  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   await withVisualPage({
     modules: { "/pptx.mjs": module },
     page: `<!doctype html><style>html,body{margin:0}#host{width:1280px;height:720px}</style><main id="host"></main><script type="module">

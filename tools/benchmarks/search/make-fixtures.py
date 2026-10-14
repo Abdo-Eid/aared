@@ -115,7 +115,19 @@ def make_docx(copies):
     final = doc.rindex("<w:sectPr")
     end = doc.index("</w:body>")
     body, final_sect = doc[start:final], doc[final:end]
-    parts["word/document.xml"] = (doc[:start] + body * copies + final_sect + doc[end:]).encode()
+    # A long document has one table of contents. Repeating the body as is would
+    # give every copy its own, and each refreshes to list every heading in the
+    # file, so the entries would grow with the square of the copies (40 copies
+    # held 14,400 entries, 60% of all paragraphs) and the 40x file would time
+    # the contents list instead of a longer document. Keep it in the first copy.
+    toc = body.index("TOC \\")
+    first = body.rindex("<w:sdt>", 0, toc)
+    last = body.index("</w:sdt>", toc) + len("</w:sdt>")
+    assert "<w:sdt>" not in body[first + len("<w:sdt>"):last], "the table of contents sits in a nested content control"
+    rest = body[:first] + body[last:]
+    text = doc[:start] + body + rest * (copies - 1) + final_sect + doc[end:]
+    assert text.count("TOC \\") == 1, "exactly one table of contents must remain"
+    parts["word/document.xml"] = text.encode()
     write_zip(OUT / f"large-{copies}x.docx", parts)
 
 

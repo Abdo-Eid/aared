@@ -115,7 +115,7 @@ describe("office format identity", () => {
       const main = await pkg.officeDocument(format);
       expect(officeFormatOf(pkg.contentTypeOf(main))).toBe(format);
       for (const other of cases.filter((candidate) => candidate.format !== format)) {
-        await expect(pkg.officeDocument(other.format)).rejects.toThrow(/^aared\/core: package is not (a PPTX presentation|an XLSX workbook|a Word document)$/);
+        await expect(pkg.officeDocument(other.format)).rejects.toThrow(/^@aared\/viewer\/core: package is not (a PPTX presentation|an XLSX workbook|a Word document)$/);
       }
     }
   });
@@ -161,8 +161,8 @@ describe("numeric attributes (synthetic)", () => {
   });
 
   test("a malformed value throws naming the attribute and its element", () => {
-    expect(() => numberAttr(element, "bad", "a:ln")).toThrow('aared/core: invalid bad="x" on a:ln');
-    expect(() => parseNumber("Infinity", "cx", "a:ext")).toThrow('aared/core: invalid cx="Infinity" on a:ext');
+    expect(() => numberAttr(element, "bad", "a:ln")).toThrow('@aared/viewer/core: invalid bad="x" on a:ln');
+    expect(() => parseNumber("Infinity", "cx", "a:ext")).toThrow('@aared/viewer/core: invalid cx="Infinity" on a:ext');
   });
 });
 

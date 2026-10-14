@@ -32,11 +32,16 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseArgs } from "node:util";
 
 const ROOT = join(import.meta.dir, "../..");
 const VITE_BIN = join(ROOT, "bench", "node_modules", "vite", "bin", "vite.js");
 const WEBPACK_BIN = join(ROOT, "bench", "node_modules", "webpack-cli", "bin", "cli.js");
-const AARED_DIST = join(ROOT, "packages", "aared", "dist").replaceAll("\\", "/");
+const { values, positionals } = parseArgs({ args: process.argv.slice(2), options: { package: { type: "string" } } });
+if (positionals.length > 0) throw new Error("consumer-build does not accept positional arguments");
+const packed = values.package !== undefined;
+let AARED_DIST = join(ROOT, "packages", "aared", "dist").replaceAll("\\", "/");
+const entry = (format: string): string => packed ? `@aared/viewer/${format}` : `${AARED_DIST}/${format}/index.mjs`;
 /** `chartUnit`: the unit to render, whose chart must draw (its SVG selector). */
 const FIXTURES: Array<{ file: string; format: string; chartUnit?: { index: number; svg: string } }> = [
   { file: "post-production-review.pptx", format: "pptx", chartUnit: { index: 3, svg: "chart-geometry" } },
@@ -49,7 +54,7 @@ const INDEX_HTML = `<!doctype html><html><body><script type="module" src="/main.
 function consumerSource(singleFormat?: string): string {
   if (singleFormat !== undefined) {
     const fixture = FIXTURES.find(({ format }) => format === singleFormat)!;
-    return `import { preview, render } from "${AARED_DIST}/${singleFormat}/index.mjs";
+    return `import { preview, render } from "${entry(singleFormat)}";
 const events = [];
 async function runProbe() {
   try {
@@ -115,10 +120,10 @@ void runProbe();`;
       events.push("${format}:ERROR:" + String(error && error.message ? error.message : error));
     }`;
   }).join("\n");
-  return `import { open as openPptx, render as renderPptx } from "${AARED_DIST}/pptx/index.mjs";
-import { open as openXlsx, render as renderXlsx } from "${AARED_DIST}/xlsx/index.mjs";
-import { open as openDocx, render as renderDocx } from "${AARED_DIST}/docx/index.mjs";
-import { preview } from "${AARED_DIST}/preview/index.mjs";
+  return `import { open as openPptx, render as renderPptx } from "${entry("pptx")}";
+import { open as openXlsx, render as renderXlsx } from "${entry("xlsx")}";
+import { open as openDocx, render as renderDocx } from "${entry("docx")}";
+import { preview } from "${entry("preview")}";
 const events = [];
 // Run after module evaluation: a bundler may merge statically imported format
 // entries into this module, which preview imports dynamically. Top-level await
@@ -144,9 +149,9 @@ void runProbe();`;
 
 /** Exercise the public deployment inputs through the same consumer and fixtures. */
 function deploymentSource(bundler: "vite" | "webpack", mode: "cdn" | "inline"): string {
-  const workerFile = `${AARED_DIST}/core/worker.mjs`;
+  const workerFile = packed ? "@aared/viewer/worker" : `${AARED_DIST}/core/worker.mjs`;
   const input = mode === "inline"
-    ? `import workerSource from "${workerFile}?raw";\nconst worker = { source: workerSource };`
+    ? `import workerSource from "${workerFile}${bundler === "webpack" && packed ? "" : "?raw"}";\nconst worker = { source: workerSource };`
     : `${bundler === "vite" ? `import workerUrl from "${workerFile}?url";` : `const workerUrl = new URL("${workerFile}", import.meta.url).href;`}
 const worker = { url: new URL(new URL(workerUrl, location.href).pathname, window.__cdn).href,
   ...(window.__direct ? {} : { crossOrigin: "blob" }) };`;
@@ -191,7 +196,7 @@ function buildVite(work: string, failures: string[], multiPage = false, inline =
   writeFileSync(join(work, "index.html"), INDEX_HTML);
   if (multiPage) {
     writeFileSync(join(work, "ui.html"), `<!doctype html><div id="ui-root"></div><script type="module" src="/ui.js"></script>`);
-    writeFileSync(join(work, "ui.js"), `import { preview } from "${AARED_DIST}/preview/index.mjs";
+    writeFileSync(join(work, "ui.js"), `import { preview } from "${entry("preview")}";
       if (!document.querySelector('#ui-root')) throw new Error('another page bootstrap ran');
       window.otherPagePreview = preview;`);
   }
@@ -237,7 +242,7 @@ function buildWebpack(work: string, inline = false): string {
   writeFileSync(
     join(work, "webpack.config.mjs"),
     `export default { mode: "production", entry: "./main.js", output: { path: ${JSON.stringify(outDir)}${inline ? ', publicPath: "/"' : ""}, clean: true },
-      module: { rules: [{ resourceQuery: /raw/, type: "asset/source" }] },
+      module: { rules: [{ resourceQuery: /raw/, type: "asset/source" }${inline && packed ? ', { test: /worker[.]mjs$/, issuer: /main[.]js$/, type: "asset/source" }' : ""}] },
       ${inline ? 'plugins: [new (await import("' + pathToFileURL(join(ROOT, "bench", "node_modules", "webpack", "lib", "index.js")).href + '")).default.optimize.LimitChunkCountPlugin({ maxChunks: 1 })],' : ""}
       performance: { hints: false } };`,
   );
@@ -260,7 +265,7 @@ function checkLatin1(label: string, outDir: string, failures: string[]): void {
 
 /** Serve a build plus the fixtures and open every format in it, headless. */
 async function probe(label: string, outDir: string, failures: string[], singleFormat?: string,
-  deployment?: { inline?: boolean; cors?: boolean; blobAllowed?: boolean; cdnAllowed?: boolean; direct?: boolean }): Promise<void> {
+  deployment?: { inline?: boolean; cors?: boolean; blobAllowed?: boolean; cdnAllowed?: boolean; direct?: boolean }, embeds = false): Promise<void> {
   const missing404: string[] = [];
   const requests: string[] = [];
   const cdn = deployment?.cors === undefined ? null : Bun.serve({ port: 0, async fetch(request) {
@@ -327,6 +332,13 @@ async function probe(label: string, outDir: string, failures: string[], singleFo
     }
     for (const event of result.events ?? []) console.log(" ", event);
     const errors = (result.events ?? []).filter((event) => event.includes(":ERROR:"));
+    if (embeds) {
+      for (const route of ["element", "react"]) for (const { format } of FIXTURES) {
+        if (!(result.events ?? []).includes(`${route}:${format}:ok`)) failures.push(`${label}: ${route} ${format} did not render and clean up`);
+      }
+      if (errors.length > 0 || missing404.some(path => /\.[cm]?js$/.test(path))) failures.push(`${label}: embed load failure`);
+      return;
+    }
     if (deployment !== undefined) {
       const unhandled = await view.evaluate("window.__unhandled") as unknown[];
       if (unhandled.length > 0) failures.push(`${label}: unhandled promise rejection(s): ${JSON.stringify(unhandled)}`);
@@ -361,8 +373,38 @@ async function probe(label: string, outDir: string, failures: string[], singleFo
   }
 }
 
-const work = mkdtempSync(join(tmpdir(), "aared-consumer-probe-"));
+const scratch = process.platform === "win32" ? join(tmpdir(), "opencode") : tmpdir();
+mkdirSync(scratch, { recursive: true });
+const work = mkdtempSync(join(scratch, "aared-consumer-probe-"));
 try {
+  if (packed) {
+    const tarball = resolve(values.package!);
+    if (!existsSync(tarball)) throw new Error(`Package tarball does not exist: ${tarball}`);
+    writeFileSync(join(work, "package.json"), JSON.stringify({ private: true, type: "module" }));
+    // Never alias the viewer or borrow React peers: npm installs a real consumer.
+    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+    run("packed vanilla install", [npm, "install", "--ignore-scripts", "--no-audit", "--no-fund", tarball], work);
+    if (existsSync(join(work, "node_modules", "react"))) throw new Error("Vanilla installation unexpectedly requires React");
+    writeFileSync(join(work, "vanilla.mjs"), ["core", "pptx", "xlsx", "docx", "preview", "element"]
+      .map(name => `await import("@aared/viewer/${name}");`).join("\n"));
+    run("installed vanilla exports without React", ["node", "vanilla.mjs"], work);
+    run("packed React peer install", [npm, "install", "--ignore-scripts", "--no-audit", "--no-fund",
+      "react@19.2.8", "react-dom@19.2.8", "@types/react@19.2.7", "@types/react-dom@19.2.4"], work);
+    AARED_DIST = join(work, "node_modules", "@aared", "viewer", "dist").replaceAll("\\", "/");
+    const installed = JSON.parse(readFileSync(join(AARED_DIST, "../package.json"), "utf8"));
+    if (installed.name !== "@aared/viewer") throw new Error("Tarball is not @aared/viewer");
+    const formats = ["core", "pptx", "xlsx", "docx", "preview", "react", "element"];
+    if (Object.keys(installed.exports).sort().join() !== [...formats, "worker"].map(name => `./${name}`).sort().join()) throw new Error("Package export map is incomplete");
+    writeFileSync(join(work, "exports.mjs"), formats.map(name => `await import("@aared/viewer/${name}");`).join("\n")
+      + '\nconst worker = import.meta.resolve("@aared/viewer/worker");\nif (!worker.endsWith("/dist/core/worker.mjs")) throw Error("wrong worker export");');
+    run("installed exports", ["node", "exports.mjs"], work);
+    writeFileSync(join(work, "consumer.ts"), formats.map((name, i) => `import * as entry${i} from "@aared/viewer/${name}";\nvoid entry${i};`).join("\n"));
+    writeFileSync(join(work, "tsconfig.json"), JSON.stringify({ compilerOptions: {
+      strict: true, noEmit: true, target: "ES2022", module: "ESNext", moduleResolution: "bundler", lib: ["ES2022", "DOM", "DOM.Iterable"], types: ["react"],
+    }, include: ["consumer.ts"] }));
+    run("installed declarations", [join(ROOT, "node_modules", ".bin", process.platform === "win32" ? "tsc.exe" : "tsc"), "-p", "tsconfig.json"], work);
+    console.log(`Installed ${installed.name}@${installed.version}: all eight exports resolve; declarations compile without paths aliases`);
+  }
   writeFileSync(join(work, "main.js"), consumerSource());
   // Fixtures are served from `public/` (Vite copies it into its build) and copied into webpack's output.
   mkdirSync(join(work, "public"));
@@ -424,6 +466,57 @@ try {
         await probe(`${label} direct URL`, outDir, failures, undefined, { cors: true, direct: true });
       }
     }
+  }
+
+  if (packed) {
+    console.log("== installed element and React embeds");
+    writeFileSync(join(work, "main.js"), `import "@aared/viewer/element";
+import { usePreview } from "@aared/viewer/react";
+import { createElement, useEffect } from "react";
+import { createRoot } from "react-dom/client";
+const events = [];
+function HookView({ source, done, fail }) {
+  const result = usePreview({ source });
+  useEffect(() => {
+    if (result.status === "ready") done(result.ref.current);
+    else if (result.status === "error") fail(result.error);
+  }, [result.status]);
+  return createElement("div", { ref: result.ref, style: { height: 600, width: 960 } });
+}
+async function run() {
+  for (const fixture of ${JSON.stringify(FIXTURES)}) {
+    const element = document.createElement("aared-viewer");
+    element.style.cssText = "display:block;width:960px;height:600px";
+    try {
+      const ready = new Promise((resolve, reject) => {
+        element.addEventListener("load", resolve, {once:true});
+        element.addEventListener("error", event => reject(event.detail.cause), {once:true});
+      });
+      document.body.append(element); element.src = "/" + fixture.file;
+      await ready;
+      if (![...element.shadowRoot.querySelectorAll('[data-aared-element]')].some(node => node.textContent.trim())) throw Error("element has no painted text");
+      element.remove();
+      if (element.shadowRoot.querySelector('[data-aared-element]')) throw Error("element did not clean up");
+      events.push("element:" + fixture.format + ":ok");
+    } catch (error) { events.push("element:" + fixture.format + ":ERROR:" + error.message); }
+    finally { element.remove(); }
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    try {
+      const target = await new Promise((done, fail) => root.render(createElement(HookView, { source: "/" + fixture.file, done, fail })));
+      if (!target.textContent.trim()) throw Error("React has no painted text");
+      root.unmount();
+      if (host.childElementCount) throw Error("React did not clean up");
+      events.push("react:" + fixture.format + ":ok");
+    } catch (error) { events.push("react:" + fixture.format + ":ERROR:" + error.message); root.unmount(); }
+    finally { host.remove(); }
+  }
+  window.__probe = {events};
+}
+void run();`);
+    const outDir = buildVite(work, failures);
+    checkLatin1("installed embeds", outDir, failures);
+    await probe("installed embeds", outDir, failures, undefined, undefined, true);
   }
 
   // The probes open the three format entries. `element`, `preview` and

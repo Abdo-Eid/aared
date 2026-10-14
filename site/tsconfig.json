@@ -9,5 +9,5 @@
     "declaration": false,
     "declarationMap": false
   },
-  "include": ["src", "astro.config.mjs"]
+  "include": ["src", "scripts", "test", "astro.config.mjs"]
 }

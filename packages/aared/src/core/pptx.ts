@@ -1,10 +1,10 @@
 /**
- * PPTX reader: the Worker-side half of `aared/pptx`.
+ * PPTX reader: the Worker-side half of `@aared/viewer/pptx`.
  *
  * Deliberately headless; it returns only plain data. It reads PresentationML
  * (slide order, layouts, masters, placeholders) and DrawingML (text, shapes,
  * pictures, charts, groups, tables, fills, theme and table styles) into the
- * resolved slide model; DOM/SVG painting belongs to `aared/pptx`, never here.
+ * resolved slide model; DOM/SVG painting belongs to `@aared/viewer/pptx`, never here.
  */
 
 import { BULLET } from "./chars.js";
@@ -1424,7 +1424,7 @@ export function parsePicture(
 }
 
 /** Extract slide notes as plain text from its `notesSlide` part, if present. */
-async function parseSlideNotes(pkg: OpcPackage, slidePart: string, signal?: AbortSignal): Promise<string | undefined> {
+export async function parseSlideNotes(pkg: OpcPackage, slidePart: string, signal?: AbortSignal): Promise<string | undefined> {
   throwIfAborted(signal);
   const relationships = await pkg.relationships(slidePart, signal);
   throwIfAborted(signal);
@@ -1987,7 +1987,10 @@ const layoutModels = new WeakMap<OpcPackage, Map<string, SlideLayoutModel>>();
 
 /**
  * The shared graphics of one layout and its master, parsed once per package.
- * A layout's `showMasterSp="0"` leaves the master's shapes out.
+ * A layout's `showMasterSp="0"` leaves the master's shapes out; a slide's
+ * leaves out the layout's and the master's together, and a master's picture
+ * background is inherited. `pptx-coverage.pptx` slides 15-18 carry a master's
+ * logo with each flag set, exported from PowerPoint and compared against aared.
  */
 export async function parsePptxLayout(pkg: OpcPackage, deck: PptxDeck, layoutPart: string, signal?: AbortSignal): Promise<SlideLayoutModel> {
   throwIfAborted(signal);
@@ -2112,7 +2115,7 @@ function defaultTextSizes(style: XmlElement | undefined): Array<number | undefin
 async function openSlide(pkg: OpcPackage, deck: PptxDeck, index: number, signal?: AbortSignal) {
   throwIfAborted(signal);
   const part = deck.slideParts[index];
-  if (part === undefined) throw new AaredError("not-found", `aared/core: slide index ${index} is outside this ${deck.slideParts.length}-slide deck`);
+  if (part === undefined) throw new AaredError("not-found", `@aared/viewer/core: slide index ${index} is outside this ${deck.slideParts.length}-slide deck`);
   const root = await pkg.readXml(part, signal);
   const cSld = firstChild(root, "cSld");
   const tree = cSld === undefined ? undefined : firstChild(cSld, "spTree");

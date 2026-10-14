@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { AaredError, isAaredError } from "../src/core/index.js";
 import { open } from "../src/pptx/index.js";
+import { readSlideModel, type SlideHandle } from "../src/pptx/renderer.js";
 import { rejection } from "./harness.js";
 import { storedZipFromTuples } from "./zip.js";
 
@@ -30,8 +31,8 @@ test("reads slides lazily through handles", async () => {
   const deck = await open(await Bun.file(ARABIC_FIXTURE).arrayBuffer());
   try {
     const slide = await deck.slides.get(0).read();
-    expect(slide.elements.length).toBeGreaterThan(0);
-    expect(slide.size.width).toBe(deck.slides.get(0).info.size.width);
+    expect(slide.paragraphs.length).toBeGreaterThan(0);
+    expect(Object.keys(slide).every(key => key === "paragraphs" || key === "notes")).toBe(true);
   } finally {
     deck.close();
   }
@@ -58,7 +59,7 @@ test("rejects non-PPTX files with a typed format error", async () => {
   const error = await rejection(open(await Bun.file(XLSX_FIXTURE).arrayBuffer()));
   expect(error).toBeInstanceOf(AaredError);
   expect(isAaredError(error) && error.code).toBe("unsupported-format");
-  expect(error.message).toContain("aared/xlsx");
+  expect(error.message).toContain("@aared/viewer/xlsx");
 });
 
 test("maps corrupt archives to invalid-document errors", async () => {
@@ -99,7 +100,7 @@ test("maps a damaged part inside a valid archive to a typed invalid-document err
     expect(error).toBeInstanceOf(AaredError);
     expect((error as AaredError).code).toBe("invalid-document");
     // The Worker's failure reads in the entrypoint the caller opened through.
-    expect(error.message.startsWith("aared/pptx: ")).toBe(true);
+    expect(error.message.startsWith("@aared/viewer/pptx: ")).toBe(true);
     expect(error.message).toContain("re-saving it in Office");
   }
   expect(malformed.message).toContain("unterminated <p:presentation>");
@@ -134,7 +135,7 @@ test("serves picture media through the media collection", async () => {
   try {
     const mediaIds: string[] = [];
     for (const handle of deck.slides.list()) {
-      const slide = await handle.read();
+      const slide = await readSlideModel(handle as SlideHandle);
       for (const element of slide.elements) {
         if (element.kind === "picture") mediaIds.push(element.mediaId);
       }

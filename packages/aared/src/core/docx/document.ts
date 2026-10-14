@@ -1,7 +1,7 @@
 /**
  * Word `document.xml` reader for the DOCX route: body → resolved
  * `DocumentSection` flow blocks. Headless, plain data — DOM painting belongs to
- * `aared/docx`, never here.
+ * `@aared/viewer/docx`, never here.
  *
  * Coverage: style + numbering inheritance, bidirectional paragraphs
  * (mixed Arabic/Latin runs in one paragraph), heading outline, tables

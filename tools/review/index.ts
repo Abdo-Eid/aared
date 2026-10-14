@@ -25,10 +25,10 @@ export async function reviewFile(options: ReviewOptions): Promise<{ review: stri
       break;
     }
     case "docx": {
-      // Preflight before the native exporter replaces existing artifacts.
-      if (!(await Bun.file(join(import.meta.dir, "../../packages/aared/dist/docx/index.mjs")).exists())) {
-        throw new Error("Built DOCX renderer is missing; run bun run build first.");
-      }
+      // Preflight before the native exporter replaces existing artifacts. The
+      // capture owns the requirements, including the shared chunk graph.
+      const { assertDocxReviewBuild } = await import("./docx/browser-server.js");
+      await assertDocxReviewBuild();
       console.log("DOCX: native export, layout capture and token comparison");
       const reference = await renderWord(options.file);
       outputDir = reference.outputDir;

@@ -165,7 +165,7 @@ export class OpcPackage {
     ) {
       throw new AaredError(
         "encrypted-document",
-        "aared/core: this file is password-protected (OLE compound document); encrypted documents cannot be previewed",
+        "@aared/viewer/core: this file is password-protected (OLE compound document); encrypted documents cannot be previewed",
       );
     }
     const map = new Map<string, ZipEntry>();
@@ -175,7 +175,7 @@ export class OpcPackage {
     }
     const ct = map.get("[Content_Types].xml");
     // A ZIP with no content types is not an Office file at all: nothing to repair.
-    if (ct === undefined) throw new AaredError("invalid-document", "aared/core: missing [Content_Types].xml; not an Office document");
+    if (ct === undefined) throw new AaredError("invalid-document", "@aared/viewer/core: missing [Content_Types].xml; not an Office document");
     const bytes = await getEntryData(data, ct, signal);
     throwIfAborted(signal);
     const xml = utf8.decode(bytes);
@@ -251,7 +251,7 @@ export class OpcPackage {
       throw damagedDocument(`${format.toUpperCase()} has no internal officeDocument relationship`);
     }
     if (officeFormatOf(this.contentTypeOf(office.target)) !== format) {
-      throw new AaredError("invalid-document", `aared/core: package is not ${FORMAT_NOUN[format]}`);
+      throw new AaredError("invalid-document", `@aared/viewer/core: package is not ${FORMAT_NOUN[format]}`);
     }
     return office.target;
   }

@@ -70,6 +70,10 @@ const chromium = (text: string): string => text.replaceAll("HeadlessChrome", "Ch
 const measuredText = data.measured !== undefined && data.measured !== ""
   ? chromium(data.measured)
   : `measured ${new Date(data.generated).toLocaleDateString("en", { year: "numeric", month: "short", day: "numeric" })}`;
+// Size results are merged apart from the runs, so their own date and browser split is stated on the size chart.
+const sizeMeasuredText = data.sizeMeasured !== undefined && data.sizeMeasured !== ""
+  ? `${chromium(data.sizeMeasured).replace(/^./, (letter) => letter.toUpperCase())}.`
+  : "";
 const machineText =
   machine === null
     ? ""
@@ -119,7 +123,7 @@ const machineText =
     {size.length > 0 && (
       <article class="chart" data-reveal>
         <h3>Download size</h3>
-        <p class="chart-cap">Gzipped KB the browser fetched to open each format&rsquo;s example files: every library from one minified production build, with its dependencies, Workers and WASM. Smaller is better. {sizeSplit}</p>
+        <p class="chart-cap">Gzipped KB the browser fetched to open each format&rsquo;s example files: every library from one minified production build, with its dependencies, Workers and WASM. Smaller is better. {sizeSplit}{sizeMeasuredText !== "" && ` ${sizeMeasuredText}`}</p>
         <BarChart groups={size} format={formatKb} label="Gzipped download size per format" />
         <p class="chart-foot">{versus(size, formatKb)}</p>
         {sizeNotes.map((note) => <p class="chart-foot">{note}</p>)}

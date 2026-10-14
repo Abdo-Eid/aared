@@ -70,13 +70,13 @@ test("asserted mismatches close the opened session without loading a route", asy
   const recorder = recordingWorker();
   let routed = false;
   const error = await rejection(openViewer({
-    scope: "aared/preview", source: await Bun.file(FIXTURE).arrayBuffer(), target: target(),
+    scope: "@aared/viewer/preview", source: await Bun.file(FIXTURE).arrayBuffer(), target: target(),
     options: { type: "xlsx", worker: { create: recorder.factory } },
     route: async () => { routed = true; throw new Error("must not import"); },
   }));
   expect(error).toMatchObject({ code: "unsupported-format" });
-  expect(error.message).toContain("aared/xlsx:");
-  expect(error.message).toContain("aared/pptx");
+  expect(error.message).toContain("@aared/viewer/xlsx:");
+  expect(error.message).toContain("@aared/viewer/pptx");
   expect(routed).toBe(false);
   expect(recorder.requests).toEqual(["open", "close"]);
 });
@@ -87,7 +87,7 @@ test("cancellation closes and rejects immediately while a lazy route is still lo
   const route = deferred<ViewerRoute>();
   const controller = new AbortController();
   const opening = openViewer({
-    scope: "aared/preview", source: await Bun.file(FIXTURE).arrayBuffer(), target: target(),
+    scope: "@aared/viewer/preview", source: await Bun.file(FIXTURE).arrayBuffer(), target: target(),
     options: { signal: controller.signal, worker: { create: recorder.factory } },
     route: (format) => { expect(format).toBe("pptx"); loading.resolve(); return route.promise; },
   });
@@ -105,7 +105,7 @@ test("a failed lazy route closes the session before rejecting", async () => {
   const recorder = recordingWorker();
   const failure = new Error("chunk failed");
   expect(await rejection(openViewer({
-    scope: "aared/preview", source: await Bun.file(FIXTURE).arrayBuffer(), target: target(),
+    scope: "@aared/viewer/preview", source: await Bun.file(FIXTURE).arrayBuffer(), target: target(),
     options: { worker: { create: recorder.factory } }, route: async () => { throw failure; },
   }))).toBe(failure);
   expect(recorder.requests).toEqual(["open", "close"]);
@@ -116,7 +116,7 @@ test("a failed session adoption closes before rejecting and never renders", asyn
   const recorder = recordingWorker();
   const failure = new Error("document initialization failed");
   expect(await rejection(openViewer({
-    scope: "aared/preview", source: await Bun.file(FIXTURE).arrayBuffer(), target: target(),
+    scope: "@aared/viewer/preview", source: await Bun.file(FIXTURE).arrayBuffer(), target: target(),
     options: { worker: { create: recorder.factory } },
     route: { format: "pptx", adopt: async () => { throw failure; }, content: () => { throw new Error("must not expose content"); }, render: async () => { throw new Error("must not render"); } },
   }))).toBe(failure);
@@ -130,7 +130,7 @@ test("cancellation during adoption closes the session and observes a late adapte
   const adopted = deferred<never>();
   const controller = new AbortController();
   const opening = openViewer({
-    scope: "aared/preview", source: await Bun.file(FIXTURE).arrayBuffer(), target: target(),
+    scope: "@aared/viewer/preview", source: await Bun.file(FIXTURE).arrayBuffer(), target: target(),
     options: { signal: controller.signal, worker: { create: recorder.factory } },
     route: { format: "pptx", adopt: () => { adopting.resolve(); return adopted.promise; }, content: () => { throw new Error("must not expose content"); }, render: async () => { throw new Error("must not render"); } },
   });
@@ -146,7 +146,7 @@ test("an adapter that aborts synchronously still has its rejected promise observ
   const recorder = recordingWorker();
   const controller = new AbortController();
   const error = await rejection(openViewer({
-    scope: "aared/preview", source: await Bun.file(FIXTURE).arrayBuffer(), target: target(),
+    scope: "@aared/viewer/preview", source: await Bun.file(FIXTURE).arrayBuffer(), target: target(),
     options: { signal: controller.signal, worker: { create: recorder.factory } },
     route: () => { controller.abort(); return Promise.reject(new Error("cancelled import")); },
   }));
@@ -158,7 +158,7 @@ test("owned-buffer open rejects an already aborted signal before transferring", 
   const recorder = recordingWorker();
   const owned = await Bun.file(FIXTURE).arrayBuffer();
   const length = owned.byteLength;
-  expect(await rejection(WorkerSession.openBytes("aared/preview", owned, {
+  expect(await rejection(WorkerSession.openBytes("@aared/viewer/preview", owned, {
     worker: { create: recorder.factory }, signal: AbortSignal.abort(),
   }))).toMatchObject({ code: "aborted" });
   expect(owned.byteLength).toBe(length);
@@ -166,13 +166,13 @@ test("owned-buffer open rejects an already aborted signal before transferring", 
 });
 
 test("PPTX adoption installs deferred geometry and resolves the same fonts and models as open", async () => {
-  const { open, PptxDocument } = await import("../src/pptx/index.js");
+  const { open, PptxDocument, readSlideModel } = await import("../src/pptx/renderer.js");
   const { route } = await import("../src/pptx/viewer.js");
   const bytes = await Bun.file(FIXTURE).arrayBuffer();
   const ordinaryFonts = new Set<string>();
   const adoptedFonts = new Set<string>();
   const ordinary = await open(bytes, { fontResolver: (family) => { ordinaryFonts.add(family); return undefined; } });
-  const session = await WorkerSession.open("aared/preview", bytes, {
+  const session = await WorkerSession.open("@aared/viewer/preview", bytes, {
     fontResolver: (family) => { adoptedFonts.add(family); return undefined; },
   });
   try {
@@ -180,8 +180,8 @@ test("PPTX adoption installs deferred geometry and resolves the same fonts and m
     expect(adopted.info).toEqual(ordinary.info);
     let found = false;
     for (const slide of adopted.slides.list()) {
-      const model = await slide.read();
-      const reference = await ordinary.slides.get(slide.info.index).read();
+      const model = await readSlideModel(slide);
+      const reference = await readSlideModel(ordinary.slides.get(slide.info.index));
       expect(model).toEqual(reference);
       const arrow = model.elements.find((element) => element.kind === "shape" && element.geometry?.preset === "upArrow");
       if (arrow?.kind !== "shape") continue;
@@ -198,13 +198,13 @@ test("PPTX adoption installs deferred geometry and resolves the same fonts and m
 });
 
 test("DOCX adoption shares eager section loading, headings, search and font resolution with open", async () => {
-  const { open, DocxDocument } = await import("../src/docx/index.js");
+  const { open, DocxDocument } = await import("../src/docx/renderer.js");
   const { route } = await import("../src/docx/viewer.js");
   const bytes = await Bun.file(`${import.meta.dir}/../../../fixtures/docx-coverage.docx`).arrayBuffer();
   const ordinaryFonts = new Set<string>();
   const adoptedFonts = new Set<string>();
   const ordinary = await open(bytes, { fontResolver: (family) => { ordinaryFonts.add(family); return undefined; } });
-  const session = await WorkerSession.open("aared/preview", bytes, {
+  const session = await WorkerSession.open("@aared/viewer/preview", bytes, {
     fontResolver: (family) => { adoptedFonts.add(family); return undefined; },
   });
   try {
@@ -218,11 +218,11 @@ test("DOCX adoption shares eager section loading, headings, search and font reso
 });
 
 test("XLSX adoption preserves sheet metadata and cached-value reads", async () => {
-  const { open, XlsxDocument } = await import("../src/xlsx/index.js");
+  const { open, XlsxDocument } = await import("../src/xlsx/renderer.js");
   const { route } = await import("../src/xlsx/viewer.js");
   const bytes = await Bun.file(`${import.meta.dir}/../../../fixtures/xlsx-coverage.xlsx`).arrayBuffer();
   const ordinary = await open(bytes);
-  const session = await WorkerSession.open("aared/preview", bytes);
+  const session = await WorkerSession.open("@aared/viewer/preview", bytes);
   try {
     const adopted = await route.adopt(session, undefined) as InstanceType<typeof XlsxDocument>;
     expect(adopted.info).toEqual(ordinary.info);
@@ -238,7 +238,7 @@ test("cancelling DOCX during eager font resolution closes the session before any
   const font = deferred<FontFace | undefined>();
   const controller = new AbortController();
   const opening = openViewer({
-    scope: "aared/docx", source: await Bun.file(`${import.meta.dir}/../../../fixtures/docx-coverage.docx`).arrayBuffer(),
+    scope: "@aared/viewer/docx", source: await Bun.file(`${import.meta.dir}/../../../fixtures/docx-coverage.docx`).arrayBuffer(),
     target: target(), route,
     options: {
       signal: controller.signal, worker: { create: recorder.factory },

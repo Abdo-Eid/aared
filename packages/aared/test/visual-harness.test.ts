@@ -32,6 +32,21 @@ test("visual harness: a failed build does not poison the cache", async () => {
   expect(browserModuleCacheSize()).toBe(0);
 });
 
+test("visual harness: production painter flags have isolated cache keys", async () => {
+  clearBrowserModuleCache();
+  const entry = `${import.meta.dir}/../src/pptx/renderer.ts`;
+  const development = await browserModule(entry);
+  const production = await browserModule(entry, { production: true });
+  expect(production.length).toBeLessThan(development.length);
+  // Bun may retain a false branch in JS; the flag, not string removal,
+  // controls runtime chrome. The shipped `dist` bundles are checked
+  // separately, in build-output.test.ts.
+  expect(development).toContain("__AARED_MARK_FALLBACKS__");
+  expect(production).not.toContain("__AARED_MARK_FALLBACKS__");
+  expect(browserModuleCacheSize()).toBe(2);
+  expect(await browserModule(entry, { production: true })).toBe(production);
+});
+
 test("visual harness: static servers are isolated but share content", async () => {
   const page = "<!doctype html><p>page</p>";
   const first = serveVisual({ modules: { "/a.mjs": "export const a = 1;" }, files: { "/f.bin": new Uint8Array([1, 2, 3]).buffer as ArrayBuffer }, page });

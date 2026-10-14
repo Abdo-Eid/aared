@@ -44,7 +44,7 @@ function shapeWith(preset: string): ShapeModel {
 
 /** The runner options for a page that paints a slide and reads it back. */
 async function page(readSource: string, width: number, height: number) {
-  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   return {
     modules: { "/pptx.mjs": module },
     page: `<!doctype html><style>html,body,#host{margin:0;width:100%;height:100%;overflow:hidden;font-family:Arial,sans-serif}</style><main id="host"></main><script type="module">

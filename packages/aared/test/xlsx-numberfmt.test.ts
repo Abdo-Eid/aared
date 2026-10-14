@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   formatCodeForId,
   formatNumberValue,
@@ -126,5 +127,46 @@ describe("XLSX number formats", () => {
     expect(formatNumberValue(45000.75, code(32))).toBe("18:00:00");
     for (const id of [27, 30, 36, 50, 58]) expect(formatNumberValue(45000, code(id))).toBe("03-15-23");
     expect(code(23)).toBe("General");
+  });
+
+  /**
+   * Excel 365's own rendering of 12 custom codes x 5 values (`xlsx-numfmt-oracle.json`):
+   * each code typed into a cell through Excel's COM object model and the cell's displayed
+   * `Text` read back, on a machine with `.` decimals, `,` thousands and AED currency. None of
+   * these codes is regional, so the locale does not change them. Excel's `_)` padding and
+   * trailing spaces are layout, not text, so whitespace is compared collapsed.
+   */
+  test("matches Excel's displayed text for 60 code and value cases", () => {
+    const cases = JSON.parse(readFileSync(new URL("./xlsx-numfmt-oracle.json", import.meta.url), "utf8")) as Array<{ code: string; value: number; text: string }>;
+    expect(cases).toHaveLength(60);
+    const collapse = (text: string): string => text.replace(/\s+/g, " ").trim();
+    for (const { code, value, text } of cases) {
+      const aared = formatNumberValue(value, code);
+      if (code.includes("*")) {
+        // A `*` repeat fills the cell's width in Excel ("$ (1,235)" in a wide cell); aared
+        // drops the fill (ARCHITECTURE known limit), so only the fill spacing may differ.
+        expect(aared.replace(/\s+/g, ""), `${code} @ ${value}`).toBe(text.replace(/\s+/g, ""));
+      } else {
+        expect(collapse(aared), `${code} @ ${value}`).toBe(collapse(text));
+      }
+    }
+  });
+
+  /**
+   * What Excel 365 resolved built-in ids 0-58 to when a cell names the id with no code
+   * (`xlsx-numfmt-builtin-oracle.json`, read back through Excel's COM object model on an
+   * AED, dd/mm/yyyy machine). Every id aared does not treat as regional must match Excel
+   * exactly; the regional ones are where that machine's settings showed through.
+   */
+  test("resolves every non-regional built-in id as Excel does", () => {
+    const resolved = JSON.parse(readFileSync(new URL("./xlsx-numfmt-builtin-oracle.json", import.meta.url), "utf8")) as Array<{ id: number; code: string }>;
+    expect(resolved).toHaveLength(59);
+    // Currency/accounting (5-8, 41-44), negative style (37-40), day padding and order
+    // (14-16, 22), era dates (27-31, 36, 50-58): from the reader's regional settings.
+    const regional = new Set([5, 6, 7, 8, 14, 15, 16, 22, 27, 28, 29, 30, 31, 36, 37, 38, 39, 40, 41, 42, 43, 44, 50, 51, 52, 53, 54, 55, 56, 57, 58]);
+    for (const { id, code } of resolved) {
+      if (regional.has(id)) continue;
+      expect(formatCodeForId(id, new Map()), `id ${id}`).toBe(code);
+    }
   });
 });

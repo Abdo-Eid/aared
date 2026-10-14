@@ -322,7 +322,7 @@ export function createSearchHighlighter(root: HTMLElement, changed: () => void =
       if (registry === undefined || HighlightConstructor === undefined) {
         throw new AaredError(
           "unsupported-feature",
-          "aared/preview: search highlighting requires browser support for the CSS Custom Highlight API",
+          "@aared/viewer/preview: search highlighting requires browser support for the CSS Custom Highlight API",
         );
       }
       if (folded !== queryKey) { activeIndex = null; activeSelector = null; ranges = []; }

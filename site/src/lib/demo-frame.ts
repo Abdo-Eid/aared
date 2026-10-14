@@ -35,7 +35,13 @@ export interface DemoOutcome {
   dispose(): void;
 }
 
-export type DemoRunner = (stage: HTMLElement, source: string | File) => Promise<DemoOutcome>;
+/**
+ * `signal` aborts when a newer run starts in the same stage. A runner that
+ * hands it to `preview()` gets the library's own cancel: the superseded viewer
+ * is torn down at once, so it can never clear the stage after the newer run
+ * has painted (a viewer's `destroy()` empties its target).
+ */
+export type DemoRunner = (stage: HTMLElement, source: string | File, signal: AbortSignal) => Promise<DemoOutcome>;
 
 export type ResolveRunner = () => DemoRunner;
 
@@ -48,6 +54,7 @@ export function attachDemo(frame: HTMLElement, resolveRunner: ResolveRunner): vo
 
   let dispose: (() => void) | null = null;
   let generation = 0;
+  let running: AbortController | null = null;
   let current: string | File | null = frame.dataset.initial ?? null;
   let started = false;
 
@@ -56,6 +63,10 @@ export function attachDemo(frame: HTMLElement, resolveRunner: ResolveRunner): vo
     current = source;
     const run = resolveRunner();
     const gen = ++generation;
+    // A lazy start and a picker change can overlap in a tab that was just shown:
+    // cancel the earlier run before the new one begins to paint.
+    running?.abort();
+    const controller = (running = new AbortController());
     dispose?.();
     dispose = null;
     stage.dataset.state = "loading";
@@ -65,7 +76,7 @@ export function attachDemo(frame: HTMLElement, resolveRunner: ResolveRunner): vo
     status.textContent = "Loading…";
     // A runner that throws before returning its promise must land in the
     // error branch too, not leave the frame on "Loading…" forever.
-    new Promise<DemoOutcome>((resolve) => resolve(run(stage, source))).then(
+    new Promise<DemoOutcome>((resolve) => resolve(run(stage, source, controller.signal))).then(
       ({ summary, dispose: done }) => {
         if (gen !== generation) {
           done();

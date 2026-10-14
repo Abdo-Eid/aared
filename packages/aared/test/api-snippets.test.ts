@@ -53,7 +53,7 @@ test("the docs pages' examples and the playground snippets compile against the p
   // Exact counts, not a floor: a page that quietly loses half its runnable
   // examples is a regression, and a floor would not notice. Raise this in the
   // same edit that adds one.
-  expect(api.length).toBe(24);
+  expect(api.length).toBe(23);
   const start = checkedBlocks(await Bun.file(join(DOCS_DIR, "start.mdx")).text(), "start");
   expect(start.length).toBe(13);
   type Group = Record<string, { title: string; lang: string; code: string }>;
@@ -78,8 +78,8 @@ test("the docs pages' examples and the playground snippets compile against the p
         declaration: false,
         declarationMap: false,
         jsx: "react-jsx",
-        // `aared/<entry>` is the package's source, as the exports map points a consumer at its build.
-        paths: { "aared/*": [join(SRC, "*", "index.ts")], aared: [join(SRC, "core", "index.ts")] },
+        // `@aared/viewer/<entry>` is the package's source, as the exports map points a consumer at its build.
+        paths: { "@aared/viewer/*": [join(SRC, "*", "index.ts")] },
       },
       include: ["*.ts", "*.tsx"],
     }));

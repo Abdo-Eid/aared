@@ -4,6 +4,8 @@
  * Wordmark left, section nav right, theme toggle. `current` (the page's
  * path) drives the active-link highlight.
  */
+import { sitePath } from "../lib/site-path.ts";
+
 interface Props {
   current: string;
 }
@@ -13,14 +15,14 @@ const { current } = Astro.props;
 
 <header class="site-header">
   <div class="site-header-inner">
-    <a class="wordmark" href="/">
-      <img src="/aared-mark.svg" width="28" height="28" alt="" />
+    <a class="wordmark" href={sitePath("/")}>
+      <img src={sitePath("/aared-mark.svg")} width="28" height="28" alt="" />
       <span>aared</span>
     </a>
     <nav class="site-nav" aria-label="Main">
-      <a href="/start/" class:list={{ active: current === "/start/" }}>Start</a>
-      <a href="/playground/" class:list={{ active: current === "/playground/" }}>Playground</a>
-      <a href="/api/" class:list={{ active: current === "/api/" }}>API reference</a>
+      <a href={sitePath("/start/")} class:list={{ active: current === "/start/" }}>Getting started</a>
+      <a href={sitePath("/playground/")} class:list={{ active: current === "/playground/" }}>Playground</a>
+      <a href={sitePath("/api/")} class:list={{ active: current === "/api/" }}>API reference</a>
       <a href="https://github.com/Abdo-Eid/aared" rel="external">GitHub</a>
     </nav>
     <button type="button" class="theme-toggle" aria-label="Toggle theme">

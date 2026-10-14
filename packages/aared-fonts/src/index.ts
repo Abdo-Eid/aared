@@ -16,8 +16,8 @@
  * posts it to the Worker (see the API reference page § Font resolution).
  */
 
-import { fontAlias } from "aared/core";
-import type { FontResolver } from "aared/core";
+import { fontAlias } from "@aared/viewer/core";
+import type { FontResolver } from "@aared/viewer/core";
 
 /** Requested Office font family -> delivered substitute family. */
 export const FONT_SUBSTITUTIONS: Record<string, string> = {

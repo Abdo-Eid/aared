@@ -1,17 +1,17 @@
-/** Bounded warm-render/zoom comparison of PPTX effects using production bundles. */
+/** Bounded warm-render/zoom comparison using a production-configured internal painter. */
 import { join } from "node:path";
-import { open } from "../../packages/aared/dist/pptx/index.mjs";
+import { open, readSlideModel } from "../../packages/aared/src/pptx/renderer.js";
 import type { DrawingEffectsModel, SlideModel, SlideElementModel } from "../../packages/aared/src/core/model.js";
 import { REPO_ROOT, OUTPUT_ROOT } from "../shared/paths.js";
+import { browserModule } from "../../packages/aared/test/harness.js";
 
 const root = REPO_ROOT;
-const dist = join(root, "packages/aared/dist");
 const media = new Map<string, ArrayBuffer>();
 async function readDeck(file: string): Promise<SlideModel[]> {
   const deck = await open(await Bun.file(join(root, "fixtures", file)).arrayBuffer());
   try {
     const models = [];
-    for (const slide of deck.slides.list()) models.push(await slide.read());
+    for (const slide of deck.slides.list()) models.push(await readSlideModel(slide));
     for (const match of JSON.stringify(models).matchAll(/"(?:mediaId|pictureMediaId)":"([^"]+)"/g)) {
       if (!media.has(match[1]!)) media.set(match[1]!, await deck.media.get(match[1]!));
     }
@@ -51,13 +51,17 @@ function onlyEffect(kind: keyof DrawingEffectsModel): SlideModel {
   visit(model.elements); if (model.layout) visit(model.layout.graphics);
   return model;
 }
+// This diagnostic deliberately transforms private models. It must not turn
+// detached-model rendering back into a package export. Warm paint is measured,
+// not parse or bundle cost; match production minification/diagnostic settings.
+const painter = await browserModule(join(root, "packages/aared/src/pptx/renderer.ts"), { production: true });
 const server = Bun.serve({ hostname:"127.0.0.1", port:0, async fetch(request) {
   const url = new URL(request.url);
-  if(url.pathname.startsWith('/dist/')) return new Response(Bun.file(join(dist,url.pathname.slice(6))), {headers:{'content-type':'text/javascript'}});
+  if (url.pathname === '/painter.mjs') return new Response(painter, {headers:{'content-type':'text/javascript'}});
   if(url.pathname.startsWith('/media/')) return new Response(media.get(decodeURIComponent(url.pathname.slice(7))) ?? null);
   return new Response(`<!doctype html><style>html,body{margin:0;overflow:hidden}#host{width:960px;height:540px}</style><main id="host"></main>
     <script type="module">
-    import {render} from '/dist/pptx/index.mjs';
+    import {render} from '/painter.mjs';
     const target=document.querySelector('#host');
     const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
     const percentile=(values,p)=>[...values].sort((a,b)=>a-b)[Math.max(0,Math.ceil(values.length*p)-1)];

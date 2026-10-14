@@ -1817,7 +1817,7 @@ export async function parseXlsxSheet(
   throwIfAborted(signal);
   const reference = workbook.sheets[index];
   if (reference === undefined) {
-    throw new AaredError("not-found", `aared/core: sheet index ${index} is outside this ${workbook.sheets.length}-sheet workbook`);
+    throw new AaredError("not-found", `@aared/viewer/core: sheet index ${index} is outside this ${workbook.sheets.length}-sheet workbook`);
   }
   const { styles, sharedStrings, date1904 } = workbook;
   const byRow = new Map<number, GridEntry[]>();

@@ -7,7 +7,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && vite build --mode measure",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
@@ -20,7 +20,7 @@
     "@extend-ai/react-xlsx": "0.16.6",
     "@silurus/ooxml": "0.87.0",
     "@xlscalc/xlsx-preview": "0.4.0",
-    "aared": "workspace:*",
+    "@aared/viewer": "workspace:*",
     "aared-fonts": "workspace:*",
     "chart.js": "^4.5.1",
     "clsx": "^2.1.1",

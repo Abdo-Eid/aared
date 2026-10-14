@@ -246,7 +246,7 @@ describe("PPTX DrawingML parser", () => {
 
     await expect(indexPptx(pkg, controller.signal)).rejects.toMatchObject({
       name: "AbortError",
-      message: "aared/core: request was cancelled",
+      message: "@aared/viewer/core: request was cancelled",
     });
   });
 

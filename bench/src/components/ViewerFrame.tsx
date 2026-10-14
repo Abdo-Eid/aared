@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { UsePreviewReady } from "aared/react";
+import type { UsePreviewReady } from "@aared/viewer/react";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import {
   AlertTriangle,

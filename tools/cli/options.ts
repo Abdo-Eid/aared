@@ -18,7 +18,7 @@ export type ToolCommand =
   | { kind: "review"; options: ReviewOptions }
   | { kind: "bench"; args: string[] }
   | { kind: "inspect"; file: string; output?: string; bench: boolean }
-  | { kind: "check" }
+  | { kind: "check"; package?: string }
   | { kind: "doctor" };
 
 const HELP: Record<string, string> = {
@@ -48,7 +48,7 @@ Benchmarks are manual, on an idle machine on mains power; not ordinary tests.`,
   --out <json>    Write the resolved model/layout/media-hash dump
   --bench         Parser timings and heap/RSS only (not browser performance)
 Default: print timings; --out and --bench are mutually exclusive.`,
-  check: "Usage: bun run tools check consumer-build\nRequires bun run build first; builds scratch consumers and runs real browser probes.",
+  check: "Usage: bun run tools check consumer-build [--package <file.tgz>]\nRequires bun run build first; --package installs the tarball in a clean consumer and checks its exports, declarations and browser embeds.",
   doctor: "Usage: bun run tools doctor\nReports Bun, builds, Python packages and registered Office applications. Never launches Office or installs anything.",
 };
 
@@ -104,8 +104,10 @@ export function parseToolCommand(argv: string[], cwd = process.cwd()): ToolComma
       ...(values.out === undefined ? {} : { output: resolve(cwd, values.out) }) };
   }
   if (command === "check") {
-    if (args.length !== 1 || args[0] !== "consumer-build") throw new Error(HELP.check);
-    return { kind: "check" };
+    const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { package: { type: "string" } } });
+    if (positionals.length !== 1 || positionals[0] !== "consumer-build") throw new Error(HELP.check);
+    if (values.package !== undefined && !values.package.endsWith(".tgz")) throw new Error("--package requires an npm .tgz tarball.");
+    return { kind: "check", ...(values.package === undefined ? {} : { package: resolve(cwd, values.package) }) };
   }
   if (args.length !== 0) throw new Error(HELP.doctor);
   return { kind: "doctor" };

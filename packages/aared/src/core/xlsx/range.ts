@@ -71,7 +71,7 @@ export function parseA1Range(reference: A1Range): CellRange {
   if (range === undefined) {
     throw new AaredError(
       "invalid-range",
-      `aared/xlsx: invalid cell range ${JSON.stringify(reference)}; use "A1:M200" or a single cell like "D14"`,
+      `@aared/viewer/xlsx: invalid cell range ${JSON.stringify(reference)}; use "A1:M200" or a single cell like "D14"`,
     );
   }
   return range;

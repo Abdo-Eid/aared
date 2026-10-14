@@ -1,37 +1,22 @@
-{/* Shared by the API page's "Choosing a layer" and the Start page's "Pick an entry": one text, not two copies. */}
+{/* Shared integration chooser. Detailed contracts belong in the API reference. */}
 
-`aared` is a viewer, not a converter. The layers differ in how much you
-drive yourself, not in how well a file renders — they all paint through the
-same renderers.
-
-The viewer levels (`<aared-viewer>`, `preview()`, the hooks) show a file,
-move around it and find places in it. They also lend out read/render capabilities
-(`viewer.content`), so a thumbnail strip, a data reader or a picture
-gallery beside the viewer uses the same parse. The low-level API, `open()` and
-`render()`, is for when you own every step: your own paging, or a document
-kept past any viewer.
+Choose how much UI and lifetime management your app owns. Every integration
+uses the same renderers, so choosing a simpler entry does not reduce fidelity.
 
 | You want to… | Use |
 |---|---|
-| Show a file with no UI work | `<aared-viewer>` |
-| A viewer in React, with your own UI | `aared/react` hooks |
-| A viewer for one known format, with navigation and one-call cleanup | `preview({ source, target })` from `aared/pptx`, `aared/xlsx`, or `aared/docx` |
-| A viewer for an arbitrary file type | `preview({ source, target })` from `aared/preview` |
-| Your own toolbar or tab strip over it | the same viewer: `next()`, `previous()`, `zoomIn()`, `resetZoom()`, `goTo()` |
-| A search box or results list over it | the same viewer: `viewer.search()`, `viewer.goToSearchMatch()` |
-| Thumbnails, data reads or pictures beside the viewer | the same viewer's `viewer.content`, with the format's `render()` |
-| Build from the file's contents with no viewer, paging yourself | `open()` + `read()` / `render()` from `aared/pptx`, `aared/xlsx`, or `aared/docx` |
+| A viewer with built-in controls | `<aared-viewer controls>` |
+| A viewer in React, with app-owned UI | `usePreview()` from `@aared/viewer/react` |
+| A JavaScript viewer, with app-owned UI | `preview({ source, target })` from `@aared/viewer/preview` |
+| Semantic data reads or manual document lifetime/rendering | `open()` and `render()` from `@aared/viewer/pptx`, `@aared/viewer/xlsx`, or `@aared/viewer/docx` |
 
-Each format entry exports **both** `preview()` and the low-level `open()` /
-`render()` functions. The function you import chooses how much you own; the
-subpath chooses the format. Use `aared/preview` when that format is unknown.
+**Only accepting one format?** Import `preview()` from its format entry instead
+of `@aared/viewer/preview`. Each format entry exports both the viewer and the manual
+document operations. React also offers `usePptx()`, `useXlsx()` and `useDocx()`
+for format-specific types.
 
-For bundle size, direct format entries include only that renderer. The element,
-auto-detect preview and React hooks emit lazy chunks for all formats and fetch
-only the chosen one; a format hook narrows the handle but does not isolate the
-build to one renderer.
-
-Mixing works with one parse: `preview()` for the main view, and
-`render({ slide: viewer.content.slides.get(i), target })` for each thumbnail.
-The viewer owns the document; content exposes no `close()` or session. Destroy
-the thumbnails before the viewer, and keep search on `viewer.search()`.
+**Already showing the file?** Keep using that viewer for controls and search.
+Its `viewer.content` provides semantic reads and inputs for secondary renders,
+such as thumbnails, without reopening the file. It does not expose document
+editing or rendering models. See [multiple views](../start/#render-several-slides-from-one-document)
+and [borrowed content](../api/#borrowed-content).

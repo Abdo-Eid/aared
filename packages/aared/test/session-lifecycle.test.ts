@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { AaredError, isAaredError, isAbort } from "../src/core/index.js";
 import { drainWorkerPool } from "../src/core/session.js";
-import { open } from "../src/pptx/index.js";
+import { open, readSlideModel } from "../src/pptx/renderer.js";
 import { rejection } from "./harness.js";
 
 const ARABIC_FIXTURE = `${import.meta.dir}/../../../fixtures/pptx-coverage.pptx`;
@@ -49,7 +49,7 @@ test("a source open() cannot read is a typed invalid-argument, not the platform'
   for (const wrong of [null, 42, { name: "deck.pptx" }]) {
     const error = await rejection(open(wrong as unknown as ArrayBuffer));
     expect(isAaredError(error) && error.code).toBe("invalid-argument");
-    expect(error.message).toContain("aared/pptx: a source is a File, Blob, ArrayBuffer, typed array or URL string; received");
+    expect(error.message).toContain("@aared/viewer/pptx: a source is a File, Blob, ArrayBuffer, typed array or URL string; received");
   }
   // A Blob is read by what is used from it, so one from another frame still opens.
   const foreign = { size: bytes.byteLength, arrayBuffer: async () => bytes.slice().buffer };
@@ -85,7 +85,7 @@ test("aborts URL source loading through fetch", async () => {
     controller.abort();
     const error = await rejection(opening);
     expect(suppliedSignal).toBe(controller.signal);
-    expect(error).toMatchObject({ name: "AbortError", message: "aared/core: request was cancelled" });
+    expect(error).toMatchObject({ name: "AbortError", message: "@aared/viewer/core: request was cancelled" });
   } finally {
     if (original === undefined) delete (globalThis as { fetch?: typeof fetch }).fetch;
     else Object.defineProperty(globalThis, "fetch", original);
@@ -188,8 +188,8 @@ test("resolves each requested font family once on the main side", async () => {
     },
   });
   try {
-    await deck.slides.get(1).read();
-    await deck.slides.get(1).read();
+    await readSlideModel(deck.slides.get(1));
+    await readSlideModel(deck.slides.get(1));
     expect(requested).toContain("Arial");
     expect(new Set(requested).size).toBe(requested.length);
   } finally {
@@ -211,10 +211,10 @@ test("a failing font resolver never fails a read, and is asked again next time",
     },
   });
   try {
-    const first = await deck.slides.get(1).read();
+    const first = await readSlideModel(deck.slides.get(1));
     expect(first.elements.length).toBeGreaterThan(0);
     // A rejection is not cached either: the second read asks for Arial again, and still succeeds.
-    await deck.slides.get(1).read();
+    await readSlideModel(deck.slides.get(1));
     expect(calls.filter((family) => family === "Arial")).toHaveLength(2);
     // Families that resolved (here to `undefined`) stay cached: asked once each.
     const others = calls.filter((family) => family !== "Arial");
@@ -246,7 +246,7 @@ function stubWorker(unitReply: (message: { sessionId: number; requestId: number 
     postMessage(message: { type: string; sessionId: number; requestId: number }): void {
       const reply = message.type === "open"
         ? { ok: true, result: { format: "pptx", count: 1, titles: ["Slide 1"], sizes: [{ width: 10, height: 7.5 }], theme: { colors: {}, fonts: { major: "", minor: "" } } } }
-        : message.type === "unit" ? unitReply(message) : undefined;
+        : message.type === "unit" || message.type === "text" ? unitReply(message) : undefined;
       if (reply === undefined) return;
       queueMicrotask(() => this.message?.({ data: { type: "response", sessionId: message.sessionId, requestId: message.requestId, ...(reply as object) } } as MessageEvent<unknown>));
     }
@@ -278,7 +278,7 @@ test("after the Worker crashes, later calls report the crash, never `closed`", a
     stub.crash("Uncaught RangeError: out of memory.");
     const inFlight = await rejection(pending);
     expect(inFlight).toMatchObject({ code: "worker-error" });
-    expect(inFlight.message).toBe("aared/pptx: worker failed to start or stopped unexpectedly (Uncaught RangeError: out of memory)");
+    expect(inFlight.message).toBe("@aared/viewer/pptx: worker failed to start or stopped unexpectedly (Uncaught RangeError: out of memory)");
     expect((inFlight as AaredError).cause).toMatchObject({ message: "Uncaught RangeError: out of memory." });
     // The next call on the same document: still the crash, not a use-after-close bug.
     const later = await rejection(deck.slides.get(0).read());
@@ -292,7 +292,7 @@ test("an internal Worker failure arrives with its original error as `cause`, in 
     ok: false,
     error: {
       code: "internal",
-      message: "aared/core: the viewer failed while reading this file (TypeError: x is undefined)",
+      message: "@aared/viewer/core: the viewer failed while reading this file (TypeError: x is undefined)",
       cause: { name: "TypeError", message: "x is undefined", stack: "TypeError: x is undefined\n    at parse (pptx.ts:1:1)" },
     },
   }));
@@ -300,7 +300,7 @@ test("an internal Worker failure arrives with its original error as `cause`, in 
     const deck = await open(new ArrayBuffer(8));
     const error = await rejection(deck.slides.get(0).read());
     expect(error).toBeInstanceOf(AaredError);
-    expect(error).toMatchObject({ code: "internal", message: "aared/pptx: the viewer failed while reading this file (TypeError: x is undefined)" });
+    expect(error).toMatchObject({ code: "internal", message: "@aared/viewer/pptx: the viewer failed while reading this file (TypeError: x is undefined)" });
     const cause = (error as AaredError).cause as Error;
     expect(cause).toBeInstanceOf(Error);
     expect(cause.name).toBe("TypeError");
@@ -323,7 +323,7 @@ test("a download that drops partway is a network-error, not the platform's raw T
   try {
     const error = await rejection(open("https://example.test/deck.pptx"));
     expect(error).toMatchObject({ code: "network-error" });
-    expect(error.message).toBe('aared/pptx: the download of "https://example.test/deck.pptx" stopped partway: network connection was lost');
+    expect(error.message).toBe('@aared/viewer/pptx: the download of "https://example.test/deck.pptx" stopped partway: network connection was lost');
   } finally {
     if (original === undefined) delete (globalThis as { fetch?: typeof fetch }).fetch;
     else Object.defineProperty(globalThis, "fetch", original);
@@ -415,7 +415,7 @@ test("reports a Worker the browser refuses to construct as a typed worker-error"
     expect(error).toBeInstanceOf(AaredError);
     expect(error).toMatchObject({ code: "worker-error", cause: refusal });
     const message = (error as AaredError).message;
-    expect(message.startsWith("aared/pptx: the browser refused to start the Worker (Failed to construct 'Worker'")).toBe(true);
+    expect(message.startsWith("@aared/viewer/pptx: the browser refused to start the Worker (Failed to construct 'Worker'")).toBe(true);
     expect(message).toContain('"worker" option');
     expect(isAbort(error)).toBe(false);
   } finally {

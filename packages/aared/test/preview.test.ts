@@ -48,7 +48,7 @@ test("preview with an asserted wrong type rejects before painting", async () => 
   );
   expect(error).toBeInstanceOf(AaredError);
   expect(isAaredError(error) && error.code).toBe("unsupported-format");
-  expect(error.message).toContain("aared/pptx");
+  expect(error.message).toContain("@aared/viewer/pptx");
 });
 
 test("preview maps corrupt archives to invalid-document errors", async () => {

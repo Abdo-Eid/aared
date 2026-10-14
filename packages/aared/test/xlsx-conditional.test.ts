@@ -8,7 +8,7 @@ import { readWorkbook } from "../src/core/xlsx/workbook.js";
 import { withPart } from "./mutate.js";
 import { conditionalFormulaFixture } from "./xlsx-conditional-fixture.js";
 import { storedZip } from "./zip.js";
-import { open as openXlsx } from "../src/xlsx/index.js";
+import { open as openXlsx, readSheetModel } from "../src/xlsx/renderer.js";
 
 // Conditional formats on the Shot Log sheet of the Arabic coverage workbook:
 // its Excel-authored rules are replaced by rules in the shapes Excel writes
@@ -284,7 +284,7 @@ describe("XLSX conditional formats", () => {
         worker: { url: new URL("../dist/core/worker.mjs", import.meta.url) },
       });
       try {
-        const window = await workbook.sheets.get(2).read({ range: "F5:F7" });
+        const window = await readSheetModel(workbook.sheets.get(2), { range: "F5:F7" });
         expect(window.rows.flatMap((row) => row.cells.map((entry) => entry.cell.conditional?.fill))).toEqual(["#FFDCB4", "#FFDCB4", "#FFDCB4"]);
       } finally { workbook.close(); }
     }

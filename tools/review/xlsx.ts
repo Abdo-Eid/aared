@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { open } from "../../packages/aared/src/xlsx/index.js";
+import { open, readSheetModel } from "../../packages/aared/src/xlsx/renderer.js";
 import { collectStrings } from "../../packages/aared/src/core/collect.js";
 import { absentFontsModule } from "../../packages/aared/test/absent-fonts.js";
 import { within } from "../../packages/aared/test/harness.js";
@@ -62,7 +62,7 @@ export async function captureXlsx(file: string, options: {
   try {
     for (const [index, handle] of workbook.sheets.list().entries()) {
       if (workbook.info.sheetStates?.[index] !== undefined && workbook.info.sheetStates[index] !== "visible") continue;
-      models.push(await handle.read());
+      models.push(await readSheetModel(handle));
       titles.push(workbook.info.titles[index] ?? `sheet-${index + 1}`);
     }
     if (reference.sheetCount !== models.length) throw new Error(`Excel printed ${reference.sheetCount} visible sheets, aared read ${models.length}`);

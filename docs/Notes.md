@@ -59,7 +59,7 @@ are preserved in the single pre-baseline archive.
 ## Topics
 
 - [Design, scope and native evidence](#design-scope-and-native-evidence) — 11 entries
-- [API, viewer lifecycle and errors](#api-viewer-lifecycle-and-errors) — 26 entries
+- [API, viewer lifecycle and errors](#api-viewer-lifecycle-and-errors) — 29 entries
 - [Worker, packaging and memory](#worker-packaging-and-memory) — 16 entries
 - [Shared rendering, paint and host isolation](#shared-rendering-paint-and-host-isolation) — 8 entries
 - [Performance, benchmarks and navigation](#performance-benchmarks-and-navigation) — 5 entries
@@ -69,7 +69,7 @@ are preserved in the single pre-baseline archive.
 - [Search and highlighting](#search-and-highlighting) — 6 entries
 - [Charts](#charts) — 3 entries
 - [XLSX layout and conditional formats](#xlsx-layout-and-conditional-formats) — 10 entries
-- [Quality, tooling and documentation](#quality-tooling-and-documentation) — 9 entries
+- [Quality, tooling and documentation](#quality-tooling-and-documentation) — 11 entries
 
 ## Design, scope and native evidence
 
@@ -292,6 +292,188 @@ needs 2FA on writes, and agents never hold npm credentials or tokens.
 
 ## API, viewer lifecycle and errors
 
+<a id="note-133"></a>
+
+### 133. Bench measurement imports must not boot the React app (October 14, 2026)
+
+The all-package measurement pass exposed a build-graph defect: all eight aared
+cells rejected with `#root element missing`, while competitors continued. Source
+measurement HTML correctly owns only `#host`; the thrown message came from
+`bench/src/main.tsx`, not package parsing or painting. In the produced build,
+the lazy format viewers imported `embed-viewer`, which imported shared viewer
+helpers exported from the React `main-*` entry. Evaluating that entry also ran
+its app startup. Adding an unused React root or suppressing its error would
+hide the coupling and contaminate timing/download measurements.
+
+**Correction:** build the app and measurement HTML in separate Vite passes,
+retaining app assets on the measurement pass. Strict entry signatures alone
+were tried and still generated a shared app chunk with the same startup side
+effect; the regression reproduced it. Disjoint module graphs keep measurement
+dependencies out of HTML bootstraps rather than borrowing an entry's exports.
+This is a bench packaging boundary, not a public
+API or renderer change. Package lazy imports, Worker constructor/output and
+competitor adapters remain unchanged. `bench-entrypoints.visual.test.ts` reads
+the production measurement HTML, opens the existing Arabic PPTX/XLSX/DOCX
+fixtures through its real adapters, checks produced DOM/text and teardown, and
+checks that the React bootstrap was never requested. Rebuild before running it.
+
+The failed pass retains competitor measurements in its ignored JSON. Retry the
+failed/missing cells in fresh processes after verifying the build; do not call
+the partial pass a complete refresh or mix its invalid aared cells into film
+claims. The unrelated large-DOCX competitor hang remains a measurement failure,
+not evidence against aared's rendering.
+
+<a id="note-132"></a>
+
+### 132. Consumer documentation follows jobs, not engine layers (October 14, 2026)
+
+A source/content audit after the semantic-data boundary found stale prose even
+though the declarations and checked examples passed: the playground promised
+model access/exports/pictures, the shared chooser promised a picture gallery,
+the element event table still named `model`, XLSX prose accepted detached models,
+and the React section denied the borrowed reads the viewer already supported.
+Name/export checks did not detect these ordinary-language contradictions.
+
+Keep the four pages, with distinct jobs: Home evaluates, Getting started gets
+a file working and adds tasks, Playground tries integrations, API reference
+defines contracts. The Getting started label is clearer than Start, while the
+existing `/start/` route stays. More guide/concept pages were rejected as
+unnecessary navigation and maintenance for the current surface. The chooser
+leads with built-in controls, React, JavaScript viewer and manual document
+ownership; known-format import/bundle distinctions come after those jobs.
+
+Useful contextual overlap stays: a minimal example can appear in onboarding
+and in a runnable demonstration. Full data schemas move beside the format
+methods returning them. Shared contracts get a canonical section/link, not
+copies of engine rationale. Worker configuration remains public because CDN/CSP
+deployment needs it; pool timing, adoption/protocol narration and bench-specific
+UI anecdotes do not help an ordinary first integration. Font substitution is
+not advertised as an exact-line-break guarantee.
+
+The playground's minimal snippets deliberately do not recreate every demo
+control. Label that distinction next to the code and link to the toolbar recipe;
+do not hide helper APIs in a supposedly complete copyable example. React snippets
+include loading/error/retry UI without unmounting the host; cleanup examples
+define an unmount callback rather than destroying a just-mounted viewer inline.
+Manual demo paging no longer swallows failures. A fixture-backed test faults a
+real unit request and re-reads displayed content, error status, recovery and
+control teardown. Keyboard tab changes notify the shared picker just like
+pointer changes, so format/file state and snippets stay aligned.
+
+No renderer API, fidelity mechanism or fixture bytes change here. Existing
+Arabic-table fixtures provide demo proof. Prose regression guards now cover the
+playground/home as well as API/onboarding/shared text. The site remains a static
+Astro build, with the same four routes; no changelog or release is created.
+
+**Distilling the consumer audit.** The maintainer then requested removing
+`docs/USE-CASES.md`. Its 23 source/code-reviewed journeys repeated the recipes,
+contracts and adopted decisions already owned by Getting started, the API page
+and §119-§122/§135. Even its summary disposition for data reads differed from
+its detailed section. Another current-state copy would keep drifting; the
+Low/Medium/High ratings were qualitative judgments, not usability measurements.
+Review each section for unique facts before removal, not wholesale migration.
+
+The durable evaluation rule is to account for the entire consumer task: imports,
+host sizing, persistent React hosts and state, failures, cancellation, teardown
+and extra opens. Do not hide those costs to shorten a snippet, mistake a
+defensible ownership boundary for zero friction, or dismiss a simpler consumer
+path merely because the API is internally consistent. AGENTS' capability rules
+now own that check. No replacement audit file or universal wrapper was added.
+
+The rejected shortcuts retain their reasons: native file/drop handlers and
+authenticated fetch do not need package-owned picker/downloader abstractions;
+EventTarget already supports toolbar subscriptions, and another observable is
+another state surface. A universal read/page collection would conflate format
+semantics, source sections and physical pages. SSR-safe imports do not enable
+server rendering. Resolve actual fidelity defects through source/model/DOM/native
+evidence, not an API rename. The error-owner, appearance-merge, borrowed-lifetime
+and explicit Worker decisions remain in §119-§122; the data/model boundary is
+§135, not re-decided by deleting its former journey examples.
+
+Unresolved title-based preview sheet selection, workbook-wide search, React
+start-value naming, sparse-cell helpers and picture enumeration/retained assets
+are distilled into [Unscheduled proposals](ARCHITECTURE.md#unscheduled-proposals),
+with current workarounds and tradeoffs. None becomes an OPEN commitment. Usable
+instructions stay in Getting started; exact limitations/defaults and supported
+shapes stay in the API reference. Historical mentions of the retired audit
+below are provenance, not links to a maintained contract. The XLSX fills entry
+keeps §130 and its anchor; the data/model boundary below is §135.
+
+<a id="note-135"></a>
+
+### 135. Supported semantic data, private rendering models (October 14, 2026)
+
+The first implementation release needed a deliberate compatibility boundary.
+Exported names were not the whole issue: methods, collections, events and
+render-input unions made the Worker-to-renderer representation inspectable,
+even if its barrel exports were removed. XLSX was not a safe exception:
+SheetRangeModel reaches drawings/chart specs/effects, and CellModel reaches
+conditional-format paint instructions as well as cached values. Constructors
+also reached WorkerSession and DOCX section/outline structures.
+
+The decision is supported consumer operations and small semantic data schemas,
+with painting models internal in every format. Public types describe interfaces,
+not implementation-class construction. Real projections clone nested containers;
+they are not full payloads hidden under narrower TypeScript annotations. The
+canonical contract is [Reading data](../site/src/content/docs/api.mdx#reading-data)
+and [Architecture](ARCHITECTURE.md#resolved-model-contract).
+
+The earlier discussion's consumer evidence was stale: the bench XLSX adapter is
+the SheetJS baseline, and the current site low-level XLSX demo renders a handle.
+Its range read was only a comment. DOCX already has HeadingInfo/outline APIs.
+Actual supported jobs are cached cell inspection, slide paragraphs/notes,
+section page setup, search and custom viewer UI, not an entire custom renderer.
+
+Rejected alternatives: promising every model would tie fidelity discoveries
+(§28 fills, §55 anchors) to a large public graph. A tiered XLSX/PPTX/DOCX policy
+would still promise spreadsheet rendering machinery and put an invisible
+experimental boundary below cells. Removing only names would leave structural
+types public. An /experimental subpath adds a choice the maintainer does not
+want. Opaque snapshots preserve a specialised detached-rendering job but add
+asset, copying, lifetime and cross-version questions; existing handles and
+borrowed viewer content already support thumbnails and secondary views.
+
+Implementation keeps the painters behind per-format renderer modules and
+private model readers. Public facade guards accept registered inputs, not
+duck-typed lookalikes. Sheet switching and DOCX search/outline still read models
+privately. XLSX activation events use the same cell projection as data reads.
+PPTX search retains the paragraph-only RPC; public reads opt into notes without
+making search inflate notes parts or request fonts. XLSX data reads likewise
+skip page-side resource resolution. Fresh DOCX section projections bypass the
+borrowed stable-handle cache, avoiding an unbounded retained map of copies.
+
+Deliberate non-changes: Worker parsing, browser text, private model shapes,
+fidelity paint, search matches, headings/navigation and media overrides stay.
+Range merges retain their intersected/clipped semantics, not whole-sheet merges.
+Public detached-model painting, picture enumeration, style inspection and rich
+DOCX traversal are no longer supported jobs. Fill/border inventory rows remain
+OPEN fidelity/representation work, not data-contract prerequisites. Compatible
+additions are allowed; required fields or union changes are not presumed safe.
+
+Two tooling paths also depended on public model painting: the group-effects
+warm-paint diagnostic and Word capture's absent-font simulation. They now bundle
+the internal painter through browserModule with production flags, without a new
+package subpath or a second build harness. The diagnostic is not a packaged
+bundle-size measurement. Word capture's old inferred-root EBADF warning remains
+historical evidence: the relocated internal entry successfully bundled on this
+checkout; capture no longer pretends it is calling the public package facade.
+
+Proof comes from existing Arabic-table fixtures: projected values/types/notes,
+twips-to-inches conversion, nested mutation isolation, paragraph/model parity,
+public-handle/painter DOM parity, interaction events and the borrowed embed
+routes. Built declaration dependencies and compiled consumer negative checks
+cover structural access and constructors, not just exported names. Native paint
+is unchanged; the existing paired Office review routes remain the oracle.
+
+Boundary validation on October 14, 2026: typecheck, package/declaration build,
+docs-site build and production consumer-build checks passed; headless tests
+reported 918 pass / 93 skip, and the complete visual suite 92 pass. Word review
+captured 11 pages in `tools/out/docx/docx-coverage/`; paired pages 1 and 2,
+including the bilingual table, were inspected. Token comparison remains a
+diagnostic report (56 matched-token page mismatches; 329 repeated-token groups), not a new
+full-document pixel-fidelity acceptance. Public/painter DOM parity normalizes
+per-render SVG resource ids, whose uniqueness is deliberate, not a regression.
+
 **Current ownership and behavior:**
 [ARCHITECTURE](ARCHITECTURE.md#viewer-behavior-and-ownership).
 **Calling contracts:** [the API reference](../site/src/content/docs/api.mdx).
@@ -405,7 +587,8 @@ surface is for turned up nothing that justified it:
 - **Cheap to add, costly to remove.** Pre-release is the cheapest moment to
   cut.
 
-It was removed (not aliased — AGENTS.md "Pre-release breaking changes"):
+It was removed, not aliased (the rule then in AGENTS.md: before the first
+release, best design wins over compatibility):
 `deck.capabilities`, `workbook.capabilities`, `document.capabilities`, and
 the `PptxCapabilities`/`XlsxCapabilities`/`DocxCapabilities` types.
 Re-introduce it only when a value varies per file or environment, and then
@@ -452,7 +635,7 @@ appearance replacement became merge in §119; the current-unit no-op gained an
 in-flight exception in §68; teardown no-ops were narrowed by typed closed-use
 checks (§57–§59); and dual error emission/rejection was replaced by action-owned
 reporting in §120. Those reversals are experience, not today's contracts.
-The [API design principle](../site/src/content/docs/api.mdx#design-principle),
+The [API ownership rules](../site/src/content/docs/api.mdx#ownership-and-updates),
 [navigation](ARCHITECTURE.md#navigation-appearance-and-cancellation) and
 [errors](ARCHITECTURE.md#errors) own the current rules and data shapes.
 
@@ -515,10 +698,10 @@ silently. It is `closed` now, as the main thread already reports after
 `close()`.
 
 **Worker errors read in the caller's entrypoint.** The bridge rewrites the
-`aared/core:` prefix to its own scope (for example `aared/pptx:`) as it
-receives a failure. Cancellation keeps the one `aared/core: request was
-cancelled` wording on both sides. Headless `core` calls still say
-`aared/core:`.
+`@aared/viewer/core:` prefix to its own scope (for example
+`@aared/viewer/pptx:`) as it receives a failure. Cancellation keeps the one
+`@aared/viewer/core: request was cancelled` wording on both sides. Headless
+`core` calls still say `@aared/viewer/core:`.
 
 **A failing font resolver no longer fails the document; `font-error` is
 gone.** A `fontResolver` that threw rejected the whole `read()` and
@@ -1144,7 +1327,7 @@ result count. Reusing XLSX cell navigation also preserves virtualization rather
 than inventing a second scroller. The current
 [navigation/highlight rules](ARCHITECTURE.md#search-and-highlights) own reset,
 stale-query and cross-format activation behavior; the
-[viewer API](../site/src/content/docs/api.mdx#auto-detect-preview-aaredpreview)
+[viewer API](../site/src/content/docs/api.mdx#auto-detect-preview-aaredviewerpreview)
 owns the methods/events.
 
 All ranges use a soft CSS Custom Highlight. A clipped, pointer-transparent
@@ -1217,11 +1400,13 @@ brace in playground MDX, now escaped so the displayed syntax remains unchanged.
 
 ### 119. Viewers lend their document, take any search result, and merge appearance updates (October 13, 2026)
 
-An outside review of the consumer-journey audit (`docs/USE-CASES.md`) named the
+An outside review of the then-current consumer-journey audit (retired and
+distilled in [§132](#note-132)) named the
 places where an app outgrowing "show this file" suddenly had to learn more
 machinery. Three of its proposals were checked against the source and adopted.
-All three are pre-release breaking changes, made without aliases (AGENTS.md
-§ Pre-release breaking changes).
+All three are pre-release breaking changes, made without aliases under the
+rule then in AGENTS.md: before the first release, best design wins over
+compatibility.
 
 **`viewer.document`: one parse for the main view and its thumbnails.** The
 viewer kept its parsed document private, so a thumbnail strip, a range read or
@@ -1369,8 +1554,8 @@ and re-reads DOM output: calls reject without events, tab failures report once
 at both low-level and preview depth, element toolbar failures report once,
 explicit element open only rejects, no unhandled rejection leaks, and the
 previous content remains. React's real tab failure updates `error` without
-replacing the view. USE-CASES rates the residual app-callback cost Medium,
-not friction-free.
+replacing the view. The former consumer audit rated the residual app-callback
+cost Medium, not friction-free; its durable evaluation rule is now in §132.
 
 <a id="note-121"></a>
 
@@ -2931,6 +3116,41 @@ Measured: large-40x 38.7 to 16.9 MB, open 606 to 230 ms. The saving is
 first-view: after scrolling to the end the document holds 34.2 MB, because a
 page keeps its layout once shown (the "after a full read" column reports it).
 
+**The tab pass over a whole document (Oct 2026).** The 40x file was later
+regenerated from a larger coverage fixture and layout opened it in 9.4 to 10.7 s,
+while flow (the default mode) did not finish in 240 s. The cost was not
+measuring or pagination: timing the rect and size reads by caller, then a CPU
+profile, put it in `layoutParagraph`, which wrote a tab's width and then read
+rects for every tabbed paragraph, so each read forced a layout of everything
+the root holds (the layout probe holds every block; flow holds the whole
+article, 6 to 8 ms per layout against 0.2 in the probe). `LayoutCount` was 2 per
+tabbed paragraph (29,377 for 14,400 table-of-contents entries) and each layout
+grew with the tree. Two fixes. `layoutTabStops` reads all, writes all, round by
+round (the k-th tab of every paragraph at once), then re-reads where each tab
+landed and resolves any paragraph a float moved one at a time, as before (the
+order can matter only in a page or the flow article, where paragraphs share a
+formatting context with floats; each block of the probe sits in its own
+`flow-root`). And one `Range` per pass: a `createRange()`
+per tab stays registered with the document until it is collected, and every
+later `textContent = ""` walks all of them, which was 49 of 57 s in flow. A
+style read after each tab's writes (`getComputedStyle(tab).font` in the leader
+fill) cost a style recalculation per tab in the same way, and moved into the
+read phase. Measured at 40 copies (Chrome 155, one session): layout 10.7 to
+3.6 s, 29,377 to 103 layouts; flow from over 240 s to 3.9 s. Memory is not
+touched: it is linear in painted elements (about 0.8 to 1.1 KB each, Worker
+included; 148 MB for the 193,529-element file, 97 MB for one-TOC flow against
+58 MB for one-TOC layout, which skips off-screen pages).
+
+**The 40x fixture's table of contents.** Repeating the body repeated its table
+of contents, and each refreshes to list every heading in the file (§94), so 40
+copies held 40 x 360 = 14,400 entries: 60% of the paragraphs and 312 of 721
+pages. A real long document has one, and `make-fixtures.py` now keeps it in the
+first copy (409 pages, 53,441 elements, 58 MB; layout 0.41 s at 10 copies to
+1.41 s at 40, linear). Probe traps: a cell measured on a regenerated fixture is
+not comparable with an earlier one (the search table still said 0.3 MB for a
+2.2 MB file), and the benchmark measures layout while flow is the default, so
+a cost only flow paid never showed.
+
 <a id="note-40"></a>
 
 ### 40. No layout jumps when a unit is replaced
@@ -3306,7 +3526,8 @@ browser, motivating the then-proposed "headless thumbnail export". That proposal
 now lives in [ARCHITECTURE](ARCHITECTURE.md#unscheduled-proposals), not a delivered
 browser-free renderer or the retired ROADMAP.
 Revisit Pretext when headless accuracy is scheduled, or if DOM measuring is
-too slow on very large documents; then run a spike first (compare line counts
+too slow on very large documents (measured Oct 2026 on a 700-page file: it is
+not, the slow part was the tab pass, §37); then run a spike first (compare line counts
 with the DOM for every fixture paragraph) and verify Worker or server support
 and the licence before depending on it.
 
@@ -6298,6 +6519,58 @@ typecheck clean. Native Office captures were exercised through the unchanged
 An independent read-only review found the server-lifetime leak this section now
 records; it was fixed before the numbers above were taken.
 
+<a id="note-134"></a>
+
+### 134. Release-tagged Pages and clean npm consumers (October 14, 2026)
+
+**Why.** The local checkout had no remote, and the old Pages workflow deployed
+every `main` push from a domain-root site configuration. The first public
+repository is `Abdo-Eid/aared`, so its project Pages URL is `/aared/`, not `/`.
+An ordinary push must not advertise installation before npm publication.
+There is still no separate push/PR CI: the maintainer validates locally, and
+the release deployment repeats headless checks against the tagged checkout.
+
+**Root cause and correction.** Astro/Vite prefixes generated imports and
+fixture assets, but cannot fix hand-authored root-relative navigation, logos
+or media. Astro UI now uses one base helper; MDX uses sibling-relative links
+with trailing-slash routes. Application paths in consumer code snippets are
+not rewritten. A production WebView test serves only `/aared/`, directly opens
+all four pages and re-reads painted text for PPTX/XLSX/DOCX through the four
+playground integrations. This exercises the real emitted Worker and lazy
+module URLs, rather than a source-only demo harness.
+
+**Release boundary.** GitHub Pages was enabled with Actions as its source while
+the new public repository was still empty; no push was needed to configure it.
+The workflow triggers only on published stable GitHub Releases. It checks an
+annotated tag, manifest-version equality and `main` ancestry before building.
+The build job has Pages read access; only deployment receives Pages write/OIDC.
+Native Office fidelity remains local Windows evidence, not an Ubuntu CI claim.
+
+**Packaging evidence and a probe trap.** The actual npm tarball includes
+LICENSE and a package-local README alongside dist and package.json (86 files).
+`tools check consumer-build --package` installs it in an isolated npm consumer:
+public package specifiers, no workspace aliases, all eight exports, compiled
+declarations, Vite/webpack previews, borrowed renders, search, chart loading,
+CSP negative controls, and React/element output plus cleanup. A webpack text
+probe initially imported the exported Worker with Vite's `?raw` suffix; webpack
+tried resolving `./worker?raw` through the export map and rejected it. The
+correct recipe uses the plain Worker export and an issuer-scoped `asset/source`
+rule, leaving the default Worker's compilation untouched. No query-suffixed
+export or filesystem alias was added to conceal that bundler distinction.
+
+**Blast radius and deliberate non-changes.** Site deployment paths, package
+metadata/material and release verification tools only. Package APIs, parsers,
+renderer rules and existing fixtures are unchanged. No npm publication, release
+commit, tag or GitHub Release was performed. The workflow passed actionlint;
+headless tests (925 passed, 96 browser tests skipped), declarations/typecheck,
+site/bench builds and installed-tarball consumer checks passed locally. The
+full visual suite passed 96 tests across 50 files, including the production-site
+regression. Its readiness wait observes painted content as well as status:
+hidden demos can defer viewport painting until the next frame after becoming
+visible. The vanilla tarball install also resolves its non-React entries without
+installing React; explicit peers are then installed for the hooks checks.
+Hosted workflow execution and live Pages remain unverified until a real release.
+
 <a id="note-129"></a>
 
 ### 129. One gap inventory: the roadmap retires into ARCHITECTURE (October 14, 2026)
@@ -6321,7 +6594,8 @@ dispositions prevent a deferred item or unscheduled idea from masquerading as
 an implementation commitment. The exact current inventory definitions and
 release/proposal sections are in [ARCHITECTURE](ARCHITECTURE.md#gaps-limits-and-fidelity-gaps).
 
-AGENTS.md, README.md, CONTRIBUTING.md, docs/USE-CASES.md, the API reference
+AGENTS.md, README.md, CONTRIBUTING.md, the then-current consumer audit (since
+distilled in §132), the API reference
 page and two source comments follow the rename, so no active link resolves to a
 deleted file.
 
@@ -6435,8 +6709,9 @@ prints built-in id 47 as `mmss.0`; Excel resolves it to `mm:ss.0` and shows
 `ss.0`, `ss.00` and `ss.000` now show tenths to thousandths, rounded at that
 precision first so 59.96 s under `ss.0` carries into the next minute.
 
-**Blast radius.** The cell style's `fill` changes type (public in this tree;
-the model-contract decision may hide it later). Its readers were the style
+**Blast radius.** The cell style's `fill` changes type. It is internal render
+data since the data/model boundary (§135): the public `CellData` carries no
+style, so no public shape changes. Its readers were the style
 reader, the cell painter and five parser assertions. Conditional fills,
 borders, charts and PPTX/DOCX fills are unchanged; the painter's default blend
 is unchanged for every existing caller.

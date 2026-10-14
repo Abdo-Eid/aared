@@ -1,5 +1,5 @@
-import type { ZoomValue } from "aared/core";
-import { isAbort, messageFor } from "aared/core";
+import type { ZoomValue } from "@aared/viewer/core";
+import { isAbort, messageFor } from "@aared/viewer/core";
 
 /**
  * Docs plumbing for the playground demos: the paging and zoom bar under each

@@ -30,7 +30,7 @@ was found. Sizes are given only where published; otherwise "not published".
 | [`docx-preview`](https://github.com/VolodymyrBaydalka/docxpreview) | DOCX | ✅ | DOM | ✅ (`w:bidi`/`w:rtl` → `direction:rtl`; real DOM, CSS-fixable) | Apache-2.0 | Small |
 | [`@apollo-design/docx-preview`](https://github.com/apollocmh/docx-preview) | DOCX | ✅ | DOM (docx-preview fork) + measured `paginate` reflow | ✅ inherited from docx-preview; verified on `docx-coverage.docx` | Apache-2.0 | Measured 52 KB gzip (JSZip included) |
 | [`mammoth`](https://github.com/mwilliamson/mammoth.js) | DOCX | ✅ | DOM (semantic HTML, not visual-fidelity) | Known gap — [no default `dir=rtl`](https://github.com/mwilliamson/mammoth.js/issues/336) | BSD-2 | Small |
-| [`@aiden0z/pptx-renderer`](https://github.com/aiden0z/pptx-renderer) | PPTX | ✅ | DOM (HTML/SVG, selectable text; charts via ECharts canvas) | Minimal, verified: parses `a:pPr rtl` → CSS `direction` + `textAlign`; no bidi algorithm or table-cell `dir` — browser-bidi-reliant | Apache-2.0 | Measured entry ~774 KB / 169 KB gzip (standalone ESM ~1783 KB bundles JSZip+ECharts) — see [BENCHMARKS.md](BENCHMARKS.md) |
+| [`@aiden0z/pptx-renderer`](https://github.com/aiden0z/pptx-renderer) | PPTX | ✅ | DOM (HTML/SVG, selectable text; charts via ECharts canvas) | Minimal, verified: parses `a:pPr rtl` → CSS `direction` + `textAlign`; no bidi algorithm or table-cell `dir` — browser-bidi-reliant | Apache-2.0 | Measured entry file ~774 KB / 169 KB gzip (standalone ESM ~1783 KB bundles JSZip+ECharts); everything fetched to open a presentation is 382 KB gzip — see [BENCHMARKS.md](BENCHMARKS.md) |
 | [`pptx-preview`](https://www.npmjs.com/package/pptx-preview) | PPTX | ✅ | DOM (front-end viewer from ArrayBuffer) | Not verified | npm says ISC, but README has restrictive source-use language — legal review needed | Not published (ECharts, JSZip, Lodash) |
 | [`pptx-browser`](https://www.npmjs.com/package/pptx-browser) | PPTX | ✅ | Canvas 2D, zero dependencies (SVG/PDF export as separate subpaths) | Not verified — text shapes fail to draw in 4.1.5 (see PPTX-only) | MIT | Measured 49 KB gzip |
 | [`pptxviewjs`](https://www.npmjs.com/package/pptxviewjs) | PPTX | ✅ | Canvas | ❌ — drops paragraph `algn`/`rtl` entirely; see [Notes.md §1](Notes.md#note-1) | MIT | Medium (bundles Chart.js unconditionally) |
@@ -114,7 +114,8 @@ vendor-stated or unpublished.
     left-to-right (column A on the left) and the merged title row clips.
     The default grid paints to canvas, so cell text is not in the DOM.
   - Weight: 495 / 620 / 2478 KB gzip for PPTX / DOCX / XLSX, of which
-    224 / 445 / 1651 KB is WASM — against aared's 84 / 63 / 63 KB.
+    224 / 445 / 1651 KB is WASM — against aared's 135 / 159 / 149 KB for the
+    same formats, parse Worker included (BENCHMARKS size table).
   - Verdict from the side-by-side bench review: aared is ahead in all three
     formats; XLSX is where the gap is smallest (RTL sheet mirroring,
     conditional-format fills, DOM text, and weight), PPTX and DOCX are

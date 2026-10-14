@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { open } from "../../packages/aared/src/pptx/index.js";
+import { open, readSlideModel } from "../../packages/aared/src/pptx/renderer.js";
 import { collectStrings } from "../../packages/aared/src/core/collect.js";
 import { absentFontsModule } from "../../packages/aared/test/absent-fonts.js";
 import { pngSize, within } from "../../packages/aared/test/harness.js";
@@ -43,7 +43,7 @@ export async function capturePptx(
   try {
     if (deck.info.count !== reference.slideCount) throw new Error("aared PPTX review: native and parsed slide counts differ");
     if (sizes === undefined || sizes.length !== deck.info.count) throw new Error("aared PPTX review: public slide sizes are missing");
-    for (const handle of deck.slides.list()) slides.push(await handle.read());
+    for (const handle of deck.slides.list()) slides.push(await readSlideModel(handle));
     const ids = new Set<string>();
     for (const key of ["mediaId", "pictureMediaId", "fallbackMediaId", "pictureFallbackMediaId"]) collectStrings(slides, key, ids);
     for (const id of ids) media[id] = Buffer.from(await deck.media.get(id)).toString("base64");
@@ -52,7 +52,7 @@ export async function capturePptx(
   }
 
   const build = await Bun.build({
-    entrypoints: [join(import.meta.dir, "../../packages/aared/src/pptx/index.ts")],
+    entrypoints: [join(import.meta.dir, "../../packages/aared/src/pptx/renderer.ts")],
     target: "browser", format: "esm",
   });
   if (!build.success) throw new Error(build.logs.map((log) => log.message).join("\n"));

@@ -49,7 +49,7 @@ function chartOracleSamples(): Plugin {
  *   dev resolves that condition first and fails, so pin the shipped ESM build.
  * Product code is unaffected by any of these.
  */
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss(), chartOracleSamples()],
   publicDir: fileURLToPath(new URL("../fixtures", import.meta.url)),
   optimizeDeps: {
@@ -106,16 +106,19 @@ export default defineConfig({
   // Worker lazy-imports its WASM glue, which `iife` can only emit inlined.
   worker: { rollupOptions: { output: { inlineDynamicImports: true } } },
   build: {
+    // Build app and measurements as disjoint module graphs. Rollup may place
+    // helpers used statically by the app and lazily by measurement viewers in
+    // the app entry chunk; importing that chunk boots React on the wrong page.
+    // The second pass keeps the app assets and adds measurement-only output.
+    emptyOutDir: mode !== "measure",
     rollupOptions: {
-      // The bench app, plus the page `tools/benchmarks/measure.ts` drives.
-      input: {
-        main: fileURLToPath(new URL("./index.html", import.meta.url)),
-        measure: fileURLToPath(new URL("./measure.html", import.meta.url)),
-      },
+      input: mode === "measure"
+        ? { measure: fileURLToPath(new URL("./measure.html", import.meta.url)) }
+        : { main: fileURLToPath(new URL("./index.html", import.meta.url)) },
     },
   },
   server: {
     port: 5173,
     open: false,
   },
-});
+}));

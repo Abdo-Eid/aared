@@ -30,7 +30,7 @@ visual("visual DOM output: pattern, picture and rect-gradient fills paint on sha
     findCoverageSlide(slides, "table-fills"),
   ]);
   const media = await mediaOf(pkg, [shapes, tiledBackground]);
-  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   const server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -158,7 +158,7 @@ visual("visual DOM output: fills that cannot paint are marked, never silently dr
   const pattern = slide.elements.find((element): element is ShapeModel => element.kind === "shape" && element.name === "Pattern SmGrid")!;
   pattern.fill = { kind: "unsupported", source: "gradient-path" };
   const unmarkedBackground: SlideModel = { ...background, background: { kind: "unsupported", source: "gradient-path" } };
-  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   const server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -207,7 +207,7 @@ visual("visual DOM output: connector and line shapes paint with their dash style
   const deck = await indexPptx(pkg);
   const slides = await Promise.all(deck.slideParts.map((_, index) => parsePptxSlide(pkg, deck, index)));
   const { slide } = await findCoverageSlide(slides, "lines");
-  const module = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const module = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   const server = Bun.serve({
     port: 0,
     fetch(request) {
@@ -291,7 +291,7 @@ visual("visual DOM output: PptxRenderHandle.warnings names fonts that painted wi
       text: { paragraphs: [{ runs: [{ text: "Some text", fontFamily: family }] }] },
     } satisfies ShapeModel],
   });
-  const renderer = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const renderer = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   const fontBytes = await Bun.file("C:/Windows/Fonts/Cour.ttf").arrayBuffer();
   let releaseFont!: () => void;
   const heldFont = new Promise<void>((resolve) => { releaseFont = resolve; });
@@ -377,7 +377,7 @@ visual("visual DOM output: merged table cells span the grid cells they cover", a
   const deck = await indexPptx(source);
   const slides = await Promise.all(deck.slideParts.map((_, index) => parsePptxSlide(source, deck, index)));
   const { slide } = await findCoverageSlide(slides, "merged-cells");
-  const renderer = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const renderer = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   const page = `<!doctype html><style>html,body{margin:0}#host{width:1000px;height:600px}</style><main id="host"></main><script type="module">
         import { render } from "/pptx.mjs";
         window.renderSlide = async (model) => {
@@ -415,7 +415,7 @@ visual("visual DOM output: merged table cells span the grid cells they cover", a
  * says so once per slide (`pptx-missing-id`); a clean slide has no such warning.
  */
 visual("visual DOM output: PptxRenderHandle.warnings reports elements the file gave no id, once per slide", async () => {
-  const renderer = await browserModule(`${import.meta.dir}/../src/pptx/index.ts`);
+  const renderer = await browserModule(`${import.meta.dir}/../src/pptx/renderer.ts`);
   const page = `<!doctype html><style>html,body{margin:0}#host{width:800px;height:600px}</style><main id="host"></main><script type="module">
         import { render } from "/pptx.mjs";
         window.renderSlide = async (model) => {

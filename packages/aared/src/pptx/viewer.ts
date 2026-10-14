@@ -1,5 +1,5 @@
 /** Fixed-format preview: this route has no dependency on sibling renderers. */
-import { render, PptxDocument } from "./index.js";
+import { render, PptxDocument } from "./renderer.js";
 import { openViewer } from "../embed-viewer.js";
 import type { ViewerRoute } from "../format-route.js";
 import type { PreviewInput, PptxPreview } from "../preview/index.js";
@@ -29,5 +29,5 @@ export const route: ViewerRoute = {
 /** Open, render and navigate a PPTX file; destroy closes the document too. */
 export async function preview(input: PptxPreviewInput): Promise<PptxPreview> {
   const { source, target, ...options } = input;
-  return await openViewer({ scope: "aared/pptx", source, target, options, route }) as PptxPreview;
+  return await openViewer({ scope: "@aared/viewer/pptx", source, target, options, route }) as PptxPreview;
 }

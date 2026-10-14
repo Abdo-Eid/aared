@@ -17,8 +17,8 @@ become a current guarantee merely because its note is cited here.
 
 `aared` previews real PPTX, XLSX and DOCX files client-side, with particular
 attention to Arabic and RTL. All three formats have a Worker parser, a
-DOM/SVG renderer and an end-to-end viewer. The package remains pre-release
-and unpublished; fidelity gaps and the resolved-model contract remain open.
+DOM/SVG renderer and an end-to-end viewer. Fidelity gaps remain open. Public
+semantic data is supported; every format's rendering model is internal.
 
 The formats share Office Open XML packaging but not their layout problem:
 
@@ -52,14 +52,14 @@ frozen, unpublished workspace package; no font files ship with either package.
 
 | Entry | Responsibility |
 |---|---|
-| `aared/core` | Shared public types, errors, appearance and resolved models; internal OPC/XML/theme/RPC machinery lives beside it |
-| `aared/worker` | One self-contained module Worker containing all three parsers |
-| `aared/pptx` | Open presentations, read slides, render DOM/SVG scenes, and provide fixed-format preview |
-| `aared/xlsx` | Open workbooks, read sheet ranges, render a virtualized grid, and provide fixed-format preview |
-| `aared/docx` | Open resolved sections, render flow/layout pages, and provide fixed-format preview |
-| `aared/preview` | Detect the format during open and lazily load its viewer route |
-| `aared/react` | `usePreview`, `usePptx`, `useXlsx`, `useDocx`; lifecycle owned by the hook |
-| `aared/element` | Register `<aared-viewer>`; shadow DOM, attributes, optional controls and element-owned lifecycle |
+| `@aared/viewer/core` | Shared public types, errors, warnings and appearance; internal OPC/XML/theme/RPC machinery lives beside it |
+| `@aared/viewer/worker` | One self-contained module Worker containing all three parsers |
+| `@aared/viewer/pptx` | Open presentations, read slides, render DOM/SVG scenes, and provide fixed-format preview |
+| `@aared/viewer/xlsx` | Open workbooks, read sheet ranges, render a virtualized grid, and provide fixed-format preview |
+| `@aared/viewer/docx` | Open documents, expose section metadata/headings, render flow/layout pages, and provide fixed-format preview |
+| `@aared/viewer/preview` | Detect the format during open and lazily load its viewer route |
+| `@aared/viewer/react` | `usePreview`, `usePptx`, `useXlsx`, `useDocx`; lifecycle owned by the hook |
+| `@aared/viewer/element` | Register `<aared-viewer>`; shadow DOM, attributes, optional controls and element-owned lifecycle |
 
 ```text
 file bytes --> Worker: OPC + XML + format/theme/style resolution
@@ -103,7 +103,7 @@ This map identifies responsibility, not every exported symbol.
 | `core/xlsx/limits.ts`, `range.ts`, `numberfmt.ts`, `formula.ts` | Worksheet bounds/A1 scanning, number formats and bounded conditional-formula evaluation |
 | `core/errors.ts`, `core/search.ts`, `core/collect.ts` | Typed errors/abort helpers, search folding/title lookup and resolved-model font-use collection |
 | `core/rpc.ts`, `core/worker.ts`, `core/session.ts`, `core/worker-init.ts`, `core/unit-cache.ts` | Protocol/dispatch, main-thread session bridge, source normalization, Worker configuration/pooling and bounded unit retention |
-| `core/index.ts`, `core/model.ts` | Public shared contracts and structured-cloneable data shapes |
+| `core/index.ts`, `core/model.ts` | Public shared contracts and internal structured-cloneable rendering shapes, respectively |
 
 `core/` means DOM-free, **not** that every module belongs in the Worker bundle.
 Chart layout stays behind `chart-svg.ts`'s dynamic import. Its dependency closure
@@ -125,6 +125,7 @@ cycle; values are resolved upstream or passed into layout (§73).
 | `format-route.ts`, `embed-viewer.ts`, `auto-viewer.ts` | Shared controller, format adoption/content/render adapters and generic format routing |
 | `content-view.ts`, `search-highlight.ts` | Restricted borrowed-content associations and lifetime guards; live DOM/SVG highlights/navigation |
 | `docx/outline.ts`, `docx/stories.ts` | Body heading index and story traversal |
+| `<format>/index.ts`, `<format>/renderer.ts`, `<format>/data.ts` | Public facade/interfaces, private handle/model painting, and isolated semantic projections |
 | `diagnostics.ts` | Development diagnostic switch; production removes diagnostic chrome |
 
 Keep genuine dialect differences: DrawingML line multiples use font size,
@@ -152,10 +153,15 @@ its sheet collection from the index. DOCX's `docx/session-document.ts` reads
 unit 0 and resolves fonts before returning its document: sections are already
 resolved, with no `section.read()` operation.
 
-Models are structured-cloneable data, read-only by contract. Shared XLSX styles
-and hyperlinks stay shared after structured clone; clone before modifying data.
-Detached-model rendering is available, but callers must retain/provide needed
-media separately. Public model stability is [undecided](#resolved-model-contract).
+Internal models are structured-cloneable data, read-only by contract. Shared
+XLSX styles and hyperlinks stay shared after structured clone; clone before
+modifying data. Public reads project isolated semantic data: XLSX cached cells,
+PPTX paragraphs/optional notes and DOCX section metadata in inches. XLSX data
+reads skip page-side font/geometry resolution; PPTX text reads never load slide
+models. Private model reads feed painters, sheet switching, outlines and search.
+Public rendering accepts registered handles/documents or borrowed content only;
+no detached-model or public snapshot route exists. See the
+[data contract](#resolved-model-contract) and Notes [§135](Notes.md#note-135).
 
 The Worker inflates parts on demand rather than retaining a decompressed archive.
 `sheetData`, shared strings and `w:body` stream rather than materializing entire
@@ -272,7 +278,7 @@ of the owned document:
 |---|---|
 | PPTX | Slide collection with `info`/`read`, presentation metadata and media |
 | XLSX | Sheet collection with `info`/range `read`, workbook metadata and media |
-| DOCX | Resolved sections, headings, document metadata and media; the whole facade is a render input |
+| DOCX | Projected section metadata, headings, document metadata and media; the whole facade is a render input |
 
 Frozen closure-backed collections/media expose no owner, session, `close()` or
 search method. A renderer-private WeakMap associates slide/sheet inputs and DOCX
@@ -284,8 +290,11 @@ Collection access, reads, media and render unwrapping check lifetime first.
 After owner teardown they fail `closed`, even through a retained unit input.
 Pending borrowed renders combine caller/owner signals and cancel as `aborted`.
 Completed secondary handles are caller-owned: destroy them before the viewer;
-the viewer does not track/destroy them. Already-returned metadata/models/bytes
-remain data, read-only by contract, not deep-frozen here. This is an ownership
+the viewer does not track/destroy them. Already-returned metadata/data/bytes
+remain readable. Semantic projections clone nested containers and are not
+deep-frozen; changing a local copy does not edit or repaint the file. DOCX's
+fresh section projections bypass the stable-handle identity cache to avoid
+retaining every read. This is an ownership
 boundary, not a security sandbox. There is no `preview({ document })` API.
 
 ### Navigation, appearance and cancellation
@@ -810,7 +819,10 @@ flow keeps saved numbers and gives new entries none (§94).
 Tracked changes show final content: insertions/moves-to in, deletions/moves-from
 out. Their native fixture evidence gap is distinct from the implemented reader.
 Layout pages settle tab stops when first shown; no paragraph-text wrapper is
-required (§37).
+required (§37). The tab pass reads every paragraph, then writes every paragraph,
+a round per tab ordinal, with a read-only check afterwards, so opening costs a
+few forced layouts however many paragraphs hold tabs; a read after each write
+per paragraph made a 700-page file take ten seconds in layout and minutes in flow (§37).
 
 ## Fonts
 
@@ -931,6 +943,7 @@ proposals are separate and do not become commitments here.
 | Substitute coverage | **Accepted.** No Courier New Arabic, Tahoma/Segoe UI or Aptos Light/SemiBold/ExtraBold/Black/Mono/Serif substitutions. Aptos italic uses upright weight calibration (about 1–3% width residue); CDN files can drift. Lateef's large size adjustment can cross dense borders/underlines and alter justified breaks. Calibration evidence belongs to §49/§51, not a current-device guarantee. |
 | Symbol fonts | **Accepted.** Unsupported symbol characters outside mapped bullets/list markers, and Wingdings 2/3/Webdings, keep source codes; devices lacking those faces can show letters (§52). |
 | Browser minimum font size | **By design.** Honour the reader setting. Larger painted text can change typography, wrapping and page count relative to Office (§94). |
+| Run direction beyond left-to-right runs | **Open: evidence gap.** A run that is not right-to-left keeps its numbers together in an RTL paragraph (`ltrRun`, §44). Two cases remain unprobed: a right-to-left run holding a number ("بنسبة 71%" with the number in an `ar-SA`/`w:rtl` run), where Word and PowerPoint were seen to disagree and aared keeps plain bidi; and, in Word, a left-to-right run holding Arabic words in a left-to-right paragraph ("Mixed: عربي + إنجليزي"). PowerPoint's side of the second case is answered: written order around ASCII punctuation (§54, `pptx-fidelity.test.ts`). Next proof: author those paragraphs in Word and PowerPoint, export, and pin the order Office paints. |
 | Arabic search variants | **Accepted.** Do not fold ta marbuta/ha, hamza-on-waw/ya to bare letters, lone hamza, Quranic annotations U+06D6–06ED, Persian ya/kaf. Reopen for a real miss rather than merging distinct words speculatively (§78). |
 | DOCX result activation | **Accepted.** Text-based mapping of a search match can fall back to its source place without active-occurrence highlighting when painted fragments no longer hold whole text or identical paragraphs reorder (§119). |
 | Direct host CSS | **Documented boundary.** Root baselines prevent inherited traits, not arbitrary descendant selectors. Keep application prose/resets out of painted content or use shadow DOM; internal classes/resource IDs are not public hooks (§128). |
@@ -963,7 +976,7 @@ proposals are separate and do not become commitments here.
 
 | Item | Status and impact / dependency |
 |---|---|
-| Border style representation | **Deferred: model contract.** Raw Excel names map to CSS in borderCss; DOCX already resolves solid/double/dashed/dotted before its model. Normalizing XLSX also changes the public style model. |
+| Border style representation | **OPEN: renderer representation.** Raw Excel names map to CSS in borderCss; DOCX already resolves solid/double/dashed/dotted before its model. Normalizing XLSX is internal work, independent of the supported data contract. |
 | Cell textRotation | **Deferred.** SpreadsheetML alignment textRotation is absent from the style model; PPTX's textRotation is a different, implemented route. |
 | General alignment | **By design.** General strings use sheet start, not Excel's first-strong-letter placement. Explicit alignment is unaffected. RTL English differs from native print; Arabic-first General in LTR and RTL General numbers are unprobed (§116). |
 | Shared borders | **By design.** Adjacent authored CSS borders both paint: 2px internally versus native Excel's 1px, while outer edges stay 1px. Single-sided rules avoid that; PPTX's shared-edge rule is different (§116). |
@@ -988,6 +1001,7 @@ proposals are separate and do not become commitments here.
 |---|---|
 | Cross-page content | **Open.** Table rows and paragraph/list blocks are indivisible; long content can exceed a page. Contiguous tblHeader rows do not repeat. Word permits row continuation subject to rules. Deliver fragmentation/repeated headers as a usable capability with real native fixture cases, not by calling current between-row splitting complete. |
 | Anchored pictures | **Open.** Page/margin-relative vertical positioning starts at paragraph top; following paragraphs clear remaining both-side pictures; a top-and-bottom picture after a hanging picture is pushed down; through wrap misses Word's wider lowest-row exclusion; VML pict has no placement. Band/through cases need native probes. Prior paired placement/drift measurements remain in [Notes §55](Notes.md#note-55) and [§91](Notes.md#note-91). |
+| Large-document first paint | **Accepted.** Layout mode measures every block and builds every page before `render()` resolves, so it is linear in document size: about 3.4 ms a page measured (a 409-page file opens in 1.4 s; Chrome 155, one session). Heap is linear in painted elements (58 MB there). Flow holds more (97 MB; no lazy pages) and the default mode is flow. First-page-first pagination is an unscheduled proposal below (§37). |
 | Header/footer reservation | **Accepted.** Pagination uses each section's default story bands; a taller first/even header moves body inset but does not recompute page breaks. |
 | Page rhythm | **Accepted.** Estimated drawings/notes/story reservations and conservative justification leave vertical/wrapping residue. Reopen for visible clipping/wrong-page content, not sub-pixel parity. The paired anchors and dated offsets behind that stopping point are in [Notes §91](Notes.md#note-91) and [§102](Notes.md#note-102). |
 | Justification | **Accepted.** Conservative Word 2013 space shrinking can wrap a word earlier; small native/browser Calibri width differences remain (§44). |
@@ -1084,8 +1098,38 @@ side-effect-free, validates before launching backends and retains failure artifa
 while returning failure status for failed/empty measurements. Review parts preserve
 visible-sheet order and grid intersection, including deep-LTR/RTL crops (§123–§125).
 
-The site uses fixed-format previews on home and low-level open/render in the
-playground. Bench measurement uses fixed previews (XLSX tabs off, DOCX layout on),
+The bench's React app and measurement HTML build as separate module graphs;
+the second Vite pass retains app assets. Shared package helpers must never be
+borrowed from the app bootstrap: lazy format imports on the measurement page
+would then execute its unrelated React mount. A production-output browser test
+opens all three Arabic fixtures without a React root (§133).
+
+The site has four consumer pages: Home (evaluation and evidence), Getting
+started at `/start/` (first success and task recipes), Playground (live
+integrations) and API reference (supported contracts). Getting started leads
+with registration, bounded host and cleanup before presenting integration
+choices. Data schemas live beside their format operations; shared lifetime,
+appearance, search and deployment rules have canonical API sections. Repository
+docs own parser/Worker implementation history, not consumer instructions (§132).
+Home uses fixed-format previews; the playground demonstrates element, hooks,
+JavaScript viewer and manual handle rendering, never detached models. Minimal
+snippets explicitly exclude the app-owned demo toolbar. Pointer and keyboard
+tab changes carry the selected file/format; manual paging reports failures,
+allows retry and removes controls on teardown. Snippet compilation, cross-page
+prose guards and fixture-backed demo DOM tests cover these boundaries.
+
+The site build also emits plain Markdown for agents: `/aared/llms.txt` (an index),
+`/aared/start.md`, `/aared/api.md` and `/aared/llms-full.txt`. They are generated
+by `site/scripts/generate-llms-txt.ts` from `start.mdx`, `choosing-a-layer.mdx` and
+`api.mdx`, so they cannot drift from the pages the tested snippets and
+`docs-parity` already guard; regenerate, never hand-edit. Only MDX module import
+nodes bind partials, which expand at their component use sites; fenced examples
+retain their code, including relative imports. Components are unwrapped to their
+children and in-site links become absolute, because a link in a file read
+off the deployment resolves against nothing. Notes and ARCHITECTURE are never
+inputs. The package README is the agent entry point that points here.
+
+Bench measurement uses fixed previews (XLSX tabs off, DOCX layout on),
 with forwarded cancellation/one destroy. Interactive cards use usePreview;
 mounting cards own lifetime and frames navigate without destroy ownership.
 100% in that UI means default fit. Baseline adapters parse independently so a
@@ -1097,7 +1141,17 @@ Benchmarks are manual, rare, on an idle mains-powered machine. Run/report comman
 and dates live in BENCHMARKS/tools catalog; compatible same-machine runs preserve
 competitor observations. CDP Worker reads use tools/shared/cdp.ts, not WebView.cdp
 sessionId (which still reads its page); recalibrate after touching routing.
-No test CI is wanted; the only workflow deploys the docs site (§60).
+There is no push/PR test CI. Checks run locally before pushing; the only GitHub
+workflow validates a published stable release's tagged checkout and deploys the
+docs site. It rejects tags whose version differs from the viewer manifest,
+unannotated tags and commits outside `main`. Pages write/OIDC permissions belong
+only to the deployment job. Bun is pinned to the locally validated version (§134).
+
+The site is hosted at `https://abdo-eid.github.io/aared/`, with Astro/Vite base
+`/aared/`. Astro UI uses `sitePath`; MDX links use sibling-relative routes.
+Consumer code examples keep application-owned paths unchanged. A production
+WebView test serves only the base-prefixed site, checks direct page navigation
+and re-reads all three formats through the four playground integrations.
 
 ### Recorded verification
 
@@ -1115,59 +1169,42 @@ inferred from a test total or benchmark date.
 
 ## Release readiness
 
-### Before first publish
-
-The workspace is private at v0.0.0. The npm @aared/viewer@0.0.0 is a README-only
-name reservation, not published engine code (§42). First implementation release
-is 0.1.0; until then best design wins over compatibility and no aliases/overloads
-are added just to preserve a recently changed development caller.
-
-The remaining release decision is the model contract. Fidelity inventory entries
-are not first-release blockers unless explicitly promoted to a gate. PPTX visual
+The data/model boundary is decided (§135). Fidelity inventory entries
+are not release blockers unless explicitly promoted to a gate. PPTX visual
 review acceptance is already recorded; this rewrite neither reopens it nor
 declares every format pixel-identical.
 
 ### Resolved-model contract
 
-**Open; not decided.** core exports ShapeModel, SheetRangeModel, DocxParagraphNode
-and other resolved types. Consumers read them and render() accepts models, while
-parser shapes still evolve. Choose before first publish (§28, §55):
+**Decided:** supported consumer operations and semantic data, private rendering
+models in all formats. Format entries export the complete small inspectable
+schemas; `core` exports shared grammar/errors/warnings, not rendering models.
+Public document/handle/collection types are interfaces, with construction and
+model state internal. Render inputs are registered handles/documents or borrowed
+content, never projected data or detached payloads. No experimental subpath,
+stability tier or opaque public snapshot is introduced.
 
-1. **Stable:** promise every model type; incompatible changes need a breaking
-   release/migration note under the versioning policy.
-2. **Tiered (current lean, not adopted):** stable XLSX SheetRangeModel/CellModel/
-   CellRange for data reads; experimental PPTX/DOCX models may change in a minor.
-   Model-input rendering stays available.
-3. **Internal:** remove exports, smallest contract but lose typed custom rendering
-   and XLSX data use.
+XLSX `read()` returns isolated cached cells/ranges, not styles, conditional paint,
+drawings or track dimensions. PPTX `read()` returns nonempty trimmed source-order
+paragraphs and optional speaker notes; chart words occur at the chart's element
+position, shared layout/master graphics are excluded, and search neither parses
+nor searches notes. DOCX sections project page setup in inches; headings, search
+and navigation retain their semantic contracts. Rich-content/custom-model
+rendering and detached persistence are not supported public capabilities.
 
-Confirm the lean against real consumer needs. Record the decision, label tiers/
-experimental types on the API page, trim core exports only if option 3 wins,
-and update docs-parity accordingly. XLSX fill/border model work depends on this
-decision; moving the inventory here does not settle it.
+Compatible additions do not require a breaking release; incompatible changes
+follow the versioning policy below. Declaration dependency checks and compiled
+consumer tests cover constructors, methods, events and borrowed content, not
+merely barrel names. XLSX fill/border fidelity work remains OPEN independently.
 
-### Release checklist
-
-Deliver 0.1.0 as one coherent release task:
-
-1. Settle the resolved-model contract and update its documentation/tests.
-2. Rename aared to @aared/viewer; update package name/exports, imports across
-   bench/site/tools/tests, tsdown configuration, consumer-build checks, API page,
-   README install, site install card/playground. Keep all eight subpaths:
-   core/pptx/xlsx/docx/preview/react/element/worker. The aared-viewer tag stays.
-   Frozen aared-fonts remains unpublished under its workspace name; its peer/
-   core imports follow the rename.
-3. Remove private, add publishConfig.access public, retain files=[dist]. Build,
-   run unit/visual suites and tools check consumer-build, then npm pack --dry-run
-   to inspect declarations/JS/Worker/maps and exclude unintended sources/fixtures.
-4. The maintainer publishes from their own terminal with 2FA; no npm token goes
-   to an agent. After publish succeeds, annotate v0.1.0 on the release commit.
-
-After publication, 0.x breaking changes are minor releases with migration notes;
-published versions are immutable (fix via a new version/deprecation). Release
-version matches its annotated tag. 1.0.0 needs frozen API/model decisions and
-closed release gates. Each release updates API/README/current readiness,
-CHANGELOG and any changed rationale in Notes, under AGENTS' release rules.
+For published releases, 0.x breaking changes are minor releases with migration
+notes; versions are immutable (fix via a new version/deprecation). Each release
+matches its annotated tag. `1.0.0` needs frozen API/model decisions and closed
+release gates. Update API/README/current readiness, CHANGELOG and any changed
+rationale in Notes for each release, under AGENTS' release rules. The first
+release also removes the root README's "Not published yet" install note; the
+package README, Getting started and the home install card already read as
+published and go live only with the release.
 
 ## Unscheduled proposals
 
@@ -1177,13 +1214,21 @@ visible without presenting a wishlist as engine behaviour.
 | Topic | Proposal / unresolved boundary |
 |---|---|
 | Bundle/memory budgets | Only for demonstrated consumer need: per-format React entries (today one lazy react entry; its own weight not separately measured), element registry variant, one Blob per shared PPTX picture, deferred evaluator loading, detached layout/master skeleton (§39). Measured sizes remain in BENCHMARKS. |
+| Progressive DOCX pagination | Measure and paginate in slices and publish pages as they are decided, so first paint costs the visible pages, not the document. It would make `pageCount`, `pages`, `PAGEREF` and `NUMPAGES` provisional, and DOM windowing was set aside (§37). Only worth deciding for a consumer file where the linear cost matters. |
 | Browser print | viewer.print through the browser dialog/Save as PDF, one slide/range/page per printed page from DOM/SVG; no exportPdf engine. Not designed beyond that job. |
-| XLSX content size | contentSize on model or render handle, units undecided (inches or CSS px at scale 1). Today callers add track sizes and chrome themselves. |
+| XLSX content size | A supported contentSize operation may help custom host sizing; units remain undecided (inches or CSS px at scale 1). Track dimensions are private; fit-width/fit-page zoom is the current supported way to fit a sheet, not summing tracks from public data. |
 | Viewer decorations | Display-only range annotations/overlays; revisit with a real consumer need, not editing. |
+| Preview sheet selection by title | A custom sheet selector currently uses viewer.goTo(index); only the manual sheet render handle accepts goToSheet(title). Consider title-based preview selection against overlap with shared unit navigation, not as an already-delivered control. |
+| Whole-workbook search | Data-only search currently loops over sheet.search(); viewer Find stays sheet-local. A workbook operation would need explicit hidden-sheet scope, cancellation and first-search cost. Cached values/formatted text remain the boundary, not formula recalculation. |
+| React start-value naming | index/zoom are initial values, unlike reactive appearance. Consider clearer naming only for demonstrated confusion; controlled props would require synchronization/loop rules and are not approved by this naming question. |
+| Sparse cell access | A convenience helper may be useful if repeated consumer tasks show sparse RowData iteration is cumbersome. First compare a helper over existing SheetData; do not expose rendering styles or reshape the data contract for hypothetical convenience. |
+| Picture enumeration / retained assets | Public data does not enumerate picture identifiers or provide detached rendering payloads. A gallery or asset snapshot needs a demonstrated job and a complete media/copying/lifetime/version design; current painting models are not a shortcut to that API (§135). |
 | Browser-free thumbnails | Image output for agent pipelines: output format, DOM-free scope and fidelity contract undecided. DOM-free DOCX pagination is a possible foundation, not proof of a browser-free renderer. Do not promise it. |
 | CSV/TSV | May or may not land as one sheet through XLSX. Needs non-ZIP routing/name/type, positive detection confirmed by content (never HTML error/legacy XLS), BOM/strict UTF-8/windows-1256 encoding probes, RFC4180/delimiter/sep= parsing and sheet-direction choice. info.format=xlsx and verbatim values are preferences, not decisions; alternatives are csv and Excel inference. Arabic fixture requires sign-off; native comparison must record Excel regional settings. |
 
 To adopt an idea, first define the complete normal-use capability and its proof,
-then add only the actual open commitment to the inventory and record why. Public
-API journeys belong in USE-CASES, contracts in the API reference, implementation
-rules here, changes in CHANGELOG and engineering reasoning in Notes.
+then add only the actual open commitment to the inventory and record why.
+Consumer recipes belong in Getting started, contracts in the API reference,
+implementation rules here, changes in CHANGELOG and engineering reasoning in
+Notes. The former consumer-friction audit was distilled into these owning
+documents (§132), not replaced by a second inventory.

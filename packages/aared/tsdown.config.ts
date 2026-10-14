@@ -5,7 +5,7 @@ import { defineConfig } from "tsdown";
 // relative to the emitted session chunk. Left at the dist root (the
 // default), the URL 404s because the worker entry emits to
 // dist/core/worker.mjs — the bench's "worker failed to start" failure.
-// Shipped JS keeps no doc comments: `aared/worker?raw`, dev servers and
+// Shipped JS keeps no doc comments: `@aared/viewer/worker?raw`, dev servers and
 // no-bundler pages run dist verbatim, and a comment holding one character
 // above U+00FF makes V8 store the whole script two bytes per character (see
 // src/core/chars.ts). Annotations stay so `/* @__PURE__ */` reaches
@@ -35,7 +35,7 @@ export default defineConfig([
     dts: { tsconfig: "tsconfig.build.json" },
     clean: true,
     // Shipped minified: a consumer bundler re-minifies anyway, but the
-    // `aared/worker?raw` Blob recipe, no-bundler and CDN pages run dist as-is.
+    // `@aared/viewer/worker?raw` Blob recipe, no-bundler and CDN pages run dist as-is.
     minify: true,
     // Development diagnostics (`src/diagnostics.ts`: PPTX dashed fallback
     // outlines, the XLSX sheet notice bar) paint when running from source
@@ -50,7 +50,7 @@ export default defineConfig([
     // rolldown code-splits those into per-entry chunks automatically. That
     // separation is structural, not an externals setting. The package has no
     // npm dependencies to bundle, and `react` is an optional peer of the
-    // `aared/react` entry that is imported, not bundled.
+    // `@aared/viewer/react` entry that is imported, not bundled.
     outputOptions: coreChunks,
   },
   {

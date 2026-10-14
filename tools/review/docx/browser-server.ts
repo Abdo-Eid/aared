@@ -1,26 +1,52 @@
 /**
- * Serve the built DOCX renderer to Word-review WebViews without calling
- * `Bun.build()`. That bundler's inferred root-directory lookup fails with
- * `EBADF` on this Windows checkout. The package build (`tsdown`) emits the
- * renderer and its shared chunks under `packages/aared/dist/`.
+ * Word review transforms private models (including absent-font simulations),
+ * so it uses the shared internal painter harness, not the public handle facade.
+ * The previous entry had a Windows inferred-root EBADF trap; the relocated
+ * renderer bundles successfully through browserModule, with production flags.
  */
 import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { indexDocx, parseDocxSections } from "../../../packages/aared/src/core/docx/document.js";
 import { OpcPackage } from "../../../packages/aared/src/core/opc.js";
+import { browserModule } from "../../../packages/aared/test/harness.js";
 
 const AARED_DIST = resolve(import.meta.dir, "../../../packages/aared/dist");
 const FONTS_DIST = resolve(import.meta.dir, "../../../packages/aared-fonts/dist");
 
-export async function serveDocxFromDist(
+/** Validate capture's actual module files before native export replaces artifacts. */
+export async function assertDocxReviewBuild(dist = AARED_DIST): Promise<void> {
+  const core = join(dist, "core");
+  let files: string[];
+  try {
+    // Bun.file().exists() is false for directories, even in a complete build.
+    files = (await readdir(core, { withFileTypes: true }))
+      .filter(entry => entry.isFile() && entry.name.endsWith(".mjs"))
+      .map(entry => entry.name);
+  } catch (error) {
+    if (!["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+    throw new Error("Built package chunks are missing; run bun run build first.");
+  }
+  if (!files.includes("index.mjs")) {
+    throw new Error("Built core entry is missing; run bun run build first.");
+  }
+  // A leftover entry alone is not a complete build: every sibling import in
+  // the directory capture serves must resolve, including content-hashed chunks.
+  for (const name of files) {
+    const source = await Bun.file(join(core, name)).text();
+    for (const match of source.matchAll(/(?:from|import)\s*\(?\s*["'`](\.{1,2}\/[^"'`]+)["'`]/g)) {
+      if (!await Bun.file(resolve(core, match[1]!)).exists()) {
+        throw new Error(`Built core chunk is missing (${name} -> ${match[1]}); run bun run build first.`);
+      }
+    }
+  }
+}
+
+export async function serveDocxReview(
   fixturePath: string,
   page: string,
   modules: Record<string, string> = {},
 ): Promise<{ server: ReturnType<typeof Bun.serve>; sections: Awaited<ReturnType<typeof parseDocxSections>> }> {
-  const docxEntry = Bun.file(join(AARED_DIST, "docx/index.mjs"));
-  if (!(await docxEntry.exists())) {
-    throw new Error("aared Word review: built renderer is missing; run `bun run build` first");
-  }
+  const docxEntry = await browserModule(resolve(import.meta.dir, "../../../packages/aared/src/docx/renderer.ts"), { production: true });
   const coreFiles = new Set((await readdir(join(AARED_DIST, "core"))).filter((file) => file.endsWith(".mjs")));
 
   const pkg = await OpcPackage.open(await Bun.file(fixturePath).arrayBuffer());
@@ -32,7 +58,7 @@ export async function serveDocxFromDist(
 
   const fontsEntry = Bun.file(join(FONTS_DIST, "index.mjs"));
   const fontsModule = (await fontsEntry.exists())
-    ? (await fontsEntry.text()).replaceAll('from "aared/core"', 'from "/core/index.mjs"')
+    ? (await fontsEntry.text()).replaceAll('from "@aared/viewer/core"', 'from "/core/index.mjs"')
     : undefined;
 
   const server = Bun.serve({
@@ -75,7 +101,7 @@ export async function absentFontsBrowserModule(): Promise<string> {
   }
   const sourcePath = resolve(import.meta.dir, "../../../packages/aared-fonts/test/absent-fonts.browser.ts");
   const source = (await Bun.file(sourcePath).text())
-    .replace('from "aared/core"', 'from "/core/index.mjs"')
+    .replace('from "@aared/viewer/core"', 'from "/core/index.mjs"')
     .replace('from "../src/index.js"', 'from "/fonts/index.mjs"');
   return new Bun.Transpiler({ loader: "ts", target: "browser" }).transformSync(source);
 }
