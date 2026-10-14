@@ -1,0 +1,28 @@
+---
+import { sitePath } from "../lib/site-path.ts";
+
+interface Props {
+  title: string;
+  description: string;
+  current: string;
+}
+
+const { title, description, current } = Astro.props;
+if (!Astro.site) throw new Error("Site metadata requires the configured public site URL.");
+// sitePath owns the deployment base; resolving its absolute path against the
+// site origin must not append /aared/ a second time.
+const canonical = new URL(sitePath(current), Astro.site).href;
+---
+
+<title>{title}</title>
+<meta name="description" content={description} />
+<link rel="canonical" href={canonical} />
+<link rel="sitemap" href={sitePath("/sitemap-index.xml")} />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="aared (عارض) — @aared/viewer" />
+<meta property="og:title" content={title} />
+<meta property="og:description" content={description} />
+<meta property="og:url" content={canonical} />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content={title} />
+<meta name="twitter:description" content={description} />

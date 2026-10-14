@@ -1,7 +1,7 @@
 # AGENTS.md
 
 `aared` previews real PPTX, XLSX and DOCX in the browser, with Arabic/RTL
-fidelity. **View-only; release prepared as @aared/viewer@0.1.0, unpublished.** All three
+fidelity. **View-only; published on npm as @aared/viewer.** All three
 formats have local entries, shared preview, React hooks and `<aared-viewer>`.
 `aared-fonts` is frozen/unpublished; browser fonts are the default.
 

@@ -10,6 +10,7 @@ import NumbersSection from "../components/NumbersSection.astro";
 import type { Benchmarks } from "../lib/benchmarks.ts";
 import SiteHeader from "../components/SiteHeader.astro";
 import ThemeInit from "../components/ThemeInit.astro";
+import SiteMeta from "../components/SiteMeta.astro";
 import CopyButtons from "../components/CopyButtons.astro";
 import { sitePath } from "../lib/site-path.ts";
 import "../styles/tokens.css";
@@ -43,10 +44,10 @@ const installCode = [
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>aared — Office file preview built with Arabic in mind</title>
-    <meta
-      name="description"
-      content="Preview real PowerPoint, Excel, and Word files in the browser — built with Arabic in mind. Real DOM/SVG, never canvas."
+    <SiteMeta
+      title="aared (عارض) — TypeScript Office viewer | @aared/viewer"
+      description="aared (عارض), published as @aared/viewer: preview PPTX, XLSX and DOCX in the browser with Arabic/RTL fidelity. Real DOM/SVG text, view-only, no conversion server."
+      current="/"
     />
     <link rel="icon" href={sitePath("/aared-mark.svg")} type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -92,6 +93,7 @@ const installCode = [
 
       <section class="install" aria-labelledby="install-title" data-copyable>
         <h2 id="install-title">Install</h2>
+        <p>aared (عارض) is a TypeScript Office viewer, published on npm as <a href="https://www.npmjs.com/package/@aared/viewer">@aared/viewer</a>.</p>
         <Code code={installCode} lang="bash" themes={codeThemes} defaultColor={false} />
         <p class="install-note">
           <a href={sitePath("/start/")}>Get started</a>, or read
@@ -122,6 +124,14 @@ const installCode = [
         <p>
           <span>Canvas-based previewers turn text into pixels, making text selection and Arabic fidelity harder to preserve.</span>
           <span><strong>aared</strong> renders real DOM/SVG, so the browser's own text engine gets shaping, bidi and RTL right.</span>
+        </p>
+        <p>
+          Fidelity is checked against native PowerPoint, Excel and Word output,
+          with real Arabic text and tables in all three formats.{' '}
+          <a href="https://github.com/Abdo-Eid/aared/blob/main/docs/COMPETITORS.md">Side-by-side comparisons</a>
+          {' '}record where aared preserves layout and RTL better than the browser libraries evaluated.{' '}
+          <a href={sitePath("/api/#fidelity-is-part-of-the-contract")}>Supported features and limits</a>
+          {' '}stay explicit; speed and memory have their own measurements below.
         </p>
       </section>
 

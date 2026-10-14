@@ -7,6 +7,11 @@
 **Preview real PowerPoint, Excel, and Word files in the browser — correctly,
 in Arabic.**
 
+aared (عارض) is a TypeScript Office viewer for PPTX, XLSX and DOCX,
+published on npm as [`@aared/viewer`](https://www.npmjs.com/package/@aared/viewer).
+[Try it](https://abdo-eid.github.io/aared/playground/) or
+[get started](https://abdo-eid.github.io/aared/start/).
+
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how it works, current
 gaps, and the differences it accepts on purpose.
 
@@ -34,7 +39,7 @@ Measured numbers (method + generated tables): [`docs/BENCHMARKS.md`](docs/BENCHM
 
 | Library | Formats | Client-side | Paragraph-level RTL |
 |---|---|---|---|
-| **aared** (this) | PPTX, XLSX, DOCX | ✅ | ✅ (design goal) |
+| **aared** (this) | PPTX, XLSX, DOCX | ✅ | ✅ (real Arabic fixtures across all three formats) |
 | Extend `@extend-ai/react-*` | PPTX, DOCX, XLSX (React components) | ✅ | PPTX only — DOCX paragraphs stay LTR, XLSX grid isn't mirrored; 6–40× aared's download |
 | `docx-preview` | DOCX | ✅ | ✅ |
 | `pptxviewjs` | PPTX | ✅ | ❌ — canvas output, no CSS fix |
@@ -45,15 +50,19 @@ Nothing else spans all three formats at this weight with RTL that actually
 works. That's the gap this project exists to close — the concrete evidence
 is in [`docs/Notes.md §1`](docs/Notes.md#note-1).
 
+Fidelity is checked against native PowerPoint, Excel and Word output, with real
+Arabic text and tables in every format. The side-by-side reviews record where
+aared preserves layout and RTL better than the browser libraries evaluated;
+their scope and package versions live in [the comparison](docs/COMPETITORS.md).
+Speed and memory have [their own measurements](docs/BENCHMARKS.md), not a visual
+fidelity score. [Supported features and limits](https://abdo-eid.github.io/aared/api/#fidelity-is-part-of-the-contract)
+remain explicit: fonts affect wrapping and DOCX pagination is not Word-identical.
+
 ## Install
 
 ```bash
 npm install @aared/viewer
 ```
-
-*(Not published yet: `@aared/viewer` on npm is still an empty name-holding
-placeholder. Until the first release, work from this checkout: see
-[Develop](#develop).)*
 
 ## Quick start
 
@@ -120,9 +129,9 @@ const viewer = await render({ document: doc, target: document.querySelector<HTML
 // On unmount: viewer.destroy(); doc.close();
 ```
 
-Full API: the API reference page in the docs site — `bun run docs:dev`,
-open `/api` (source: `site/src/content/docs/api.mdx`). New to it: `/start`
-covers installing, picking an entry, recipes and troubleshooting.
+Full API: the [API reference](https://abdo-eid.github.io/aared/api/).
+New to it: [Getting started](https://abdo-eid.github.io/aared/start/) covers
+installing, picking an entry, recipes and troubleshooting.
 
 Format entries export supported data types: XLSX `SheetData`/`RowData`/`CellData`
 and `CellRange`, PPTX `SlideText` (paragraphs and optional notes), DOCX
@@ -204,7 +213,8 @@ from Word's.
 - [Getting started](https://abdo-eid.github.io/aared/start/) (`bun run docs:dev`, open `/aared/start/`) — installation, integration choice and recipes
 - [API reference](https://abdo-eid.github.io/aared/api/) (`bun run docs:dev`, open `/aared/api/`) — the public API
 - [`docs/Notes.md`](docs/Notes.md) — decisions and engineering experience, by topic
-- [`CHANGELOG.md`](CHANGELOG.md) — changes after the development baseline
+- [Plain Markdown for agents](https://abdo-eid.github.io/aared/llms.txt) — the same consumer docs without interactive components
+- [`CHANGELOG.md`](CHANGELOG.md) — changes after the first published release
 - [Archived development history](docs/archive/CHANGELOG-pre-baseline.md) — what led to the baseline, not published releases
 - [`docs/COMPETITORS.md`](docs/COMPETITORS.md) — the landscape
 - [Unscheduled proposals](docs/ARCHITECTURE.md#unscheduled-proposals) — undecided capabilities and consumer tradeoffs, not promised APIs

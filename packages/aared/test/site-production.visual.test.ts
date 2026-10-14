@@ -23,6 +23,27 @@ visual("production project Pages keeps navigation, assets and every demo under i
     return new Response(file);
   } });
   await withVisualPage({ server, width: 1440, height: 1100 }, async view => {
+    const checkMetadata = async (route: string): Promise<void> => {
+      const metadata = await view.evaluate<{ canonical: string; description: string; title: string; sitemap: string }>(`({
+        canonical: document.querySelector('link[rel="canonical"]').href,
+        description: document.querySelector('meta[name="description"]').content,
+        title: document.title,
+        sitemap: document.querySelector('link[rel="sitemap"]').getAttribute('href'),
+      })`);
+      expect(metadata.canonical).toBe(`https://abdo-eid.github.io/aared/${route}`);
+      expect(metadata.title).toContain("@aared/viewer");
+      expect(metadata.description).toContain("@aared/viewer");
+      expect(metadata.sitemap).toBe("/aared/sitemap-index.xml");
+    };
+    await checkMetadata("");
+    // Read the deployed artifacts through the same base-only HTTP routes, not
+    // merely the source config or files before the server handles them.
+    expect(await view.evaluate<string>(`fetch('/aared/sitemap-index.xml').then(r => r.text())`)).toContain("https://abdo-eid.github.io/aared/sitemap-0.xml");
+    const sitemap = await view.evaluate<string>(`fetch('/aared/sitemap-0.xml').then(r => r.text())`);
+    for (const route of ["", "start/", "api/", "playground/"]) {
+      expect(sitemap).toContain(`<loc>https://abdo-eid.github.io/aared/${route}</loc>`);
+    }
+    expect(sitemap).not.toContain("/aared/aared/");
     const waitReady = async (selector: string, format: string): Promise<void> => {
       const status = `${selector} [data-state][data-format]`;
       const result = await within(`production ${selector} ${format} painted`, view.evaluate(`new Promise(resolve => {
@@ -47,6 +68,7 @@ visual("production project Pages keeps navigation, assets and every demo under i
     }
     for (const route of ["start", "api", "playground"]) {
       await view.navigate(`${server.url.origin}/aared/${route}/`);
+      await checkMetadata(`${route}/`);
       expect(await view.evaluate<boolean>(`document.querySelector('h1').textContent.length > 0`)).toBe(true);
       expect(await view.evaluate<string>(`document.querySelector('.site-nav a.active').pathname`)).toBe(`/aared/${route}/`);
       const links = await view.evaluate<string[]>(`[...document.querySelectorAll('a[href], img[src], script[src], link[href], video[src], video[poster]')]

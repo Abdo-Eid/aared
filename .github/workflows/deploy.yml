@@ -49,7 +49,6 @@ jobs:
       - run: bun run typecheck
       - run: bun test
       - run: bun run docs:build
-      - run: bun run --cwd bench build
 
       - uses: actions/configure-pages@v5
 

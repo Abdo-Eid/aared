@@ -6558,6 +6558,24 @@ correct recipe uses the plain Worker export and an issuer-scoped `asset/source`
 rule, leaving the default Worker's compilation untouched. No query-suffixed
 export or filesystem alias was added to conceal that bundler distinction.
 
+**Windows temp-path identity trap.** A later clean-consumer check rejected real
+borrowed handles as `invalid-argument`, intermittently in PPTX alone or all three
+formats under Vite; webpack passed. The candidate's shipped JavaScript was
+byte-identical to npm 0.1.0, and an isolated PPTX build could pass. Re-reading
+Vite's emitted module graph exposed the same physical renderer under both an
+8.3 temp path (`C:/Users/USERNA~1/...`) and its expanded spelling. The failing
+PPTX bundle held two slide-session WeakMaps: the lazy viewer registered a handle
+in one, while the statically imported facade checked the other. The failed graph
+had two duplicated physical modules; the passing isolated graph had none.
+
+The probe canonicalizes its actual working directory with `realpathSync.native`
+before npm installation or bundling, and audits emitted module IDs for duplicate
+physical files. `path.resolve` only normalizes path segments; it does not expand
+Windows short-name aliases. Virtual/query modules are intentionally distinct and
+excluded from the physical-identity check. Changing renderer handle validation,
+adding a global registry, or rerunning until green would conceal the probe's
+duplicate-module input rather than correct it.
+
 **Blast radius and deliberate non-changes.** Site deployment paths, package
 metadata/material and release verification tools only. Package APIs, parsers,
 renderer rules and existing fixtures are unchanged. No npm publication, release

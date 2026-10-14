@@ -38,6 +38,24 @@ agent reads after `package.json`, so keep its recipes and boundaries honest;
 `packages/aared/test/package-metadata.test.ts` checks its imports against the
 real export map.
 
+Discovery metadata uses the same identity: aared (عارض), published as
+`@aared/viewer`, a TypeScript Office viewer for PPTX, XLSX and DOCX in the
+browser. Keep README introductions, npm description/keywords, GitHub topics and
+site metadata consistent without rewriting the product story. The site build
+emits a sitemap; `packages/aared/test/site-discovery.visual.test.ts` checks produced HTML/XML, and the
+production browser test checks the `/aared/` deployment base. Canonical URLs and
+the sitemap must never double that prefix.
+
+The maintainer can submit `https://abdo-eid.github.io/aared/sitemap-index.xml`
+to [Google Search Console](https://search.google.com/search-console/about) or
+[Bing Webmaster Tools](https://www.bing.com/webmasters/about) after the release deploys, using
+an account that can verify the URL-prefix property. Indexing is external and can
+lag publication; llms.txt is an agent reading index, not a crawler registration.
+Do not add `/aared/robots.txt` as if it controlled the host's root crawler policy.
+Assess discovery with fresh, name-only queries and record actual returned sources,
+not an LLM's inferred familiarity. npm metadata changes need a new package version;
+only the maintainer publishes with 2FA.
+
 ## Fixtures
 
 Fixtures are authored in real Office, never generated. Follow the rules in

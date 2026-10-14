@@ -1,6 +1,6 @@
 ---
 title: API reference
-description: Public API for aared — format entrypoints, auto-detect preview, React hooks, and the web component.
+description: Public API for @aared/viewer, the aared (عارض) TypeScript Office viewer — PPTX, XLSX and DOCX previews, semantic reads, React hooks, errors and fidelity limits.
 ---
 
 aared previews real PowerPoint, Excel and Word files in the browser, painted
@@ -2067,6 +2067,13 @@ managed by aared. Caller-provided URLs remain caller-owned. A `create` factory
 must return a fresh Worker for each document; aared terminates it on close.
 
 ## Fidelity is part of the contract
+
+Fidelity is checked against native PowerPoint, Excel and Word output, with real
+Arabic/RTL fixtures and tables in every format. The
+[browser-library comparisons](https://github.com/Abdo-Eid/aared/blob/main/docs/COMPETITORS.md)
+record the evaluated versions and side-by-side findings; the
+[dated benchmarks](https://github.com/Abdo-Eid/aared/blob/main/docs/BENCHMARKS.md)
+measure speed, memory and download size separately from visual fidelity.
 
 The viewer is not a replacement for Office's editing, calculation or print
 engine. These boundaries matter when choosing it:

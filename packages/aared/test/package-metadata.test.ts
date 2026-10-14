@@ -18,6 +18,12 @@ test("npm metadata identifies the public viewer package and includes its license
   const dir = join(import.meta.dir, "..");
   const pkg = await Bun.file(join(dir, "package.json")).json();
   expect(pkg.name).toBe("@aared/viewer");
+  for (const term of ["aared", "TypeScript", "Office viewer", "PPTX", "XLSX", "DOCX", "browser", "Arabic/RTL"]) {
+    expect(pkg.description, `npm description omits ${term}`).toContain(term);
+  }
+  for (const keyword of ["aared", "عارض", "office-viewer", "docx-viewer", "pptx-viewer", "xlsx-viewer", "typescript", "javascript", "browser", "ooxml", "rtl", "arabic"]) {
+    expect(pkg.keywords, `npm keywords omit ${keyword}`).toContain(keyword);
+  }
   expect(pkg.private).toBeUndefined();
   expect(pkg.publishConfig).toEqual({ access: "public" });
   expect(pkg.files).toEqual(["dist"]);
@@ -33,6 +39,9 @@ test("the shipped README's imports, layers and doc links match the package and t
   const dir = join(import.meta.dir, "..");
   const pkg = await Bun.file(join(dir, "package.json")).json();
   const readme = await Bun.file(join(dir, "README.md")).text();
+  expect(readme).toStartWith("# aared (عارض) — @aared/viewer");
+  expect(readme).toContain("published on npm");
+  expect(readme).toContain("TypeScript Office viewer");
   const exported = new Set(Object.keys(pkg.exports).map(name => `@aared/viewer/${name.slice(2)}`));
 
   // Every subpath the README tells an agent to import must be real. The bare
@@ -55,4 +64,21 @@ test("the shipped README's imports, layers and doc links match the package and t
     expect(readme, `README does not link ${link}`).toContain(`${site}${link}`);
   }
   expect(readme).toContain("dist/**/*.d.mts");
+});
+
+test("current repository entry points identify the published viewer rather than an unpublished prototype", async () => {
+  const root = join(import.meta.dir, "../../..");
+  const readme = await Bun.file(join(root, "README.md")).text();
+  expect(readme).toContain("aared (عارض) is a TypeScript Office viewer");
+  expect(readme).toContain("npm install @aared/viewer");
+  expect(readme).toContain("https://abdo-eid.github.io/aared/llms.txt");
+  expect(readme).not.toMatch(/not published yet|name-holding placeholder|design goal/i);
+  const agents = await Bun.file(join(root, "AGENTS.md")).text();
+  expect(agents).toContain("published on npm as @aared/viewer");
+  // The optional resolver really is unpublished; release cleanup must not
+  // erase that distinction or rewrite historical evidence.
+  expect(agents).toContain("`aared-fonts` is frozen/unpublished");
+  const competitors = await Bun.file(join(root, "docs/COMPETITORS.md")).text();
+  expect(competitors).not.toContain("design goal");
+  expect(competitors).toContain("real Arabic/RTL fixtures with tables across all three formats");
 });

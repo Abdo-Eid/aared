@@ -1,6 +1,7 @@
 import { defineConfig } from 'astro/config';
 import react from '@astrojs/react';
 import mdx from '@astrojs/mdx';
+import sitemap from '@astrojs/sitemap';
 import { codeThemes } from './src/lib/code-themes.ts';
 
 // GitHub project Pages serves the built directory beneath /aared/. Astro/Vite
@@ -15,6 +16,7 @@ export default defineConfig({
   integrations: [
     react(),
     mdx(),
+    sitemap(),
   ],
   markdown: {
     // Light and dark token colours both ship; the site theme picks one.

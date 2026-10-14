@@ -114,6 +114,13 @@ test("generated agent docs cover every public export, resolve their links and st
   }
   // llms.txt is the index: it links the other three under the real base.
   const index = a["llms.txt"]!;
+  expect(index).toStartWith("# aared (عارض) — @aared/viewer");
+  expect(index).toContain("TypeScript Office viewer, published on npm as @aared/viewer");
+  expect(index).toContain("npm install @aared/viewer");
+  expect(index).toContain("https://www.npmjs.com/package/@aared/viewer");
+  expect(index).toContain("docs/COMPETITORS.md");
+  expect(index).toContain("docs/BENCHMARKS.md");
+  expect(index).toContain("native PowerPoint, Excel and Word output");
   for (const link of ["start.md", "api.md", "llms-full.txt"]) {
     expect(index).toContain(`https://abdo-eid.github.io/aared/${link}`);
   }

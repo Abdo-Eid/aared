@@ -49,6 +49,11 @@ Each command accepts `--help`. Unknown flags, invalid selectors and
 format-inappropriate options fail before launching a backend. Measurements
 retain error artifacts but return a failing exit code for failed/empty passes.
 
+Consumer-build checks use a canonical scratch path and audit Vite's emitted
+module identities. On Windows, mixing short and expanded temp paths can bundle
+the same renderer twice and produce false invalid-handle failures; see
+[Notes §134](../docs/Notes.md#note-134).
+
 ## Review a file
 
 ```sh

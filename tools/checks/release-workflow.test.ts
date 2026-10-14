@@ -25,7 +25,7 @@ test("Pages deploys release tags only and validates the tagged package before up
   expect(guard.run).toContain('git cat-file -t "refs/tags/$RELEASE_TAG"');
   expect(guard.run).toContain("git merge-base --is-ancestor HEAD refs/remotes/origin/main");
   expect(build.steps.filter(step => step.run?.startsWith("bun ")).map(step => step.run)).toEqual([
-    "bun install --frozen-lockfile", "bun run build", "bun run typecheck", "bun test", "bun run docs:build", "bun run --cwd bench build",
+    "bun install --frozen-lockfile", "bun run build", "bun run typecheck", "bun test", "bun run docs:build",
   ]);
   expect(build.steps.findIndex(step => step.run === "bun test")).toBeLessThan(build.steps.findIndex(step => step.uses?.startsWith("actions/upload-pages-artifact@")));
   expect(workflow.jobs.deploy!.needs).toBe("build");

@@ -28,7 +28,7 @@
  * and with webpack, was checked by hand (Notes §56).
  * Exit non-zero on any failure.
  */
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -212,6 +212,20 @@ function buildVite(work: string, failures: string[], multiPage = false, inline =
   const outDir = join(work, "dist");
   const assets = readdirSync(join(outDir, "assets"));
   console.log("emitted assets:", assets.join(", "));
+  const modules = JSON.parse(readFileSync(join(outDir, "modules.json"), "utf8")) as string[];
+  const physicalModules = new Map<string, string>();
+  for (const id of modules) {
+    // Query/virtual modules intentionally have distinct semantics. Real files
+    // must not enter the graph twice through Windows short/full path spellings.
+    if (id.includes("\0") || id.includes("?") || !existsSync(id)) continue;
+    const physical = realpathSync.native(id);
+    const key = process.platform === "win32" ? physical.toLowerCase() : physical;
+    const previous = physicalModules.get(key);
+    if (previous !== undefined && previous !== id) {
+      failures.push(`vite: one physical module resolved through multiple paths (${previous}, ${id})`);
+    }
+    physicalModules.set(key, id);
+  }
   // The worker is one self-contained file: whatever Vite names it
   // (worker-*.js), it must reference no sibling chunk — a relative import
   // is a file the copy could be separated from, which is exactly the
@@ -375,7 +389,10 @@ async function probe(label: string, outDir: string, failures: string[], singleFo
 
 const scratch = process.platform === "win32" ? join(tmpdir(), "opencode") : tmpdir();
 mkdirSync(scratch, { recursive: true });
-const work = mkdtempSync(join(scratch, "aared-consumer-probe-"));
+// Windows TEMP may use an 8.3 path while npm/Vite resolve the long spelling.
+// Mixing the two duplicates stateful modules (including handle WeakMaps), so
+// canonicalize the actual directory before installing or invoking a bundler.
+const work = realpathSync.native(mkdtempSync(join(scratch, "aared-consumer-probe-")));
 try {
   if (packed) {
     const tarball = resolve(values.package!);

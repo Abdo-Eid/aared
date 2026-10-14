@@ -1,7 +1,22 @@
 {
   "name": "@aared/viewer",
-  "version": "0.1.0",
-  "description": "Client-side previewer for PPTX, XLSX and DOCX — Arabic/RTL-correct, view-only.",
+  "version": "0.1.1",
+  "description": "aared: TypeScript Office viewer for PPTX, XLSX and DOCX in the browser, with Arabic/RTL fidelity. View-only, real DOM/SVG text.",
+  "keywords": [
+    "aared",
+    "عارض",
+    "office-viewer",
+    "office-document-viewer",
+    "docx-viewer",
+    "pptx-viewer",
+    "xlsx-viewer",
+    "typescript",
+    "javascript",
+    "browser",
+    "ooxml",
+    "rtl",
+    "arabic"
+  ],
   "license": "Apache-2.0",
   "author": "Abdulhamed Eid <https://github.com/Abdo-Eid>",
   "repository": {

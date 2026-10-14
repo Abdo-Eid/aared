@@ -1097,6 +1097,10 @@ configuration so tools/tests do not emit library declarations. CLI parsing is
 side-effect-free, validates before launching backends and retains failure artifacts
 while returning failure status for failed/empty measurements. Review parts preserve
 visible-sheet order and grid intersection, including deep-LTR/RTL crops (§123–§125).
+Clean-consumer probes canonicalize their actual scratch directory before npm or
+bundler calls and audit Vite's emitted graph for physical-file aliases. Windows
+short/full temp paths can otherwise instantiate separate stateful modules and
+make valid registered handles fail identity checks (§134).
 
 The bench's React app and measurement HTML build as separate module graphs;
 the second Vite pass retains app assets. Shared package helpers must never be
@@ -1129,6 +1133,12 @@ children and in-site links become absolute, because a link in a file read
 off the deployment resolves against nothing. Notes and ARCHITECTURE are never
 inputs. The package README is the agent entry point that points here.
 
+Public identity is `aared` (عارض), published as `@aared/viewer`: a TypeScript
+Office viewer for PPTX, XLSX and DOCX in the browser. Home, package/repository
+READMEs and the agent index connect that name to the exact npm package. Current
+consumer documentation describes delivered capabilities; historical Notes and
+the archive retain their dated context.
+
 Bench measurement uses fixed previews (XLSX tabs off, DOCX layout on),
 with forwarded cancellation/one destroy. Interactive cards use usePreview;
 mounting cards own lifetime and frames navigate without destroy ownership.
@@ -1152,6 +1162,13 @@ The site is hosted at `https://abdo-eid.github.io/aared/`, with Astro/Vite base
 Consumer code examples keep application-owned paths unchanged. A production
 WebView test serves only the base-prefixed site, checks direct page navigation
 and re-reads all three formats through the four playground integrations.
+Shared page metadata emits absolute canonical URLs, descriptions and social
+preview metadata. Astro's sitemap integration lists the four public HTML pages
+under `/aared/`; Markdown copies are agent reading routes, not duplicate HTML
+search entries. Production-output tests guard both the sitemap and canonical
+URLs against a doubled base. There is no project-local robots.txt: crawlers use
+the host root, which this project Pages deployment does not own. Indexing and
+name-only search visibility depend on external crawlers, not on llms.txt alone.
 
 ### Recorded verification
 
@@ -1201,10 +1218,12 @@ For published releases, 0.x breaking changes are minor releases with migration
 notes; versions are immutable (fix via a new version/deprecation). Each release
 matches its annotated tag. `1.0.0` needs frozen API/model decisions and closed
 release gates. Update API/README/current readiness, CHANGELOG and any changed
-rationale in Notes for each release, under AGENTS' release rules. The first
-release also removes the root README's "Not published yet" install note; the
-package README, Getting started and the home install card already read as
-published and go live only with the release.
+rationale in Notes for each release, under AGENTS' release rules. Public READMEs,
+package metadata and consumer pages describe the published viewer; only the
+separate frozen `aared-fonts` package remains unpublished. npm README/metadata
+changes ship in a new version rather than replacing an immutable published
+artifact. Pages site changes ship with a stable GitHub Release under the same
+annotated-tag policy.
 
 ## Unscheduled proposals
 

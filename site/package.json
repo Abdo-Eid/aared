@@ -13,6 +13,7 @@
   "dependencies": {
     "@astrojs/mdx": "^8.0.1",
     "@astrojs/react": "^6.0.6",
+    "@astrojs/sitemap": "^3.7.4",
     "@aared/viewer": "workspace:*",
     "astro": "^7.3.3",
     "react": "^19.3.0",

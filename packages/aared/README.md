@@ -1,7 +1,13 @@
-# @aared/viewer
+# aared (عارض) — @aared/viewer
 
-Browser-only previewer for PPTX, XLSX and DOCX. View-only, with Arabic and other
+aared is a TypeScript Office viewer for PPTX, XLSX and DOCX in the browser,
+published on npm as `@aared/viewer`. View-only, with Arabic and other
 RTL text rendered as real DOM/SVG rather than canvas pixels.
+
+Fidelity is checked against native PowerPoint, Excel and Word output, including
+real Arabic fixtures with tables in every format. See the
+[evaluated browser-library comparisons](https://github.com/Abdo-Eid/aared/blob/main/docs/COMPETITORS.md)
+and [supported features and limits](https://abdo-eid.github.io/aared/api/#fidelity-is-part-of-the-contract).
 
 ```sh
 npm install @aared/viewer
@@ -123,6 +129,8 @@ a detached model — only handles or content borrowed from an open document.
 - Getting started: <https://abdo-eid.github.io/aared/start/>
 - API reference and fidelity limits: <https://abdo-eid.github.io/aared/api/>
 - Plain Markdown for agents: <https://abdo-eid.github.io/aared/llms.txt>
+- Comparison evidence: <https://github.com/Abdo-Eid/aared/blob/main/docs/COMPETITORS.md>
+- Dated performance measurements: <https://github.com/Abdo-Eid/aared/blob/main/docs/BENCHMARKS.md>
 
 Exact signatures are in the shipped declarations (`dist/**/*.d.mts`) — read the
 ones in **your** installed version rather than trusting this README for types.

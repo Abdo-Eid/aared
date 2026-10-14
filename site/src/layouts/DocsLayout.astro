@@ -3,6 +3,7 @@ import "../styles/tokens.css";
 import "../styles/demos.css";
 import SiteHeader from "../components/SiteHeader.astro";
 import ThemeInit from "../components/ThemeInit.astro";
+import SiteMeta from "../components/SiteMeta.astro";
 import DocsSidebar from "../components/DocsSidebar.astro";
 import CopyButtons from "../components/CopyButtons.astro";
 import { sitePath } from "../lib/site-path.ts";
@@ -23,8 +24,11 @@ const hasNav = headings.some((h) => h.depth === 2);
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title} — aared</title>
-    {description && <meta name="description" content={description} />}
+    <SiteMeta
+      title={`${title} — aared (عارض) | @aared/viewer`}
+      description={description ?? "aared (عارض), published as @aared/viewer: TypeScript Office previews for PPTX, XLSX and DOCX in the browser, with Arabic/RTL fidelity."}
+      current={current}
+    />
     <link rel="icon" href={sitePath("/aared-mark.svg")} type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
